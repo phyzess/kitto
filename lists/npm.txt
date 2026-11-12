@@ -1,0 +1,5 @@
+# 跨平台 CLI：用 mise 的 npm 后端装（macOS/Linux 都能用），
+# 替代 brew 装的同名二进制。格式: <npm 包> <版本>
+#
+# ast-grep-mcp 依赖 ast-grep 二进制；macOS 走 lists/brew.txt，Linux 走这里。
+@ast-grep/cli 0.51.2

@@ -3,6 +3,9 @@
 # 不提交真实密钥
 config/pi/mcp.private.json
 
+# 机器专属配置（包清单 / MCP 覆盖 / settings 覆盖），由 sync.sh 管理
+config/pi/local/
+
 # 环境变量（含密钥）
 .env
 
