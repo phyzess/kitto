@@ -5,6 +5,7 @@ const help = `Kitto — portable personal agent configuration
 
   kitto setup [--agents pi,codex,dsh] [--source PATH_OR_GIT_URL] [--ref BRANCH]
               [--install-agents] [--dry-run]
+  kitto setup --recover [--dry-run]   Restore the last working Kitto code
 
 Global user setup only. Defaults to installed agents and phyzess/pi-config.
 After setup, start pi / codex / dsh web normally and ask the Kitto skill

@@ -1,5 +1,12 @@
 # Kitto
 
+## 0.1.0-dev.1
+
+- Keep the last working code checkpoint through failed installation retries.
+- Add previewable code recovery and resumable native integration removal.
+- Keep personal configuration, shared skills and installed agent CLIs in place.
+- Provide `setup --recover` when the installed maintenance runner cannot start.
+
 ## 0.1.0-dev.0
 
 - Add global setup and an on-demand maintenance skill for Pi, Codex and DSH.

@@ -26,14 +26,22 @@ Existing sync scripts remain available for compatibility.
 - Fast-forward source updates only from clean tracked branches. Export writes the local checkout without commit/push. Configuration sync does not reinstall native integrations after successful setup.
 - Pi self-update notices are asynchronous, stable-channel-only, limited to one short registry request per day, and optional. Other hosts use the maintenance skill for checks; there are no background services.
 
-The npm name `kitto` was already occupied. The implementation uses `@phyzess/kitto`; publication rights and the final release have not been exercised. This is development version `0.1.0-dev.0`, not a published package.
+The npm name `kitto` was already occupied. The implementation uses `@phyzess/kitto`. This is development version `0.1.0-dev.1`, not a published package. An npm identity check returned `ENEEDAUTH` in this environment; scope ownership and publishing permission remain unverified. No login or publication was attempted.
+
+## Recovery and detaching integrations
+
+- Preserve the last verified working runtime through a failed upgrade and subsequent retries. Reinstalling identical code leaves that checkpoint intact; generated Python caches do not count as code changes.
+- Offer preview/apply recovery through the maintenance skill. Validate the checkpoint hash, restore code and reconnect native integrations without reverting deployed personal configuration or skill ownership.
+- Keep `kitto setup --recover` as the external rescue path when the installed runner is broken or the restored version predates recovery support. It uses saved installation state and does not require the configuration checkout to be present.
+- Detach only Kitto's native registrations using the host commands. Preflight source ownership, record completed hosts, resume partial removal, and remove stale Kitto entries from Pi's local package cache.
+- Keep shared skills, personal configuration, authentication, installed host CLIs and Kitto files. Normal sync cannot silently reinstall a detached integration; explicit setup can reinstall it.
 
 ## Validation
 
 - Python regression suite: 23 tests for existing merge/export, dry-run and dependency behavior.
-- Node regression suite: 13 tests for setup preview, idempotence, private-file exclusion, conflicting skills/symlinks, tracked updates/removal, recoverable native failures, custom home recovery, locking, Git clone/fast-forward, tarball installation after deletion of its execution directory, and bounded update notices.
+- Node regression suite: 19 tests covering setup, tarball isolation, sync/clone/fast-forward, update notices, preserved checkpoints across retries, external recovery with broken code/missing source, checkpoint tampering, resumable removal, foreign registration conflicts and reinstallation.
 - Native Linux checks: Pi 1.5.2 package install and actual resource-loader discovery without extension errors; Codex 0.169.0 marketplace installation, enabled plugin listing and app-server `skills/list` finding the five personal skills plus `kitto:kitto` without errors; DSH 0.2.2-rc.3 bundle composition plus actual skill registry discovery/body/disposal on both rc.1 and rc.3.
-- CI runs the Python and Node suites on Linux and macOS. Native authenticated model tasks and actual npm publication are outside these checks.
+- CI runs the Python and Node suites plus a real native lifecycle test on Linux and macOS. The lifecycle installs the pinned hosts and exercises install → version change → recovery → detach → reinstall, checking native registries and DSH composition while preserving shared skills and personal overrides. It uses isolated homes, does not authenticate or call a model, and can be reproduced with `KITTO_NATIVE_BIN=/path/to/host-bins node --test tests/native.test.mjs`.
 - All three native discovery paths find the five existing personal skills and exactly one Kitto maintenance skill. Pi reports no diagnostics; Codex's app-server reports no skill errors; DSH's filesystem and Kitto providers coexist without duplicates.
 
 Validated host baselines (2026-11-14): `@earendil-works/pi-coding-agent@1.5.2`, `@openai/codex@0.169.0`, `@deepseek-ai/dsh@0.2.2-rc.1` (npm latest, prerelease), with DSH rc.3 (npm next) also tested. Setup never silently changes release channels or upgrades installed hosts. Capability/version checks reject older unsupported hosts; a newer version passing these checks is not a claim of full compatibility.
@@ -42,7 +50,7 @@ Source contracts: [Pi packages](https://github.com/earendil-works/pi/blob/main/p
 
 ## Before a release
 
-Verify publication ownership, choose a release version and exercise native upgrade/removal on the target machines. Publish only after approval. Native Codex/DSH model execution, cross-host rule/MCP translation and automatic upgrade policy are not claimed.
+Verify npm publication ownership and choose the final release version. Publish only after approval. Native authenticated model execution, cross-host rule/MCP translation and automatic upgrade policy are not claimed. Installation and lifecycle tests do not certify every third-party personal skill or MCP dependency.
 
 Preserve the existing personal configuration. Do not build a task scheduler, workflow engine or cross-agent session migration system.
 
@@ -52,6 +60,6 @@ Preserve the existing personal configuration. Do not build a task scheduler, wor
 - Configuration deployment is not yet a multi-file transaction. A later step failure can leave earlier files updated; repeat pull after resolving the error.
 - Registry checks discover candidate versions; they do not install or certify new versions.
 - Version inventory reports unresolved package locations as unknown rather than guessing.
-- Source tests use fake native package-manager commands; native integration checks are separately scoped above. macOS regression coverage does not imply native macOS host end-to-end coverage.
+- Most regression tests use stateful native-manager fixtures; the separate lifecycle test invokes actual native CLIs. Neither test suite executes authenticated model tasks.
 - A successful native plugin registration does not install every tool needed by a personal skill. Configuration availability and task-specific runtime dependencies are separate.
 - Global Codex shared-skill discovery fixes the common root at `~/.agents`; custom independent resource roots are rejected rather than silently losing skills.

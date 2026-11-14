@@ -2,7 +2,7 @@
 
 在现有 pi-config 上统一个人配置迁移和维护，支持 macOS / Linux。日常直接启动 `pi`、`codex` 或 `dsh web`，在 agent 内让 Kitto 处理配置维护。
 
-当前为 **0.1.0-dev.0 开发版，尚未发布 npm**。现有仓库和配置保留；没有新建 harness，也不包含 pstack。
+当前为 **0.1.0-dev.1 开发版，尚未发布 npm**。现有仓库和配置保留；没有新建 harness，也不包含 pstack。
 
 ## Kitto 安装入口
 
@@ -47,7 +47,16 @@ Pi 专属规则、扩展和 MCP 不会转换后塞进其他宿主。Codex / DSH 
 - Pi 会异步检查 Kitto 自身的稳定版更新，最多每天一次、请求限时两秒、离线静默；`KITTO_UPDATE_CHECK=0` 可关闭。它不重复扫描 Pi 插件。Codex / DSH 当前通过 Kitto skill 主动检查更新。
 - 普通配置同步不重复安装 Kitto 的原生集成。升级 Kitto 代码时重新执行目标版本的 setup，再按宿主原生方式重新加载资源。
 
-安装失败后保留现场，可修复原因后重跑 setup。`runtime.previous` 留存上次代码；当前部署并非跨全部文件的事务，不承诺失败时自动恢复所有配置。拆除集成使用宿主原生的 `pi remove`、`codex plugin remove` / `marketplace remove`、`dsh plugin --profile web remove`；保留配置 checkout 和其他技能，当前未提供自动卸载 / 回滚命令。
+安装失败后可修复原因重跑 setup。升级会保留最后一份已验证成功的代码备份，失败重试或同版本重装不会覆盖它。在 agent 内让 Kitto 预览并执行恢复即可；若安装的维护入口已损坏，可通过同一个安装入口救援：
+
+```bash
+npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitto setup --recover --dry-run
+# 看过预览后，去掉 --dry-run 执行恢复
+```
+
+恢复仅切换 Kitto 代码并重新连接原生集成，保留当前个人配置、共享 skill 和 Git checkout。它不是全部文件和依赖安装的事务回滚。没有已验证备份时，使用已知可用的 Kitto 版本重新 setup。
+
+解除集成也在 agent 内交给 Kitto：先预览，再执行。内部调用三个宿主的原生移除命令，仅解除 Kitto 包 / 插件 / bundle，并清理 Pi 本机包清单中缓存的 Kitto 路径。中途失败可重试；遇到同名集成已换成其他来源会停止。配置仓库、共享 skill、宿主 CLI、登录信息和 Kitto 救援文件都保留。解除后普通 sync 不会重新安装；需要时重新 setup 即可。
 
 实现范围和验证记录见 [docs/kitto-progress.md](docs/kitto-progress.md)。
 
