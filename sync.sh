@@ -16,11 +16,12 @@
 # ============================================================
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${KITTO_CONFIG_ROOT:-$SCRIPT_ROOT}"
 DOT_PI="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 DOT_AGENTS="${PI_AGENTS_DIR:-$HOME/.agents}"
 LOCAL="$ROOT/config/pi/local"
-PY="$ROOT/lib/pi_config.py"
+PY="$SCRIPT_ROOT/lib/pi_config.py"
 HOST="$(hostname -s 2>/dev/null || hostname)"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'
@@ -198,6 +199,7 @@ step_extensions() {
 }
 
 step_skills() {
+    [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" = 1 ] && return 0
     info "skills"
     local dir name
     for dir in "$ROOT"/skills/*/; do

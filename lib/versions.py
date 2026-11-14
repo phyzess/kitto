@@ -19,7 +19,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get('KITTO_CONFIG_ROOT', Path(__file__).resolve().parents[1]))
 HOSTS = {'pi': '@earendil-works/pi-coding-agent', 'codex': '@openai/codex', 'dsh': '@deepseek-ai/dsh'}
 
 
@@ -74,6 +74,11 @@ def tree_hash(path):
 def inventory(root=ROOT, agent_dir=None):
     agent_dir = Path(agent_dir or os.environ.get('PI_CODING_AGENT_DIR', Path.home() / '.pi/agent'))
     rows = []
+    kitto_manifest = Path(__file__).resolve().parents[1] / 'package.json'
+    if kitto_manifest.exists():
+        package = read_json(kitto_manifest)
+        rows.append({'name': package['name'], 'kind': 'npm', 'owner': 'kitto',
+                     'installed': package['version'], 'target': None, 'path': str(kitto_manifest)})
     for executable, package in HOSTS.items():
         path = shutil.which(executable)
         output = command([path, '--version']) if path else None

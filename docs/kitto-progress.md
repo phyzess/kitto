@@ -14,14 +14,35 @@ Kitto evolves this repository. The daily agent entry points remain native. pstac
 - Add a read-only version inventory with explicit online registry checks and separate release channels.
 - Add isolated regression tests and Linux/macOS CI.
 
-This is not yet an installable Kitto release. Existing sync scripts remain the supported Pi entry point.
+Existing sync scripts remain available for compatibility.
 
-## Next implementation stages
+## Installation and native integration
 
-1. Add the npm setup entry and a minimal maintenance skill around tested operations.
-2. Add native Pi, Codex and DSH integration, with explicit version and capability checks.
-3. Add managed Git configuration synchronization and native update notifications.
-4. Validate tarball installation, upgrades, removal and recovery on macOS and Linux before publication.
+- Add one public npm binary, `kitto setup`, and one on-demand maintenance skill. No runtime npm dependencies or lifecycle install scripts.
+- Keep published code separate from personal `config/`, `skills/`, `lists/` and local/private files. An explicit npm file allowlist and tarball test enforce this.
+- Clone configuration internally or reuse a checkout. Copy Kitto code out of npx's temporary directory; remember source and selected hosts for subsequent setup.
+- Use global native Pi packages, Codex local marketplace/plugin commands, and a DSH bundle in the existing `web` profile. DSH contributes one provider entry, loads the body on request and disposes it with the plugin.
+- Deploy shared skills once to the common native discovery location. Track content hashes, stop on local conflicts, update/remove only unchanged owned content. Do not duplicate personal skills inside the Kitto plugin.
+- Fast-forward source updates only from clean tracked branches. Export writes the local checkout without commit/push. Configuration sync does not reinstall native integrations after successful setup.
+- Pi self-update notices are asynchronous, stable-channel-only, limited to one short registry request per day, and optional. Other hosts use the maintenance skill for checks; there are no background services.
+
+The npm name `kitto` was already occupied. The implementation uses `@phyzess/kitto`; publication rights and the final release have not been exercised. This is development version `0.1.0-dev.0`, not a published package.
+
+## Validation
+
+- Python regression suite: 23 tests for existing merge/export, dry-run and dependency behavior.
+- Node regression suite: 13 tests for setup preview, idempotence, private-file exclusion, conflicting skills/symlinks, tracked updates/removal, recoverable native failures, custom home recovery, locking, Git clone/fast-forward, tarball installation after deletion of its execution directory, and bounded update notices.
+- Native Linux checks: Pi 1.5.2 package install and actual resource-loader discovery without extension errors; Codex 0.169.0 marketplace installation, enabled plugin listing and app-server `skills/list` finding the five personal skills plus `kitto:kitto` without errors; DSH 0.2.2-rc.3 bundle composition plus actual skill registry discovery/body/disposal on both rc.1 and rc.3.
+- CI runs the Python and Node suites on Linux and macOS. Native authenticated model tasks and actual npm publication are outside these checks.
+- All three native discovery paths find the five existing personal skills and exactly one Kitto maintenance skill. Pi reports no diagnostics; Codex's app-server reports no skill errors; DSH's filesystem and Kitto providers coexist without duplicates.
+
+Validated host baselines (2026-11-14): `@earendil-works/pi-coding-agent@1.5.2`, `@openai/codex@0.169.0`, `@deepseek-ai/dsh@0.2.2-rc.1` (npm latest, prerelease), with DSH rc.3 (npm next) also tested. Setup never silently changes release channels or upgrades installed hosts. Capability/version checks reject older unsupported hosts; a newer version passing these checks is not a claim of full compatibility.
+
+Source contracts: [Pi packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md), [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins), [DSH CLI](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.2-rc.3/apps/dsh), and the installed `@deepseek-ai/dsh-skill` registry API for rc.1/rc.3.
+
+## Before a release
+
+Verify publication ownership, choose a release version and exercise native upgrade/removal on the target machines. Publish only after approval. Native Codex/DSH model execution, cross-host rule/MCP translation and automatic upgrade policy are not claimed.
 
 Preserve the existing personal configuration. Do not build a task scheduler, workflow engine or cross-agent session migration system.
 
@@ -31,4 +52,6 @@ Preserve the existing personal configuration. Do not build a task scheduler, wor
 - Configuration deployment is not yet a multi-file transaction. A later step failure can leave earlier files updated; repeat pull after resolving the error.
 - Registry checks discover candidate versions; they do not install or certify new versions.
 - Version inventory reports unresolved package locations as unknown rather than guessing.
-- Source tests use fake native package-manager commands. Actual native integration and macOS results must be checked separately.
+- Source tests use fake native package-manager commands; native integration checks are separately scoped above. macOS regression coverage does not imply native macOS host end-to-end coverage.
+- A successful native plugin registration does not install every tool needed by a personal skill. Configuration availability and task-specific runtime dependencies are separate.
+- Global Codex shared-skill discovery fixes the common root at `~/.agents`; custom independent resource roots are rejected rather than silently losing skills.

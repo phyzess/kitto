@@ -1,0 +1,8 @@
+# Kitto
+
+## 0.1.0-dev.0
+
+- Add global setup and an on-demand maintenance skill for Pi, Codex and DSH.
+- Reuse the Pi configuration merge/export implementation and version inventory.
+- Keep personal configuration outside the distributable npm package.
+- Preserve native launch commands; do not start background services.

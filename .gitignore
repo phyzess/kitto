@@ -18,3 +18,7 @@ config/pi/local/
 # Python test artifacts
 __pycache__/
 *.pyc
+
+# npm development / package artifacts
+node_modules/
+*.tgz

@@ -1,12 +1,61 @@
-# pi-config
+# Kitto · pi-config
 
-pi agent 环境的备份 + 在新机器上一键复刻，跨 macOS / Linux。
+在现有 pi-config 上统一个人配置迁移和维护，支持 macOS / Linux。日常直接启动 `pi`、`codex` 或 `dsh web`，在 agent 内让 Kitto 处理配置维护。
 
-Kitto 改造在现有仓库内分阶段进行。目前已落地同步修复、版本盘点和回归测试；npm 安装入口与 Codex / DSH 适配尚未交付，当前仍使用下述 Pi 同步入口。
+当前为 **0.1.0-dev.0 开发版，尚未发布 npm**。现有仓库和配置保留；没有新建 harness，也不包含 pstack。
+
+## Kitto 安装入口
+
+审核分支可直接试用，无需手动 clone 配置仓库：
+
+```bash
+npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitto setup
+```
+
+默认选择本机已安装的 agent，自动准备 `phyzess/pi-config` 的默认分支。若已有配置 checkout，可以通过 `--source /path/to/pi-config` 继续使用；首次 clone 可用 `--ref` 选择分支。`--dry-run` 只读预览，不创建目录或 clone。
+
+新机器上指定 agent，并安装缺失的 CLI：
+
+```bash
+npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitto setup --agents pi,codex,dsh --install-agents
+```
+
+前提：Node >=24.9.0、Git、Bash、Python >=3.10。`--install-agents` 只安装缺失 CLI，使用已验证版本；不会升级已有宿主。DSH 当前仍是预发布版本。登录和 API key 通过各自原生入口设置。
+
+发布后，入口将简化为 `npx @phyzess/kitto setup`；目前不要使用尚未发布的包名安装。重复 setup 会复用配置来源和已选 agent；`--agents` 可追加宿主，不会隐式卸载旧宿主。
+
+| 内容 | 管理方式 |
+|---|---|
+| Kitto 代码 | 保存到 `~/.local/share/kitto/runtime`，不依赖临时 npx 缓存 |
+| 个人配置 | 自动 clone 到 `~/.local/share/kitto/config`，或使用已有 checkout |
+| 自建 skills | 统一部署到 `~/.agents/skills`，三个宿主原生发现；记录内容归属，冲突停止 |
+| Pi | 复用原有 settings / MCP / extensions / AGENTS 同步，注册 Kitto 原生包 |
+| Codex | 通过原生命令注册独立的 Kitto 本地市场和插件，保留其他插件及 config.toml 设置 |
+| DSH | 给原生 `web` profile 安装 Kitto bundle，注册一个按需加载的 skill |
+
+这是**用户全局 setup**，不在项目里创建配置，也不包办项目初始化。`KITTO_HOME` 或 `XDG_DATA_HOME` 可以改变 Kitto 存放位置。宿主的 `CODEX_HOME`、`DSH_HOME`、`PI_CODING_AGENT_DIR` 会被记录用于维护；启动宿主时仍使用自己的环境设置。选择 Codex 时，共享 skill 根目录必须是 `~/.agents`。
+
+Pi 专属规则、扩展和 MCP 不会转换后塞进其他宿主。Codex / DSH 保留自己的模型、权限、登录及 MCP 配置；已有 skill 内容中的外部工具依赖仍需按任务安装。CLI 依赖安装可以在会话中让 Kitto 预览并执行，setup 不自动安装整份 brew / mise / pip 清单。
+
+## 日常使用
+
+在 agent 内使用 Kitto skill，例如：“检查我的配置和版本”“从配置仓库同步最新配置”“导出这台机器的 Pi 配置”。只维护配置时才加载它，不给普通开发任务增加流程。
+
+- 同步先预览。远端更新只允许干净 checkout 的 fast-forward；本机未提交改动、分叉历史、被修改的共享 skill 都会停止并说明冲突。
+- 导出只写本地配置 checkout，不自动 commit 或 push；跨机器共享仍使用该仓库的 Git 远端。
+- 版本检查默认离线；请求在线检查时才查 registry，分别列出已装版本、声明版本、release channel、引擎要求和冲突。不会根据 `latest` 批量升级。
+- Pi 会异步检查 Kitto 自身的稳定版更新，最多每天一次、请求限时两秒、离线静默；`KITTO_UPDATE_CHECK=0` 可关闭。它不重复扫描 Pi 插件。Codex / DSH 当前通过 Kitto skill 主动检查更新。
+- 普通配置同步不重复安装 Kitto 的原生集成。升级 Kitto 代码时重新执行目标版本的 setup，再按宿主原生方式重新加载资源。
+
+安装失败后保留现场，可修复原因后重跑 setup。`runtime.previous` 留存上次代码；当前部署并非跨全部文件的事务，不承诺失败时自动恢复所有配置。拆除集成使用宿主原生的 `pi remove`、`codex plugin remove` / `marketplace remove`、`dsh plugin --profile web remove`；保留配置 checkout 和其他技能，当前未提供自动卸载 / 回滚命令。
+
+实现范围和验证记录见 [docs/kitto-progress.md](docs/kitto-progress.md)。
+
+## 原有 Pi 脚本（兼容入口）
 
 同步是**双向**的：`sync.sh pull` 把仓库打到本机，`sync.sh push` 把本机改动脱敏后写回仓库。
 
-## 快速启动
+### 首次复刻
 
 ```bash
 git clone git@github.com:phyzess/pi-config.git
@@ -15,7 +64,7 @@ bash setup.sh --dry-run   # 先看会做什么
 bash setup.sh             # = deps（按平台装依赖）+ pull（部署配置）
 ```
 
-日常只用 `sync.sh`：
+以下脚本继续保留，供调试和已有使用方式兼容；Kitto 在内部复用相同实现：
 
 | 命令 | 行为 |
 |---|---|
