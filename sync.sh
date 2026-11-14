@@ -137,7 +137,7 @@ step_packages() {
     while IFS= read -r pkg; do
         [ -z "$pkg" ] && continue
         if in_list "$pkg" "$LOCAL/packages.skip.txt"; then
-            warn "$pkg（在 packages.skip.txt 里）"
+            warn "${pkg}（在 packages.skip.txt 里）"
             continue
         fi
         if grep -qF -- "$pkg" <<<"$installed"; then same "$pkg"; continue; fi
@@ -192,7 +192,7 @@ step_extensions() {
     for ext in "$ROOT"/config/pi/extensions/*.ts; do
         [ -e "$ext" ] || continue
         name="$(basename "$ext")"
-        ext_skipped "$name" && { warn "$name（$PLATFORM 不适用）"; continue; }
+        ext_skipped "$name" && { warn "${name}（$PLATFORM 不适用）"; continue; }
         deploy_file "$ext" "$DOT_PI/extensions/$name" "~/.pi/agent/extensions/$name"
     done
 }
@@ -277,8 +277,8 @@ cmd_push() {
     for ext in "$DOT_PI"/extensions/*.ts; do
         [ -f "$ext" ] || continue
         name="$(basename "$ext")"
-        [ -f "$ROOT/config/pi/extensions/$name" ] || { warn "$name（未托管，跳过）"; continue; }
-        case "$name" in herdr-agent-state.ts) warn "$name（herdr 托管，不入库）"; continue ;; esac
+        [ -f "$ROOT/config/pi/extensions/$name" ] || { warn "${name}（未托管，跳过）"; continue; }
+        case "$name" in herdr-agent-state.ts) warn "${name}（herdr 托管，不入库）"; continue ;; esac
         deploy_file "$ext" "$ROOT/config/pi/extensions/$name" "config/pi/extensions/$name"
     done
     local dir sname
@@ -286,7 +286,7 @@ cmd_push() {
         [ -d "$dir" ] || continue
         [ -L "${dir%/}" ] && { warn "$(basename "$dir")（软链，跳过）"; continue; }
         sname="$(basename "$dir")"
-        [ -f "$ROOT/skills/$sname/SKILL.md" ] || { warn "$sname（未托管，跳过）"; continue; }
+        [ -f "$ROOT/skills/$sname/SKILL.md" ] || { warn "${sname}（未托管，跳过）"; continue; }
         deploy_dir "$dir" "$ROOT/skills/$sname" "skills/$sname"
     done
     echo

@@ -25,6 +25,7 @@ class SyncTests(unittest.TestCase):
         self.home.mkdir()
         self.bin = self.base / 'bin'
         self.bin.mkdir()
+        self.fake('brew', 'exit 1')
         self.fake('pi', 'if [ "$1" = list ]; then exit 0; fi\nexit 0')
         self.env = {**os.environ, 'HOME': str(self.home),
                     'PI_CODING_AGENT_DIR': str(self.home / '.pi/agent'),
@@ -48,8 +49,11 @@ class SyncTests(unittest.TestCase):
         return json.loads(path.read_text())
 
     def run_sync(self, *args, check=True):
-        return subprocess.run(['bash', str(self.repo / 'sync.sh'), *args],
-                              env=self.env, text=True, capture_output=True, check=check)
+        result = subprocess.run(['bash', str(self.repo / 'sync.sh'), *args],
+                                env=self.env, text=True, errors="replace", capture_output=True)
+        if check and result.returncode:
+            self.fail(result.stdout + result.stderr)
+        return result
 
     def merge(self):
         helper.cmd_merge_settings(list(map(str, [self.shared, self.machine, self.local, self.machine])))
