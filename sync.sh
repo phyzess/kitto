@@ -52,7 +52,20 @@ for arg in "$@"; do
 done
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+LOCK=""
+cleanup() {
+    rm -rf "$TMP"
+    [ -z "$LOCK" ] || rmdir "$LOCK"
+}
+trap cleanup EXIT
+if [ "$DRY" = 0 ] && [[ "$CMD" =~ ^(pull|push|deps)$ ]]; then
+    mkdir -p "$LOCAL"
+    if ! mkdir "$LOCAL/.sync-lock" 2>/dev/null; then
+        fail "另一个同步操作正在运行；若进程已退出，请检查后移除 $LOCAL/.sync-lock"
+        exit 1
+    fi
+    LOCK="$LOCAL/.sync-lock"
+fi
 
 run() {
     if [ "$DRY" = 1 ]; then info "[dry-run] $*"; else "$@"; fi
@@ -129,8 +142,13 @@ step_packages() {
         fi
         if grep -qF -- "$pkg" <<<"$installed"; then same "$pkg"; continue; fi
         info "pi install $pkg"
-        run pi install "$pkg" || warn "pi install $pkg 失败，继续"
-    done < <(python3 -c "import json;print('\n'.join(json.load(open('$ROOT/config/pi/settings.json'))['packages']))")
+        run pi install "$pkg" || { fail "pi install $pkg 失败"; return 1; }
+    done < <(python3 - "$ROOT/config/pi/settings.json" <<'PY'
+import json, sys
+for package in json.load(open(sys.argv[1]))['packages']:
+    print(package if isinstance(package, str) else package['source'])
+PY
+)
 }
 
 step_settings() {
@@ -142,6 +160,9 @@ step_settings() {
         show_json_diff "$out" "$target" "settings.json"
     else
         python3 "$PY" merge-settings "$ROOT/config/pi/settings.json" "$out" "$LOCAL" "$target"
+    fi
+    if [ "$DRY" = 0 ]; then
+        python3 "$PY" record-settings "$ROOT/config/pi/settings.json" "$out" "$LOCAL"
     fi
 }
 
@@ -188,7 +209,12 @@ step_skills() {
 
 step_env() {
     info "环境变量"
-    deploy_file "$ROOT/config/env.example" "$HOME/.pi-agent-env" "~/.pi-agent-env"
+    if [ -e "$HOME/.pi-agent-env" ] || [ -L "$HOME/.pi-agent-env" ]; then
+        same "~/.pi-agent-env（保留本机内容）"
+    else
+        deploy_file "$ROOT/config/env.example" "$HOME/.pi-agent-env" "~/.pi-agent-env"
+        run chmod 600 "$HOME/.pi-agent-env"
+    fi
     local rc="$HOME/.zshrc"
     [ -f "$rc" ] || rc="$HOME/.bashrc"
     if [ -f "$rc" ] && ! grep -q 'pi-agent-env' "$rc"; then
@@ -205,7 +231,7 @@ step_env() {
 
 cmd_pull() {
     printf '\n%s==> pull%s  仓库 %s -> 本机 %s (platform: %s)\n\n' "$CYAN" "$NC" "$ROOT" "$DOT_PI" "$PLATFORM"
-    mkdir -p "$LOCAL" "$DOT_PI/extensions" "$DOT_AGENTS/skills"
+    run mkdir -p "$LOCAL" "$DOT_PI/extensions" "$DOT_AGENTS/skills"
     step_packages
     step_settings
     step_mcp
@@ -219,13 +245,17 @@ cmd_pull() {
         ok "dry-run 结束，未落盘"
     else
         ok "pull 完成（新会话或 /reload 生效）"
-        command -v pi >/dev/null 2>&1 && info "校验: pi list && pi mcp list"
+        if command -v pi >/dev/null 2>&1; then info "校验: pi list && pi mcp list"; fi
     fi
 }
 
 cmd_push() {
     printf '\n%s==> push%s  本机 %s -> 仓库 %s (platform: %s, host: %s)\n\n' "$CYAN" "$NC" "$DOT_PI" "$ROOT" "$PLATFORM" "$HOST"
     [ -f "$DOT_PI/settings.json" ] || { fail "本机没有 settings.json"; exit 1; }
+    if [ "$COMMIT" = 1 ] && ! git -C "$ROOT" diff --cached --quiet; then
+        fail "暂存区已有改动，请先处理后再使用 --commit"
+        exit 1
+    fi
     info "settings.json（脱敏）"
     if [ "$DRY" = 1 ]; then
         python3 "$PY" sanitize-settings "$DOT_PI/settings.json" "$ROOT/config/pi/settings.json" "$LOCAL" "$TMP/settings.json"
@@ -247,6 +277,7 @@ cmd_push() {
     for ext in "$DOT_PI"/extensions/*.ts; do
         [ -f "$ext" ] || continue
         name="$(basename "$ext")"
+        [ -f "$ROOT/config/pi/extensions/$name" ] || { warn "$name（未托管，跳过）"; continue; }
         case "$name" in herdr-agent-state.ts) warn "$name（herdr 托管，不入库）"; continue ;; esac
         deploy_file "$ext" "$ROOT/config/pi/extensions/$name" "config/pi/extensions/$name"
     done
@@ -255,6 +286,7 @@ cmd_push() {
         [ -d "$dir" ] || continue
         [ -L "${dir%/}" ] && { warn "$(basename "$dir")（软链，跳过）"; continue; }
         sname="$(basename "$dir")"
+        [ -f "$ROOT/skills/$sname/SKILL.md" ] || { warn "$sname（未托管，跳过）"; continue; }
         deploy_dir "$dir" "$ROOT/skills/$sname" "skills/$sname"
     done
     echo
@@ -267,10 +299,14 @@ cmd_push() {
            [ -z "$(git -C "$ROOT" status --porcelain)" ]; then
             ok "没有变化，无需提交"
         else
-            git -C "$ROOT" add -A
-            git -C "$ROOT" commit -q -m "chore: sync pi config from $HOST"
-            ok "已提交: $(git -C "$ROOT" log --oneline -1)"
-            info "推送: git -C $ROOT push"
+            git -C "$ROOT" add -u -- config/pi/settings.json config/pi/mcp.json config/pi/AGENTS.md config/pi/extensions skills
+            if git -C "$ROOT" diff --cached --quiet; then
+                ok "托管配置没有变化，无需提交"
+            else
+                git -C "$ROOT" commit -q -m "chore: sync pi config from $HOST"
+                ok "已提交: $(git -C "$ROOT" log --oneline -1)"
+                info "推送: git -C $ROOT push"
+            fi
         fi
     else
         info "确认无误后: bash sync.sh push --commit"
@@ -308,6 +344,7 @@ cmd_status() {
         "config/env.example|$HOME/.pi-agent-env|~/.pi-agent-env"; do
         IFS='|' read -r src dst label <<<"$pair"
         if [ ! -e "$dst" ]; then printf '  %smissing%s  %s\n' "$YELLOW" "$NC" "$label"
+        elif [ "$src" = config/env.example ]; then printf '  %slocal%s  %s（保留本机内容）\n' "$DIM" "$NC" "$label"
         elif cmp -s "$ROOT/$src" "$dst"; then printf '  %s=%s  %s\n' "$DIM" "$NC" "$label"
         else printf '  %sdiffers%s  %s\n' "$RED" "$NC" "$label"; fi
     done
@@ -388,7 +425,7 @@ cmd_deps() {
         local pkg ver
         while read -r pkg ver; do
             [ -z "${pkg:-}" ] && continue
-            mise ls "npm:$pkg" 2>/dev/null | grep -q "$pkg" && { same "mise: $pkg"; continue; }
+            mise ls "npm:$pkg" --global --installed --no-header 2>/dev/null | awk -v v="$ver" '$2 == v { found=1 } END { exit !found }' && { same "mise: $pkg@$ver"; continue; }
             info "mise use -g npm:$pkg@$ver"
             run mise use -g "npm:$pkg@$ver" || warn "mise $pkg 失败，继续"
         done < <(grep -v '^#' "$ROOT/lists/mise-tools.txt" | awk 'NF==2{print $1, $2}')
@@ -396,7 +433,7 @@ cmd_deps() {
             info "npm CLI（mise 托管）"
             while read -r pkg ver; do
                 [ -z "${pkg:-}" ] && continue
-                mise ls "npm:$pkg" 2>/dev/null | grep -q "$pkg" && { same "mise: $pkg"; continue; }
+                mise ls "npm:$pkg" --global --installed --no-header 2>/dev/null | awk -v v="$ver" '$2 == v { found=1 } END { exit !found }' && { same "mise: $pkg@$ver"; continue; }
                 info "mise use -g npm:$pkg@$ver"
                 run mise use -g "npm:$pkg@$ver" || warn "mise $pkg 失败，继续"
             done < <(grep -v '^#' "$ROOT/lists/npm.txt" | awk 'NF==2{print $1, $2}')

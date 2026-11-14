@@ -2,6 +2,8 @@
 
 pi agent 环境的备份 + 在新机器上一键复刻，跨 macOS / Linux。
 
+Kitto 改造在现有仓库内分阶段进行。目前已落地同步修复、版本盘点和回归测试；npm 安装入口与 Codex / DSH 适配尚未交付，当前仍使用下述 Pi 同步入口。
+
 同步是**双向**的：`sync.sh pull` 把仓库打到本机，`sync.sh push` 把本机改动脱敏后写回仓库。
 
 ## 快速启动
@@ -23,8 +25,11 @@ bash setup.sh             # = deps（按平台装依赖）+ pull（部署配置�
 | `bash sync.sh push --commit` | 同上，并提交 `chore: sync pi config from <host>` |
 | `bash sync.sh deps` | 按平台装 brew / mise / npm / pip 依赖 |
 
-`pull` 永远不会丢东西：`settings.json` 以本机已有内容为底，仓库只覆盖它声明的键；
-`mcp.json` 合并顺序是 `仓库 < 平台 < 本机 local < 本机现有`，所以 `/mcp` 里手动改的开关会保留。
+`settings.json` 保留未被仓库管理的设置，共享设置更新后再应用本机覆盖。
+MCP 的共享定义按仓库、平台、本机 local 更新，已有运行开关保留；local 中明确设置的开关优先。
+首次真实 pull 记录共享包归属，后续从仓库删除包会移除其加载声明，未知本机包继续保留。首次迁移前没有归属记录的包按本机额外包处理，避免误删。
+
+`status` 与 `--dry-run` 不修改仓库或本机配置。已有 `~/.pi-agent-env` 保持原样；首次创建时权限为 600。写操作使用本机锁，若进程被强制终止留下锁目录，需确认无同步进程后清理 `config/pi/local/.sync-lock`。
 
 ## 仓库内容
 
@@ -71,6 +76,7 @@ setup.sh                         首次安装 = deps + pull
 | 文件 | 作用 |
 |---|---|
 | `packages.txt` | 本机额外 pi 包（pull 合并进 settings，push 时不回流） |
+| `managed-packages.json` | 上次真实 pull 的共享包归属记录，不随仓库同步 |
 | `packages.skip.txt` | 本机不装的包。例：`npm:pi-ask-user` 与 `rpiv-ask-user-question` 工具名冲突 |
 | `settings.json` | 覆盖仓库 settings 的键（深度合并，最后生效） |
 | `mcp.json` | 本机额外 / 覆盖的 MCP 服务器 |
@@ -88,7 +94,7 @@ setup.sh                         首次安装 = deps + pull
 | i-have-adhd（git 源） | ADHD 输出模式 |
 
 包清单以 `config/pi/settings.json` 的 `packages` 为唯一来源。`sync.sh` 从那里读、逐条
-`pi install`，已装的跳过；`local/packages.txt` 里的额外包同理。
+`pi install`，已声明的跳过。包版本升级与首次安装分开处理；本机额外包保留配置，当前脚本不会自动为其补装。
 
 `settings.json` 不记录 `lastChangelogVersion` 和 `extensionChangelogVersions`：这两个键每次
 启动都变，写进仓库只会立刻产生 diff。`push` 会自动剥掉它们。
@@ -120,7 +126,7 @@ bash sync.sh pull   # 自动合并进 ~/.pi/agent/mcp.json
 ```
 
 token 用 `${VAR}` 占位，由环境变量注入 —— pi 会在 `env` 和 `headers` 的值里展开 `${NAME}`。
-变量写在 `~/.pi-agent-env`（`pull` 从 `config/env.example` 部署），并在 `~/.zshrc` 里 `source`。
+变量写在 `~/.pi-agent-env`（首次 `pull` 从 `config/env.example` 创建，后续保留本机内容），并在 `~/.zshrc` 里 `source`。
 
 不想用环境变量，也可以让 macOS keychain 直接给值 —— `!` 命令必须占满整个值：
 
@@ -184,7 +190,9 @@ git push
 
 `push` 会：剥掉 `lastChangelogVersion` / `extensionChangelogVersions`；把
 `local/packages.txt` 与 `packages.skip.txt` 里的包留在本机；把 `platform/*/mcp.json` 和
-`mcp.private.json` 里的服务器排除在外；跳过 herdr 托管的扩展和软链 skill。
+`mcp.private.json` 里的服务器排除在外；跳过 herdr 托管的扩展和软链 skill。仅导出仓库已存在的 skills 与扩展，不自动收集第三方目录。本机 settings 覆盖不会回流；MCP 的 local/private 覆盖不删除仓库中原有的共享定义。
+
+`push --commit` 会拒绝已有暂存改动，只暂存托管配置路径，避免提交无关文件。添加自建 skill 时，请先在仓库中明确建立该 skill 目录。
 
 需要"从仓库删除某个包"时，直接编辑 `config/pi/settings.json` —— `push` 只会追加新包，
 不会因为本机卸载就删掉仓库条目。
@@ -193,3 +201,11 @@ git push
 
 - `context-mode` 2.1.8 要求 Node ≥ 24.15.0；Node 24.14 会打印 `NODE_TOO_OLD`，不影响 pi 启动。
 - `pi install` 会重写 `settings.json`，所以 `pull` 的顺序是「先装包、最后合并 settings」。
+
+## 开发验证与版本盘点
+
+维护开发时运行 `python3 -m unittest discover -s tests -v`。测试使用临时仓库和独立 HOME，Pi / mise 外部操作使用替身，不安装依赖或写入真实配置。CI 在 Linux 与 macOS 上运行同一组测试。
+
+`lib/versions.py` 是供后续 Kitto 维护入口使用的只读内部程序，不增加日常操作要求。默认只盘点本机与仓库声明；显式传入 `--online` 时查询 npm / PyPI，保留 latest、next 等渠道，不自动选择或应用版本。程序检查安装清单与 npx 启动参数的差异，自建 skills 连同资源文件计算内容摘要。
+
+无法确认实际版本或来源时报告空值及原因。npx 缓存、独立 uv 环境、Git 包安装目录等不从全局包版本推断；这些由后续宿主适配读取。版本查询结果不代表兼容性验证通过。
