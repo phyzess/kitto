@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 
 ROOT = Path(os.environ.get('KITTO_CONFIG_ROOT', Path(__file__).resolve().parents[1]))
-HOSTS = {'pi': '@earendil-works/pi-coding-agent', 'codex': '@openai/codex', 'dsh': '@deepseek-ai/dsh'}
+HOSTS = {'pi': '@earendil-works/pi-coding-agent', 'codex': '@openai/codex', 'dsh': '@deepseek-ai/dsh', 'pnpm': 'pnpm'}
 
 
 def read_json(path):
@@ -83,7 +83,7 @@ def inventory(root=ROOT, agent_dir=None):
         path = shutil.which(executable)
         output = command([path, '--version']) if path else None
         match = re.search(r'\d+\.\d+\.\d+(?:-[\w.-]+)?', output or '')
-        rows.append({'name': package, 'kind': 'npm', 'owner': 'host', 'path': path,
+        rows.append({'name': package, 'kind': 'npm', 'owner': 'dsh-prerequisite' if executable == 'pnpm' else 'host', 'path': path,
                      'installed': match.group() if match else None, 'target': None})
     settings = read_json(root / 'config/pi/settings.json')
     for entry in settings.get('packages', []):

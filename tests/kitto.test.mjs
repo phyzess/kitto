@@ -24,7 +24,7 @@ function fixture(t) {
   };
   for (const [name, content] of Object.entries(files)) writeFileSync(join(source, name), content);
   const log = join(temp, 'calls.jsonl');
-  for (const name of ['pi', 'codex', 'dsh']) {
+  for (const name of ['pi', 'codex', 'dsh', 'pnpm']) {
     writeFileSync(join(bin, name), `#!${process.execPath}\nrequire(${JSON.stringify(join(root, 'tests/helpers/fake-agent.cjs'))});\n`, { mode: 0o755 });
   }
   const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'), PATH: `${bin}:${process.env.PATH}`, CALL_LOG: log,
@@ -77,6 +77,17 @@ test('setup preview leaves home and source unchanged', t => {
   assert.equal(command('git', ['status', '--porcelain'], f.env, f.source).stdout, '');
   const calls = readFileSync(f.log, 'utf8');
   assert.doesNotMatch(calls, /"install"|"marketplace"/);
+});
+
+test('missing DSH package manager is detected before writes and included in installation preview', t => {
+  const f = fixture(t);
+  writeFileSync(join(f.temp, 'bin/pnpm'), `#!${process.execPath}\nprocess.exit(1);\n`, { mode: 0o755 });
+  const result = f.cli('setup', '--agents', 'dsh', '--source', f.source);
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /require pnpm/);
+  assert.equal(existsSync(f.env.KITTO_HOME), false);
+  const preview = f.cli('setup', '--agents', 'dsh', '--source', f.source, '--install-agents', '--dry-run');
+  good(preview); assert.match(preview.stdout, /Install missing DSH prerequisite: pnpm@12.18.0/);
+  assert.equal(existsSync(f.env.KITTO_HOME), false);
 });
 
 test('setup persists code, keeps private assets out, and registers all native integrations', t => {

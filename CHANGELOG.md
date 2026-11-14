@@ -6,6 +6,7 @@
 - Add previewable code recovery and resumable native integration removal.
 - Keep personal configuration, shared skills and installed agent CLIs in place.
 - Provide `setup --recover` when the installed maintenance runner cannot start.
+- Check DSH's pnpm prerequisite before writes; install it when missing with `--install-agents`.
 
 ## 0.1.0-dev.0
 

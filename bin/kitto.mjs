@@ -11,6 +11,7 @@ Global user setup only. Defaults to installed agents and phyzess/pi-config.
 After setup, start pi / codex / dsh web normally and ask the Kitto skill
 to inspect, sync or update your configuration. No project initialization.
 Node >=24.9, Git, Bash and Python >=3.10 are required. Agent login stays native.
+DSH also needs pnpm on PATH; --install-agents installs it if missing.
 `;
 try {
   const [command, ...args] = process.argv.slice(2);

@@ -20,7 +20,7 @@ npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitt
 npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitto setup --agents pi,codex,dsh --install-agents
 ```
 
-前提：Node >=24.9.0、Git、Bash、Python >=3.10。`--install-agents` 只安装缺失 CLI，使用已验证版本；不会升级已有宿主。DSH 当前仍是预发布版本。登录和 API key 通过各自原生入口设置。
+前提：Node >=24.9.0、Git、Bash、Python >=3.10；DSH 原生插件管理还需要 PATH 中有 pnpm。`--install-agents` 安装缺失的宿主 CLI，并为 DSH 补齐缺失的 pnpm（12.18.0）；不会升级已有工具。DSH 当前仍是预发布版本。登录和 API key 通过各自原生入口设置。
 
 发布后，入口将简化为 `npx @phyzess/kitto setup`；目前不要使用尚未发布的包名安装。重复 setup 会复用配置来源和已选 agent；`--agents` 可追加宿主，不会隐式卸载旧宿主。
 

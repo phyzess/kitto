@@ -39,12 +39,14 @@ The npm name `kitto` was already occupied. The implementation uses `@phyzess/kit
 ## Validation
 
 - Python regression suite: 23 tests for existing merge/export, dry-run and dependency behavior.
-- Node regression suite: 19 tests covering setup, tarball isolation, sync/clone/fast-forward, update notices, preserved checkpoints across retries, external recovery with broken code/missing source, checkpoint tampering, resumable removal, foreign registration conflicts and reinstallation.
+- Node regression suite: 20 tests covering setup, tarball isolation, sync/clone/fast-forward, update notices, preserved checkpoints across retries, external recovery with broken code/missing source, checkpoint tampering, resumable removal, foreign registration conflicts, DSH prerequisite checks and reinstallation.
 - Native Linux checks: Pi 1.5.2 package install and actual resource-loader discovery without extension errors; Codex 0.169.0 marketplace installation, enabled plugin listing and app-server `skills/list` finding the five personal skills plus `kitto:kitto` without errors; DSH 0.2.2-rc.3 bundle composition plus actual skill registry discovery/body/disposal on both rc.1 and rc.3.
 - CI runs the Python and Node suites plus a real native lifecycle test on Linux and macOS. The lifecycle installs the pinned hosts and exercises install → version change → recovery → detach → reinstall, checking native registries and DSH composition while preserving shared skills and personal overrides. It uses isolated homes, does not authenticate or call a model, and can be reproduced with `KITTO_NATIVE_BIN=/path/to/host-bins node --test tests/native.test.mjs`.
 - All three native discovery paths find the five existing personal skills and exactly one Kitto maintenance skill. Pi reports no diagnostics; Codex's app-server reports no skill errors; DSH's filesystem and Kitto providers coexist without duplicates.
 
 Validated host baselines (2026-11-14): `@earendil-works/pi-coding-agent@1.5.2`, `@openai/codex@0.169.0`, `@deepseek-ai/dsh@0.2.2-rc.1` (npm latest, prerelease), with DSH rc.3 (npm next) also tested. Setup never silently changes release channels or upgrades installed hosts. Capability/version checks reject older unsupported hosts; a newer version passing these checks is not a claim of full compatibility.
+
+The clean CI environment exposed DSH's external pnpm prerequisite. Setup now checks it before writes and includes missing `pnpm@12.18.0` with `--install-agents`. Existing pnpm is preserved. CI installs this validated prerequisite explicitly rather than relying on developer-machine state.
 
 Source contracts: [Pi packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md), [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins), [DSH CLI](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.2-rc.3/apps/dsh), and the installed `@deepseek-ai/dsh-skill` registry API for rc.1/rc.3.
 

@@ -5,6 +5,7 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -23,8 +24,8 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import { execFileSync } from 'node:child_process';
-          import { hosts } from './lib/kitto.mjs';
-          execFileSync('npm', ['install', '--prefix', process.env.RUNNER_TEMP + '/kitto-hosts', '--no-audit', '--no-fund', '--ignore-scripts', ...Object.values(hosts).map(host => host.package + '@' + host.version)], { stdio: 'inherit' });
+          import { hosts, pnpmVersion } from './lib/kitto.mjs';
+          execFileSync('npm', ['install', '--prefix', process.env.RUNNER_TEMP + '/kitto-hosts', '--no-audit', '--no-fund', '--ignore-scripts', 'pnpm@' + pnpmVersion, ...Object.values(hosts).map(host => host.package + '@' + host.version)], { stdio: 'inherit' });
           JS
       - name: Verify native lifecycle without model credentials
         env:
