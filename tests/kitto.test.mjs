@@ -316,4 +316,8 @@ test('foreign native registration stops removal before detaching any host', t =>
   assert.match(f.maintain('remove', '--apply').stderr, /another location/);
   assert.equal(readJson(join(f.env.PI_CODING_AGENT_DIR, 'settings.json')).packages.length, 1);
   assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+  const alias = join(f.temp, 'kitto-alias'); symlinkSync(f.env.KITTO_HOME, alias);
+  data.marketplaces[0].root = alias; writeFileSync(file, JSON.stringify(data));
+  good(f.maintain('remove', '--apply'));
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).detached, true);
 });

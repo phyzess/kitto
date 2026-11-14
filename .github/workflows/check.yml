@@ -26,6 +26,9 @@ jobs:
           import { execFileSync } from 'node:child_process';
           import { hosts, pnpmVersion } from './lib/kitto.mjs';
           execFileSync('npm', ['install', '--prefix', process.env.RUNNER_TEMP + '/kitto-hosts', '--no-audit', '--no-fund', '--ignore-scripts', 'pnpm@' + pnpmVersion, ...Object.values(hosts).map(host => host.package + '@' + host.version)], { stdio: 'inherit' });
+          // pnpm 12 needs its own installer to replace the shell placeholder
+          // with a native executable on macOS; other package scripts stay off.
+          execFileSync('npm', ['rebuild', '--prefix', process.env.RUNNER_TEMP + '/kitto-hosts', 'pnpm'], { stdio: 'inherit' });
           JS
       - name: Verify native lifecycle without model credentials
         env:

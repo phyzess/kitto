@@ -48,6 +48,8 @@ Validated host baselines (2026-11-14): `@earendil-works/pi-coding-agent@1.5.2`, 
 
 The clean CI environment exposed DSH's external pnpm prerequisite. Setup now checks it before writes and includes missing `pnpm@12.18.0` with `--install-agents`. Existing pnpm is preserved. CI installs this validated prerequisite explicitly rather than relying on developer-machine state.
 
+pnpm 12 requires its native-binary installation script on macOS; CI enables that package's installer specifically. Native registration ownership compares physical paths, covering aliases such as macOS `/var` and `/private/var` while still refusing a different source. A real lifecycle run through a symlinked temporary root verifies this case.
+
 Source contracts: [Pi packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md), [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins), [DSH CLI](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.2-rc.3/apps/dsh), and the installed `@deepseek-ai/dsh-skill` registry API for rc.1/rc.3.
 
 ## Before a release
