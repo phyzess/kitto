@@ -14,3 +14,11 @@ config/pi/local/
 
 # macOS
 .DS_Store
+
+# Python test artifacts
+__pycache__/
+*.pyc
+
+# npm development / package artifacts
+node_modules/
+*.tgz
