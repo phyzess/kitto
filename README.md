@@ -1,28 +1,28 @@
-# Kitto · pi-config
+# Kitto
 
 在现有 pi-config 上统一个人配置迁移和维护，支持 macOS / Linux。日常直接启动 `pi`、`codex` 或 `dsh web`，在 agent 内让 Kitto 处理配置维护。
 
-当前为 **0.1.0-dev.1 开发版，尚未发布 npm**。现有仓库和配置保留；没有新建 harness，也不包含 pstack。
+Kitto 通过 npm 分发，个人配置保存在 Git 仓库中。
 
 ## Kitto 安装入口
 
-审核分支可直接试用，无需手动 clone 配置仓库：
+在新机器上运行：
 
 ```bash
-npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitto setup
+npx --yes @phyzess/kitto setup
 ```
 
-默认选择本机已安装的 agent，自动准备 `phyzess/pi-config` 的默认分支。若已有配置 checkout，可以通过 `--source /path/to/pi-config` 继续使用；首次 clone 可用 `--ref` 选择分支。`--dry-run` 只读预览，不创建目录或 clone。
+默认选择本机已安装的 agent，自动准备 `phyzess/kitto` 的默认分支。若已有配置 checkout，可以通过 `--source /path/to/pi-config` 继续使用；首次 clone 可用 `--ref` 选择分支。`--dry-run` 只读预览，不创建目录或 clone。
 
 新机器上指定 agent，并安装缺失的 CLI：
 
 ```bash
-npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitto setup --agents pi,codex,dsh --install-agents
+npx --yes @phyzess/kitto setup --agents pi,codex,dsh --install-agents
 ```
 
 前提：Node >=24.9.0、Git、Bash、Python >=3.10；DSH 原生插件管理还需要 PATH 中有 pnpm。`--install-agents` 安装缺失的宿主 CLI，并为 DSH 补齐缺失的 pnpm（12.18.0）；不会升级已有工具。DSH 当前仍是预发布版本。登录和 API key 通过各自原生入口设置。
 
-发布后，入口将简化为 `npx @phyzess/kitto setup`；目前不要使用尚未发布的包名安装。重复 setup 会复用配置来源和已选 agent；`--agents` 可追加宿主，不会隐式卸载旧宿主。
+重复 setup 会复用配置来源和已选 agent；`--agents` 可追加宿主，不会隐式卸载旧宿主。
 
 | 内容 | 管理方式 |
 |---|---|
@@ -50,7 +50,7 @@ Pi 专属规则、扩展和 MCP 不会转换后塞进其他宿主。Codex / DSH 
 安装失败后可修复原因重跑 setup。升级会保留最后一份已验证成功的代码备份，失败重试或同版本重装不会覆盖它。在 agent 内让 Kitto 预览并执行恢复即可；若安装的维护入口已损坏，可通过同一个安装入口救援：
 
 ```bash
-npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitto setup --recover --dry-run
+npx --yes @phyzess/kitto setup --recover --dry-run
 # 看过预览后，去掉 --dry-run 执行恢复
 ```
 
@@ -67,8 +67,8 @@ npx --yes --package=git+https://github.com/phyzess/pi-config.git#feat/kitto kitt
 ### 首次复刻
 
 ```bash
-git clone git@github.com:phyzess/pi-config.git
-cd pi-config
+git clone git@github.com:phyzess/kitto.git
+cd kitto
 bash setup.sh --dry-run   # 先看会做什么
 bash setup.sh             # = deps（按平台装依赖）+ pull（部署配置）
 ```

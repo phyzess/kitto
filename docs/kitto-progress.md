@@ -26,7 +26,7 @@ Existing sync scripts remain available for compatibility.
 - Fast-forward source updates only from clean tracked branches. Export writes the local checkout without commit/push. Configuration sync does not reinstall native integrations after successful setup.
 - Pi self-update notices are asynchronous, stable-channel-only, limited to one short registry request per day, and optional. Other hosts use the maintenance skill for checks; there are no background services.
 
-The npm name `kitto` was already occupied. The implementation uses `@phyzess/kitto`. This is development version `0.1.0-dev.1`, not a published package. An npm identity check returned `ENEEDAUTH` in this environment; scope ownership and publishing permission remain unverified. No login or publication was attempted.
+The npm name `kitto` was already occupied. The implementation uses `@phyzess/kitto`. The first stable release is `0.1.0`.
 
 ## Recovery and detaching integrations
 
@@ -52,9 +52,9 @@ pnpm 12 requires its native-binary installation script on macOS; CI enables that
 
 Source contracts: [Pi packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md), [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins), [DSH CLI](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.2-rc.3/apps/dsh), and the installed `@deepseek-ai/dsh-skill` registry API for rc.1/rc.3.
 
-## Before a release
+## Release process
 
-Verify npm publication ownership and choose the final release version. Publish only after approval. Native authenticated model execution, cross-host rule/MCP translation and automatic upgrade policy are not claimed. Installation and lifecycle tests do not certify every third-party personal skill or MCP dependency.
+Publish from the reviewed main commit using an npm account with access to the `@phyzess` scope. Native authenticated model execution, cross-host rule/MCP translation and automatic upgrade policy are not claimed. Installation and lifecycle tests do not certify every third-party personal skill or MCP dependency.
 
 Preserve the existing personal configuration. Do not build a task scheduler, workflow engine or cross-agent session migration system.
 

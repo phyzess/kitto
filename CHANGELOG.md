@@ -1,6 +1,6 @@
 # Kitto
 
-## 0.1.0-dev.1
+## 0.1.0
 
 - Keep the last working code checkpoint through failed installation retries.
 - Add previewable code recovery and resumable native integration removal.

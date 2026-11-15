@@ -7,7 +7,7 @@ const help = `Kitto — portable personal agent configuration
               [--install-agents] [--dry-run]
   kitto setup --recover [--dry-run]   Restore the last working Kitto code
 
-Global user setup only. Defaults to installed agents and phyzess/pi-config.
+Global user setup only. Defaults to installed agents and phyzess/kitto.
 After setup, start pi / codex / dsh web normally and ask the Kitto skill
 to inspect, sync or update your configuration. No project initialization.
 Node >=24.9, Git, Bash and Python >=3.10 are required. Agent login stays native.
