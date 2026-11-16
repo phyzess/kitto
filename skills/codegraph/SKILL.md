@@ -1,11 +1,13 @@
 ---
 name: codegraph
-description: Use CodeGraph as the primary tool for code structure, call graphs, and impact analysis. Load whenever you need to explore, trace, or understand code.
+description: Use CodeGraph, when available and indexed, for code structure, call graphs, and impact analysis.
 ---
 
 # codegraph
 
-Leverage CodeGraph — a code intelligence and knowledge graph engine — as the primary tool for understanding code structure, call graphs, and impact analysis.
+Use CodeGraph for structural questions when the current agent exposes its MCP tools and the repository is indexed. A binary on PATH alone does not make those tools available.
+
+If the MCP tools are unavailable, the repository is unindexed, or a query fails, continue with native code search, source reads, and the language server when available. Do not install or configure CodeGraph as a side effect of an ordinary task. The CodeGraph-specific workflow below applies only when its tools are available.
 
 ## When to Use This Skill
 

@@ -321,3 +321,76 @@ test('foreign native registration stops removal before detaching any host', t =>
   good(f.maintain('remove', '--apply'));
   assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).detached, true);
 });
+
+for (const agent of ['codex', 'dsh']) {
+  test(`${agent}-only setup, sync and versions work without Pi files, Bash or Python`, t => {
+    const f = fixture(t);
+    rmSync(join(f.source, 'config/pi'), { recursive: true });
+    const bin = join(f.temp, 'bin');
+    const git = command('which', ['git'], f.env).stdout.trim();
+    symlinkSync(git, join(bin, 'git'));
+    f.env.PATH = bin;
+    const home = f.env[agent === 'codex' ? 'CODEX_HOME' : 'DSH_HOME'];
+    mkdirSync(join(f.source, 'config', agent, 'skills/host-example'), { recursive: true });
+    writeFileSync(join(f.source, 'config', agent, 'skills/host-example/SKILL.md'), 'Host only');
+    const source = join(f.source, 'config', agent, 'AGENTS.md');
+    writeFileSync(source, 'Portable rules');
+    mkdirSync(home, { recursive: true });
+    const instructions = join(home, 'AGENTS.md');
+    writeFileSync(instructions, 'My local rules\n');
+    const options = agent === 'dsh' ? ['--dsh-profile', 'headless'] : [];
+    good(f.cli('setup', '--agents', agent, '--source', f.source, ...options));
+    assert.match(readFileSync(instructions, 'utf8'), /My local rules\n.*\nPortable rules/);
+    assert.equal(readFileSync(join(home, 'skills/host-example/SKILL.md'), 'utf8'), 'Host only');
+    assert(!existsSync(join(f.env.PI_AGENTS_DIR, 'skills/host-example')));
+    const versions = f.maintain('versions');
+    good(versions);
+    const report = JSON.parse(versions.stdout);
+    assert(report.components.some(row => row.owner === agent && row.tested));
+    assert(!report.components.some(row => row.owner === 'pi' || row.upstream));
+    assert(report.components.some(row => row.owner === agent && row.kind === 'skill' && row.contentSha256));
+    good(f.maintain('deps', '--apply'));
+    assert(!existsSync(f.env.PI_CODING_AGENT_DIR));
+    writeFileSync(source, 'Updated portable rules');
+    good(f.maintain('sync', '--apply'));
+    assert.match(readFileSync(instructions, 'utf8'), /My local rules\n.*\nUpdated portable rules/);
+    const updated = readFileSync(instructions, 'utf8');
+    writeFileSync(instructions, updated.replace('Updated portable rules', 'Edited locally'));
+    assert.match(f.maintain('sync', '--apply').stderr, /Local changes inside/);
+    assert.match(readFileSync(instructions, 'utf8'), /Edited locally/);
+    if (agent === 'dsh') {
+      writeFileSync(instructions, updated);
+      const path = join(home, 'profiles/headless/package.json');
+      assert(readJson(path).dependencies['@phyzess/kitto']);
+      assert(report.components.some(row => row.profile === 'headless' && row.name === '@phyzess/kitto'));
+      good(f.cli('setup'));
+      good(f.maintain('remove', '--apply'));
+      assert(!readJson(path).dependencies['@phyzess/kitto']);
+      assert(!existsSync(join(home, 'profiles/web')));
+    }
+  });
+}
+
+test('dependency previews use enabled Pi MCP commands and deduplicate shared tools', t => {
+  const f = fixture(t);
+  mkdirSync(join(f.source, 'skills/codegraph'));
+  writeFileSync(join(f.source, 'skills/codegraph/SKILL.md'), 'CodeGraph skill');
+  writeFileSync(join(f.source, 'lists/mise-tools.txt'), 'dap-mcp-server 0.1.17\n');
+  writeFileSync(join(f.source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: {
+    codegraph: { command: 'codegraph' },
+    debug: { command: 'dap-mcp-server', enabled: false },
+  } }));
+  good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
+  const preview = f.maintain('deps');
+  good(preview);
+  assert.equal(preview.stdout.match(/(?:Missing|Available): codegraph/g)?.length, 1);
+  assert.match(preview.stdout, /shared skill codegraph, Pi MCP codegraph/);
+  assert.doesNotMatch(preview.stdout, /dap-mcp-server/);
+  const file = join(f.env.PI_CODING_AGENT_DIR, 'mcp.json');
+  const config = readJson(file);
+  config.mcpServers.debug.enabled = true;
+  writeFileSync(file, JSON.stringify(config));
+  const enabled = f.maintain('deps');
+  good(enabled);
+  assert.match(enabled.stdout, /dap-mcp-server.*Pi MCP debug/);
+});

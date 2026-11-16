@@ -22,7 +22,7 @@ Keep normal work in the current native agent. Do not introduce a launcher or mod
 | `update --apply` | Fast-forward a clean tracked source branch, then deploy |
 | `export` | Preview sanitized Pi machine-to-repository export |
 | `export --apply` | Write that export to the local source checkout; never commit or push |
-| `deps` / `deps --apply` | Preview / install the source's declared CLI dependencies, only when requested |
+| `deps` / `deps --apply` | Preview / install CLI dependencies needed by the selected hosts and enabled capabilities, only when requested |
 | `recover` / `recover --apply` | Preview / restore the last verified Kitto code checkpoint and reconnect native integrations |
 | `remove` / `remove --apply` | Preview / detach Kitto's native integrations; retain personal configuration, shared skills, CLIs and recovery files |
 
@@ -30,7 +30,7 @@ Begin with `status`. For changes, inspect the corresponding preview, explain con
 
 Use `versions --online` when asked about upgrades. Distinguish installed, declared and upstream versions, including prereleases and engine requirements. Registry metadata is not a compatibility test. Kitto does not bulk-upgrade hosts or plugins: use each native manager for explicitly selected upgrades, test the relevant host, and update the source only after validation. Update Kitto itself by rerunning its npm setup entry with the intended package version.
 
-The source checkout owns personal skills and Pi settings. Codex and DSH keep their own authentication, model choices, permissions and MCP configuration. Do not copy Pi-only fields or rules into them. Read the source's documentation before changing personal assets. Report what changed, skipped conflicts, failures and any required native reload. Stop on errors; rerun only after resolving the cause.
+The source checkout owns shared skills, host-specific skills, Pi settings, and managed instruction blocks for Codex and DSH. Codex and DSH keep their own authentication, model choices, permissions and MCP configuration. Check the current session for any optional tools a skill needs. Read the source's documentation before changing personal assets. Report what changed, skipped conflicts, failures and any required native reload. Stop on errors; rerun only after resolving the cause.
 
 Recovery only changes Kitto code and its native registration, preserving the currently deployed personal configuration. It is not a transaction rollback of all earlier file changes or dependency installs. If the installed runner cannot start, use the same package setup entry with `--recover --dry-run`, then `--recover` within the user's request. This external entry also works when recovering an older Kitto version whose skill lacks recovery commands. With no verified checkpoint, rerun setup from a known working package version.
 
