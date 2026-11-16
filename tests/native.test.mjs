@@ -41,15 +41,16 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
     writeFileSync(join(previous, name), JSON.stringify(data));
   }
   const pluginVersion = () => JSON.parse(run('codex', ['plugin', 'list', '--json'])).installed.find(x => x.pluginId === 'kitto@phyzess-kitto')?.version;
-  const dshProfile = () => json(join(env.DSH_HOME, 'profiles/web/package.json'));
+  const profile = 'headless';
+  const dshProfile = () => json(join(env.DSH_HOME, 'profiles', profile, 'package.json'));
   const piPackages = () => json(join(env.PI_CODING_AGENT_DIR, 'settings.json')).packages || [];
   const ownedPi = () => piPackages().filter(entry => {
     const value = typeof entry === 'string' ? entry : entry.source;
     return resolve(env.PI_CODING_AGENT_DIR, value) === join(env.KITTO_HOME, 'runtime');
   });
-  cli(previous, '--agents', 'pi,codex,dsh', '--source', source);
+  cli(previous, '--agents', 'pi,codex,dsh', '--source', source, '--dsh-profile', profile);
   assert.equal(pluginVersion(), '0.0.0-native.1');
-  const patch = join(env.DSH_HOME, 'profiles/web/cordis.patch.yml');
+  const patch = join(env.DSH_HOME, 'profiles', profile, 'cordis.patch.yml');
   const originalPatch = existsSync(patch) ? readFileSync(patch, 'utf8') : '[]\n';
   writeFileSync(patch, originalPatch + '\n# personal override marker\n');
   const patchBefore = readFileSync(patch, 'utf8');
@@ -57,10 +58,12 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   cli(root);
   assert.equal(pluginVersion(), nativeVersion);
   assert.equal(state().version, nativeVersion);
+  assert.equal(state().dshProfile, profile);
+  assert(!existsSync(join(env.DSH_HOME, 'profiles/web')));
   assert.equal(ownedPi().length, 1);
   assert.equal(dshProfile().dsh.profile.bundles.filter(x => x === '@phyzess/kitto').length, 1);
   assert.equal(readFileSync(patch, 'utf8'), patchBefore);
-  assert.match(run('dsh', ['web', '--dump-config']), /phyzess-kitto/);
+  assert.match(run('dsh', [profile, '--dump-config']), /phyzess-kitto/);
   cli(root, '--recover');
   assert.equal(pluginVersion(), '0.0.0-native.1');
   assert.equal(state().version, '0.0.0-native.1');
@@ -76,7 +79,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert(!JSON.parse(run('codex', ['plugin', 'marketplace', 'list', '--json'])).marketplaces.some(x => x.name === 'phyzess-kitto'));
   assert(!dshProfile().dependencies?.['@phyzess/kitto']);
   assert(!dshProfile().dsh.profile.bundles.includes('@phyzess/kitto'));
-  assert.doesNotMatch(run('dsh', ['web', '--dump-config']), /phyzess-kitto/);
+  assert.doesNotMatch(run('dsh', [profile, '--dump-config']), /phyzess-kitto/);
   assert.equal(readFileSync(patch, 'utf8'), patchBefore);
   assert.equal(run('git', ['-C', source, 'rev-parse', 'HEAD']), sourceHead);
   assert.equal(readFileSync(join(env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), files['skills/example/SKILL.md']);

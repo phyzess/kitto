@@ -20,7 +20,7 @@ npx --yes @phyzess/kitto setup
 npx --yes @phyzess/kitto setup --agents pi,codex,dsh --install-agents
 ```
 
-前提：Node >=24.9.0、Git、Bash、Python >=3.10；DSH 原生插件管理还需要 PATH 中有 pnpm。`--install-agents` 安装缺失的宿主 CLI，并为 DSH 补齐缺失的 pnpm（12.18.0）；不会升级已有工具。DSH 当前仍是预发布版本。登录和 API key 通过各自原生入口设置。
+Kitto 需要 Node >=22 和 Git。Pi 同步还需要 Bash、Python >=3.10 和 `config/pi/`；DSH 原生插件管理需要 PATH 中有 pnpm。通过 Kitto 安装宿主时，Pi 和 DSH 分别需要 Node >=22.19 和 >=24.9。`--install-agents` 安装缺失的宿主 CLI，并为 DSH 补齐缺失的 pnpm（12.18.0）；不会升级已有工具。DSH 当前仍是预发布版本。登录和 API key 通过各自原生入口设置。
 
 重复 setup 会复用配置来源和已选 agent；`--agents` 可追加宿主，不会隐式卸载旧宿主。
 
@@ -28,14 +28,16 @@ npx --yes @phyzess/kitto setup --agents pi,codex,dsh --install-agents
 |---|---|
 | Kitto 代码 | 保存到 `~/.local/share/kitto/runtime`，不依赖临时 npx 缓存 |
 | 个人配置 | 自动 clone 到 `~/.local/share/kitto/config`，或使用已有 checkout |
-| 自建 skills | 统一部署到 `~/.agents/skills`，三个宿主原生发现；记录内容归属，冲突停止 |
+| 自建 skills | 共享内容部署到 `~/.agents/skills`，`config/<agent>/skills/` 仅部署到对应宿主的原生目录 |
 | Pi | 复用原有 settings / MCP / extensions / AGENTS 同步，注册 Kitto 原生包 |
-| Codex | 通过原生命令注册独立的 Kitto 本地市场和插件，保留其他插件及 config.toml 设置 |
-| DSH | 给原生 `web` profile 安装 Kitto bundle，注册一个按需加载的 skill |
+| Codex | 同步 `config/codex/AGENTS.md` 到用户规则中的 Kitto 区块，并注册原生插件 |
+| DSH | 同步 `config/dsh/AGENTS.md` 到用户规则中的 Kitto 区块，并向所选 profile 注册 bundle |
 
 这是**用户全局 setup**，不在项目里创建配置，也不包办项目初始化。`KITTO_HOME` 或 `XDG_DATA_HOME` 可以改变 Kitto 存放位置。宿主的 `CODEX_HOME`、`DSH_HOME`、`PI_CODING_AGENT_DIR` 会被记录用于维护；启动宿主时仍使用自己的环境设置。选择 Codex 时，共享 skill 根目录必须是 `~/.agents`。
 
-Pi 专属规则、扩展和 MCP 不会转换后塞进其他宿主。Codex / DSH 保留自己的模型、权限、登录及 MCP 配置；已有 skill 内容中的外部工具依赖仍需按任务安装。CLI 依赖安装可以在会话中让 Kitto 预览并执行，setup 不自动安装整份 brew / mise / pip 清单。
+DSH 默认使用 `web`。首次选择其他 profile 时给 setup 加 `--dsh-profile <name>`。自定义 profile 要先用 DSH 初始化。Kitto 会记住所选 profile，用于版本盘点、恢复和卸载。规则和 DSH 专属 skills 的范围是整个 DSH 用户目录。
+
+Codex / DSH 的规则可直接在配置仓库编辑。Kitto 保留本机规则区块外的文字，发现 Kitto 区块被改动时停止同步。`AGENTS.override.md` 仍按 Codex 的原生规则取得优先级。模型、登录、权限和 MCP 继续各自配置。跨宿主 skill 应在可选工具缺失时使用原生工具降级。
 
 ## 日常使用
 
@@ -43,7 +45,8 @@ Pi 专属规则、扩展和 MCP 不会转换后塞进其他宿主。Codex / DSH 
 
 - 同步先预览。远端更新只允许干净 checkout 的 fast-forward；本机未提交改动、分叉历史、被修改的共享 skill 都会停止并说明冲突。
 - 导出只写本地配置 checkout，不自动 commit 或 push；跨机器共享仍使用该仓库的 Git 远端。
-- 版本检查默认离线；请求在线检查时才查 registry，分别列出已装版本、声明版本、release channel、引擎要求和冲突。不会根据 `latest` 批量升级。
+- 依赖安装由对应能力触发，并可在会话中预览。例如启用 Pi 的调试 MCP 时才列出 `dap-mcp-server` 和 `debugpy`。共享 CodeGraph 只检查本机命令，并提示在会话中确认 MCP 工具是否可用。
+- 版本检查默认离线，盘点已选宿主、技能、实际启用的 Pi MCP、Codex 插件和所选 DSH profile 的 bundle。在线检查单独显示 npm / PyPI 的上游信息。
 - Pi 会异步检查 Kitto 自身的稳定版更新，最多每天一次、请求限时两秒、离线静默；`KITTO_UPDATE_CHECK=0` 可关闭。它不重复扫描 Pi 插件。Codex / DSH 当前通过 Kitto skill 主动检查更新。
 - 普通配置同步不重复安装 Kitto 的原生集成。升级 Kitto 代码时重新执行目标版本的 setup，再按宿主原生方式重新加载资源。
 
@@ -224,7 +227,7 @@ token 用 `${VAR}` 占位，由环境变量注入 —— pi 会在 `env` 和 `he
 |---|---|
 | `lists/brew.txt` | `ast-grep`（macOS，ast-grep-mcp 的前置） |
 | `lists/npm.txt` | `@ast-grep/cli`（Linux，同上） |
-| `lists/mise-tools.txt` | `dap-mcp-server`、`ast-grep-mcp`、`chrome-devtools-mcp` |
+| `lists/mise-tools.txt` | `dap-mcp-server`；AST Grep 和 Chrome DevTools 的 MCP 包由 Pi 配置中的固定版本通过 npx 启动 |
 | `lists/pip.txt` | `debugpy`（Python 调试适配器） |
 
 不走清单、用自己的安装器装的三个：
@@ -264,6 +267,4 @@ git push
 
 维护开发时运行 `python3 -m unittest discover -s tests -v`。测试使用临时仓库和独立 HOME，Pi / mise 外部操作使用替身，不安装依赖或写入真实配置。CI 在 Linux 与 macOS 上运行同一组测试。
 
-`lib/versions.py` 是供后续 Kitto 维护入口使用的只读内部程序，不增加日常操作要求。默认只盘点本机与仓库声明；显式传入 `--online` 时查询 npm / PyPI，保留 latest、next 等渠道，不自动选择或应用版本。程序检查安装清单与 npx 启动参数的差异，自建 skills 连同资源文件计算内容摘要。
-
-无法确认实际版本或来源时报告空值及原因。npx 缓存、独立 uv 环境、Git 包安装目录等不从全局包版本推断；这些由后续宿主适配读取。版本查询结果不代表兼容性验证通过。
+版本报告由 Kitto 维护 skill 调用。对 npx 启动的 MCP，报告以启动参数为声明来源。自建 skills 连同资源文件计算内容摘要。

@@ -8,5 +8,3 @@
 #   serena        -> uv tool install serena-agent     (~/.local/share/uv/tools/)
 
 dap-mcp-server 0.1.17
-ast-grep-mcp 0.0.2
-chrome-devtools-mcp 1.10.1

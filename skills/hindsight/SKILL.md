@@ -9,7 +9,7 @@ Persistent, agent-curated memory for this project. Hindsight is **active curatio
 
 ## Memory Store
 
-Memory is stored per-project at `<project_root>/.pi/hindsight.jsonl`. One JSON object per line:
+This skill uses a project file and shell commands. It does not require the Pi hindsight extension. For compatibility with existing entries, memory is stored per-project at `<project_root>/.pi/hindsight.jsonl`. One JSON object per line:
 ```json
 {"timestamp": "2026-07-15T10:00:00Z", "context": "refactoring auth module", "insight": "JWT validation happens in middleware/auth.ts:42, secret comes from env.JWT_SECRET", "tags": ["auth", "jwt", "middleware"], "file_paths": ["src/middleware/auth.ts", ".env.example"]}
 ```

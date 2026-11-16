@@ -23,12 +23,12 @@
     },
     "ast-grep": {
       "command": "npx",
-      "args": ["-y", "ast-grep-mcp"],
+      "args": ["-y", "ast-grep-mcp@0.0.2"],
       "lifecycle": "lazy"
     },
     "chrome-devtools": {
       "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest"],
+      "args": ["-y", "chrome-devtools-mcp@1.10.1"],
       "lifecycle": "lazy"
     }
   }

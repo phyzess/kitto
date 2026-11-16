@@ -36,7 +36,7 @@ if (name === 'pi') {
     save(file, data);
   }
 } else if (name === 'dsh') {
-  const file = path.join(process.env.DSH_HOME, 'profiles/web/package.json');
+  const file = path.join(process.env.DSH_HOME, 'profiles', args[2], 'package.json');
   const data = load(file, { dependencies: {}, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } });
   if (args[3] === 'add') {
     data.dependencies['@phyzess/kitto'] = `link:${args[4]}`;
