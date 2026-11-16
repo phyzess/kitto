@@ -394,3 +394,56 @@ test('dependency previews use enabled Pi MCP commands and deduplicate shared too
   good(enabled);
   assert.match(enabled.stdout, /dap-mcp-server.*Pi MCP debug/);
 });
+
+test('first setup retries from its own clone and rejects unregistered or changed remotes', t => {
+  const f = fixture(t), mirror = join(f.temp, 'remote.git');
+  good(command('git', ['clone', '--bare', f.source, mirror], f.env));
+  const config = join(f.temp, 'gitconfig'), url = 'https://kitto.invalid/config.git';
+  writeFileSync(config, ''); f.env.GIT_CONFIG_GLOBAL = config;
+  good(command('git', ['config', '--file', config, `url.${mirror}.insteadOf`, url], f.env));
+  const conflict = join(f.env.PI_AGENTS_DIR, 'skills/example');
+  mkdirSync(conflict, { recursive: true });
+  writeFileSync(join(conflict, 'SKILL.md'), 'local work');
+  const args = ['setup', '--agents', 'codex', '--source', url, '--ref', 'main'];
+  const managed = join(f.env.KITTO_HOME, 'config');
+  mkdirSync(managed, { recursive: true });
+  assert.match(f.cli(...args).stderr, /Unregistered checkout/);
+  rmSync(managed, { recursive: true });
+  assert.match(f.cli(...args).stderr, /Skill conflict/);
+  assert(!existsSync(join(f.env.KITTO_HOME, 'state.json')));
+  rmSync(conflict, { recursive: true });
+  good(command('git', ['remote', 'set-url', 'origin', 'https://kitto.invalid/another.git'], f.env, managed));
+  assert.match(f.cli(...args).stderr, /Unregistered checkout/);
+  good(command('git', ['remote', 'set-url', 'origin', url], f.env, managed));
+  writeFileSync(join(managed, 'local-note'), 'preserve this');
+  const retried = f.cli(...args);
+  good(retried);
+  assert.match(retried.stdout, /Resume setup/);
+  assert.equal(readFileSync(join(managed, 'local-note'), 'utf8'), 'preserve this');
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+});
+
+test('dependency apply reports missing installers and checks successful installs', t => {
+  const f = fixture(t);
+  writeFileSync(join(f.source, 'lists/mise-tools.txt'), 'dap-mcp-server 0.1.17\n');
+  writeFileSync(join(f.source, 'config/pi/mcp.json'), '{"mcpServers":{"debug":{"command":"dap-mcp-server"}}}');
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const bin = join(f.temp, 'bin');
+  const git = command('which', ['git'], f.env).stdout.trim();
+  symlinkSync(git, join(bin, 'git'));
+  f.env.PATH = bin;
+  const preview = f.maintain('deps');
+  good(preview);
+  assert.match(preview.stdout, /Missing installer mise/);
+  const blocked = f.maintain('deps', '--apply');
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stdout, /Unresolved managed dependencies: dap-mcp-server \(missing mise\)/);
+  writeFileSync(join(bin, 'mise'), `#!${process.execPath}\nif (process.argv[2] === "current") console.log("0.1.17");\n`, { mode: 0o755 });
+  const unavailable = f.maintain('deps', '--apply');
+  assert.notEqual(unavailable.status, 0);
+  assert.match(unavailable.stdout, /still unavailable after install/);
+  writeFileSync(join(bin, 'dap-mcp-server'), `#!${process.execPath}\n`, { mode: 0o755 });
+  const ready = f.maintain('deps', '--apply');
+  good(ready);
+  assert.match(ready.stdout, /Ready: dap-mcp-server/);
+});

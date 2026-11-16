@@ -1,14 +1,14 @@
 # Kitto
 
-## Unreleased
+## 0.1.0
 
 - Scope configuration validation and prerequisites to the selected agent. Codex and DSH maintenance no longer needs Python or Pi files.
 - Sync user rules and host-specific skills for Codex and DSH. Remember the selected DSH CLI profile.
 - Plan tool dependencies from enabled Pi MCPs and shared skills. Give optional CodeGraph workflows a native-tool fallback.
 - Report selected host versions, native plugins and bundles, and the actual configured MCP launch versions.
 
-## 0.1.0
-
+- Resume a Kitto-owned checkout after a failed first setup.
+- Summarize dependency readiness and report incomplete managed installs.
 - Keep the last working code checkpoint through failed installation retries.
 - Add previewable code recovery and resumable native integration removal.
 - Keep personal configuration, shared skills and installed agent CLIs in place.
