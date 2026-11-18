@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const name = path.basename(process.argv[1]), args = process.argv.slice(2);
-const versions = { pi: '1.5.2', codex: '0.169.0', dsh: '0.2.2-rc.3', pnpm: '12.18.0' };
+const versions = { pi: '1.5.2', codex: '0.170.0', dsh: '0.2.2-rc.3', pnpm: '12.21.0' };
 fs.appendFileSync(process.env.CALL_LOG, JSON.stringify({ command: name, args }) + '\n');
 if (args.includes('--version')) { console.log(versions[name]); process.exit(); }
 if (args.includes('--help')) process.exit();

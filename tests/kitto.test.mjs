@@ -86,7 +86,7 @@ test('missing DSH package manager is detected before writes and included in inst
   assert.notEqual(result.status, 0); assert.match(result.stderr, /require pnpm/);
   assert.equal(existsSync(f.env.KITTO_HOME), false);
   const preview = f.cli('setup', '--agents', 'dsh', '--source', f.source, '--install-agents', '--dry-run');
-  good(preview); assert.match(preview.stdout, /Install missing DSH prerequisite: pnpm@12.18.0/);
+  good(preview); assert.match(preview.stdout, /Install missing DSH prerequisite: pnpm@12.21.0/);
   assert.equal(existsSync(f.env.KITTO_HOME), false);
 });
 
@@ -446,4 +446,52 @@ test('dependency apply reports missing installers and checks successful installs
   const ready = f.maintain('deps', '--apply');
   good(ready);
   assert.match(ready.stdout, /Ready: dap-mcp-server/);
+});
+
+test('tag install pins a snapshot and managed setup can switch it without losing local changes', t => {
+  const f = fixture(t), mirror = join(f.temp, 'remote.git');
+  const git = (...args) => command('git', args, f.env, f.source);
+  const first = git('rev-parse', 'HEAD').stdout.trim();
+  good(git('tag', 'v1'));
+  writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'second snapshot');
+  good(git('add', '.'));
+  good(git('commit', '-m', 'second snapshot'));
+  const second = git('rev-parse', 'HEAD').stdout.trim();
+  good(git('tag', 'v2'));
+  good(git('clone', '--bare', f.source, mirror));
+  const config = join(f.temp, 'gitconfig'), url = 'https://kitto.invalid/config.git';
+  writeFileSync(config, ''); f.env.GIT_CONFIG_GLOBAL = config;
+  good(git('config', '--file', config, `url.${mirror}.insteadOf`, url));
+  good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'v1'));
+  const state = () => readJson(join(f.env.KITTO_HOME, 'state.json'));
+  assert.deepEqual(state().deployed, { commit: first, dirty: false, detached: true });
+  assert.match(f.maintain('update', '--apply').stderr, /pinned to a detached revision/);
+  const note = join(state().source, 'local-note');
+  writeFileSync(note, 'local work');
+  assert.match(f.cli('setup', '--ref', 'v2').stderr, /local changes/);
+  assert.equal(readFileSync(note, 'utf8'), 'local work');
+  rmSync(note);
+  const deployedSkill = join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md');
+  const original = readFileSync(deployedSkill, 'utf8');
+  writeFileSync(deployedSkill, 'manual change');
+  assert.match(f.cli('setup', '--ref', 'v2').stderr, /Skill conflict/);
+  assert.equal(state().deployed.commit, first);
+  writeFileSync(deployedSkill, original);
+  good(f.cli('setup', '--ref', 'v2'));
+  assert.equal(state().deployed.commit, second);
+  assert.equal(readFileSync(deployedSkill, 'utf8'), 'second snapshot');
+});
+
+test('dependency declarations follow the selected host and reject conflicting versions', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'codex', '--source', f.source));
+  const manifest = join(f.source, 'config/dependencies.json');
+  const rule = { agent: 'codex', executable: 'test-tool', install: { mise: 'npm:test-tool@1.2.3' } };
+  writeFileSync(manifest, JSON.stringify([rule, rule, { agent: 'pi', executable: 'pi-only' }]));
+  const preview = f.maintain('deps');
+  good(preview);
+  assert.equal(preview.stdout.split('\n').filter(line => line.includes('test-tool')).length, 1);
+  assert.doesNotMatch(preview.stdout, /pi-only/);
+  writeFileSync(manifest, JSON.stringify([rule, { ...rule, install: { mise: 'npm:test-tool@2.0.0' } }]));
+  assert.match(f.maintain('deps', '--apply').stderr, /Conflicting dependency declarations/);
 });

@@ -109,6 +109,27 @@ def unique(seq):
 # ---------------------------------------------------------------- commands
 
 
+def package_key(package):
+    source = package if isinstance(package, str) else package.get("source", "")
+    if source.startswith("npm:"):
+        spec = source.removeprefix("npm:")
+        if spec.rfind("@") > 0:
+            source = "npm:" + spec.rsplit("@", 1)[0]
+    elif source.startswith(("git:github.com/", "https://github.com/")):
+        repo = source.split("github.com/", 1)[1].split("@", 1)[0].removesuffix(".git")
+        source = "github.com/" + repo
+    return source
+
+
+def cmd_list_shared_packages(argv: list[str]) -> int:
+    repo_path, skip_path = argv
+    skip = {package_key(item) for item in read_list(skip_path)}
+    for package in load(repo_path)["packages"]:
+        if package_key(package) not in skip:
+            print(package if isinstance(package, str) else package["source"])
+    return 0
+
+
 def cmd_merge_settings(argv: list[str]) -> int:
     repo_path, machine_path, local_dir, out_path = argv
     repo_cfg = load(repo_path, {}) or {}
@@ -117,7 +138,7 @@ def cmd_merge_settings(argv: list[str]) -> int:
         repo_cfg.pop(key, None)
 
     extra_path = os.path.join(local_dir, "packages.txt")
-    skip = set(read_list(os.path.join(local_dir, "packages.skip.txt")))
+    skip = {package_key(item) for item in read_list(os.path.join(local_dir, "packages.skip.txt"))}
 
     extra = read_list(extra_path)
     previous = load(os.path.join(local_dir, "managed-packages.json"), []) or []
@@ -139,7 +160,7 @@ def cmd_merge_settings(argv: list[str]) -> int:
     before = list(machine_cfg.get("packages", []))
     packages = unique(
         [p for p in (repo_pkgs + extra)
-         if not isinstance(p, str) or p not in skip]
+         if package_key(p) not in skip]
     )
     result["packages"] = packages
 
@@ -290,6 +311,7 @@ def cmd_export_mcp(argv: list[str]) -> int:
 
 
 COMMANDS = {
+    "list-shared-packages": cmd_list_shared_packages,
     "record-settings": cmd_record_settings,
     "merge-settings": cmd_merge_settings,
     "sanitize-settings": cmd_sanitize_settings,

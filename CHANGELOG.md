@@ -2,6 +2,10 @@
 
 ## 0.1.0
 
+- Pin the Pi extensions and Context7 package used by the configuration snapshot.
+- Record the configured and last deployed revisions, and switch managed checkouts to explicit Git tags.
+- Declare tools in the configuration repository and report shared versus machine-local changes.
+
 - Scope configuration validation and prerequisites to the selected agent. Codex and DSH maintenance no longer needs Python or Pi files.
 - Sync user rules and host-specific skills for Codex and DSH. Remember the selected DSH CLI profile.
 - Plan tool dependencies from enabled Pi MCPs and shared skills. Give optional CodeGraph workflows a native-tool fallback.

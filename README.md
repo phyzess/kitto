@@ -12,7 +12,7 @@ Kitto 通过 npm 分发，个人配置保存在 Git 仓库中。
 npx --yes @phyzess/kitto setup
 ```
 
-默认选择本机已安装的 agent，自动准备 `phyzess/kitto` 的默认分支。若已有配置 checkout，可以通过 `--source /path/to/pi-config` 继续使用；首次 clone 可用 `--ref` 选择分支。`--dry-run` 只读预览，不创建目录或 clone。
+默认选择本机已安装的 agent，自动准备 `phyzess/kitto` 的默认分支。若已有配置 checkout，可以通过 `--source /path/to/pi-config` 继续使用；首次 clone 可用 `--ref` 选择分支或 tag。Kitto 创建的 checkout 可以用同一入口的 `--ref TAG` 切换快照，需要先提交或处理本地修改。`--dry-run` 只读预览，不创建目录或 clone。
 
 新机器上指定 agent，并安装缺失的 CLI：
 
@@ -20,7 +20,7 @@ npx --yes @phyzess/kitto setup
 npx --yes @phyzess/kitto setup --agents pi,codex,dsh --install-agents
 ```
 
-Kitto 需要 Node >=22 和 Git。Pi 同步还需要 Bash、Python >=3.10 和 `config/pi/`；DSH 原生插件管理需要 PATH 中有 pnpm。通过 Kitto 安装宿主时，Pi 和 DSH 分别需要 Node >=22.19 和 >=24.9。`--install-agents` 安装缺失的宿主 CLI，并为 DSH 补齐缺失的 pnpm（12.18.0）；不会升级已有工具。DSH 当前仍是预发布版本。登录和 API key 通过各自原生入口设置。
+Kitto 需要 Node >=22 和 Git。Pi 同步还需要 Bash、Python >=3.10 和 `config/pi/`；DSH 原生插件管理需要 PATH 中有 pnpm。通过 Kitto 安装宿主时，Pi 和 DSH 分别需要 Node >=22.19 和 >=24.9。`--install-agents` 安装缺失的宿主 CLI，并为 DSH 补齐缺失的 pnpm（12.21.0）；不会升级已有工具。DSH 当前仍是预发布版本。登录和 API key 通过各自原生入口设置。
 
 重复 setup 会复用配置来源和已选 agent；`--agents` 可追加宿主，不会隐式卸载旧宿主。
 
@@ -38,6 +38,14 @@ Kitto 需要 Node >=22 和 Git。Pi 同步还需要 Bash、Python >=3.10 和 `co
 DSH 默认使用 `web`。首次选择其他 profile 时给 setup 加 `--dsh-profile <name>`。自定义 profile 要先用 DSH 初始化。Kitto 会记住所选 profile，用于版本盘点、恢复和卸载。规则和 DSH 专属 skills 的范围是整个 DSH 用户目录。
 
 Codex / DSH 的规则可直接在配置仓库编辑。Kitto 保留本机规则区块外的文字，发现 Kitto 区块被改动时停止同步。`AGENTS.override.md` 仍按 Codex 的原生规则取得优先级。模型、登录、权限和 MCP 继续各自配置。跨宿主 skill 应在可选工具缺失时使用原生工具降级。
+
+## 重建已发版的配置
+
+```bash
+npx --yes @phyzess/kitto@0.1.0 setup --ref v0.1.0
+```
+
+已发布的 npm 版本和同名 Git tag 对应同一次验证。tag 安装保持在固定提交。普通分支安装继续快进更新。`status` 中的 `deployed` 记录上次成功部署时的 Git 提交及工作区修改状态，`checkout` 显示当前源目录状态。宿主和系统依赖仍由各自的安装器提供。
 
 ## 日常使用
 
@@ -107,10 +115,6 @@ config/pi/
   i-have-adhd-always             ADHD 输出模式常开标记
   local/                         【本机专属，gitignore】包清单 / MCP 覆盖 / settings 覆盖
 config/env.example               环境变量模板 → 部署为 ~/.pi-agent-env
-lists/brew.txt                   Homebrew 依赖（macOS）
-lists/mise-tools.txt             mise 全局 CLI 工具
-lists/npm.txt                    跨平台 CLI（mise npm 后端，替代 brew 同名包）
-lists/pip.txt                    Python 依赖
 skills/                          自建 skills（5 个）
 lib/pi_config.py                 settings / mcp 的结构化合并
 sync.sh                          双向同步入口
@@ -121,7 +125,7 @@ setup.sh                         首次安装 = deps + pull
 
 | 项 | macOS | Linux |
 |---|---|---|
-| CLI 依赖 | `lists/brew.txt` | `lists/npm.txt`（mise npm 后端装 `@ast-grep/cli`） |
+| CLI 依赖 | Homebrew | mise npm 后端 |
 | Python 依赖 | `pip3` | `python3 -m pip`，没有就 warning 跳过 |
 | `computer-use` MCP | `platform/macos/mcp.json` 启用 | 不下发 |
 | `herdr-agent-state.ts` | 部署 | 跳过（herdr 自己管理） |
@@ -223,12 +227,7 @@ token 用 `${VAR}` 占位，由环境变量注入 —— pi 会在 `env` 和 `he
 
 ## 依赖清单
 
-| 文件 | 内容 |
-|---|---|
-| `lists/brew.txt` | `ast-grep`（macOS，ast-grep-mcp 的前置） |
-| `lists/npm.txt` | `@ast-grep/cli`（Linux，同上） |
-| `lists/mise-tools.txt` | `dap-mcp-server`；AST Grep 和 Chrome DevTools 的 MCP 包由 Pi 配置中的固定版本通过 npx 启动 |
-| `lists/pip.txt` | `debugpy`（Python 调试适配器） |
+在 `config/dependencies.json` 中编辑工具依赖。每条规则用 `agent`、`skill`、`piCommand` 或 `piNpx` 选择能力，可用 `platform` 限制为 `darwin` 或 `linux`。用 `executable` 检查命令是否在 PATH 上，用 `install` 声明 `brew`、`mise` 或 `pip` 安装方式。mise 的 npm 包使用具体版本。旧配置仓库仍可使用 `lists/`。
 
 不走清单、用自己的安装器装的三个：
 

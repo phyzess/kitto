@@ -212,6 +212,15 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(before, git('rev-parse', 'HEAD').stdout)
         self.assertEqual(git('diff', '--cached', '--name-only').stdout.strip(), 'README.md')
 
+    def test_local_package_skip_survives_version_pinning(self):
+        self.local.mkdir(parents=True, exist_ok=True)
+        (self.local / 'packages.skip.txt').write_text('npm:@plannotator/pi-extension\nhttps://github.com/ayghri/i-have-adhd\n')
+        result = self.run_sync('pull')
+        self.assertNotIn('pi install npm:@plannotator/pi-extension', result.stdout)
+        self.assertNotIn('pi install git:github.com/ayghri/i-have-adhd', result.stdout)
+        packages = json.loads(self.machine.read_text())['packages']
+        self.assertFalse(any('plannotator' in entry or 'i-have-adhd' in entry for entry in packages))
+
     def test_mise_installed_wrong_version_does_not_skip(self):
         self.fake('mise', 'if [ "$1" = ls ]; then echo "npm:dap-mcp-server 0.0.1"; fi\nexit 0')
         result = self.run_sync('deps', '--dry-run')

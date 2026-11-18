@@ -72,7 +72,6 @@ run() {
     if [ "$DRY" = 1 ]; then info "[dry-run] $*"; else "$@"; fi
 }
 
-in_list() { [ -f "$2" ] && grep -Fxq -- "$1" "$2"; }
 
 json_same() { # <a> <b> -> 0 when both decode to the same JSON value
     python3 - "$1" "$2" <<'PY'
@@ -133,23 +132,15 @@ step_packages() {
         warn "pi 未安装，跳过（先装 @earendil-works/pi-coding-agent）"
         return 0
     fi
-    local installed pkg
+    local installed pkg packages
+    packages="$(python3 "$PY" list-shared-packages "$ROOT/config/pi/settings.json" "$LOCAL/packages.skip.txt")" || return 1
     installed="$(pi list 2>/dev/null || true)"
     while IFS= read -r pkg; do
         [ -z "$pkg" ] && continue
-        if in_list "$pkg" "$LOCAL/packages.skip.txt"; then
-            warn "${pkg}（在 packages.skip.txt 里）"
-            continue
-        fi
         if grep -qF -- "$pkg" <<<"$installed"; then same "$pkg"; continue; fi
         info "pi install $pkg"
         run pi install "$pkg" || { fail "pi install $pkg 失败"; return 1; }
-    done < <(python3 - "$ROOT/config/pi/settings.json" <<'PY'
-import json, sys
-for package in json.load(open(sys.argv[1]))['packages']:
-    print(package if isinstance(package, str) else package['source'])
-PY
-)
+    done <<<"$packages"
 }
 
 step_settings() {
@@ -217,8 +208,16 @@ step_env() {
         deploy_file "$ROOT/config/env.example" "$HOME/.pi-agent-env" "~/.pi-agent-env"
         run chmod 600 "$HOME/.pi-agent-env"
     fi
-    local rc="$HOME/.zshrc"
-    [ -f "$rc" ] || rc="$HOME/.bashrc"
+    local rc shell="${SHELL:-}"
+    case "${shell##*/}" in
+        zsh) rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
+        bash) rc="$HOME/.bashrc" ;;
+        *) warn '请在你的 shell 启动文件中加载 ~/.pi-agent-env'; return 0 ;;
+    esac
+    if [ ! -f "$rc" ]; then
+        warn "启动文件不存在，请手动配置 $rc 加载 ~/.pi-agent-env"
+        return 0
+    fi
     if [ -f "$rc" ] && ! grep -q 'pi-agent-env' "$rc"; then
         info "在 $(basename "$rc") 里加 source ~/.pi-agent-env"
         if [ "$DRY" = 1 ]; then
@@ -409,6 +408,15 @@ PY
 }
 
 cmd_deps() {
+    if [ -f "$ROOT/config/dependencies.json" ]; then
+        node --input-type=module - "$SCRIPT_ROOT/lib/dependencies.mjs" "$ROOT" "$DOT_PI" "$DRY" <<'JS'
+import { pathToFileURL } from 'node:url';
+const [module, source, piHome, dry] = process.argv.slice(2);
+const { installDependencies } = await import(pathToFileURL(module));
+await installDependencies({ source, piHome, agents: ['pi'] }, dry === '0');
+JS
+        return
+    fi
     printf '\n%s==> deps%s  platform: %s\n\n' "$CYAN" "$NC" "$PLATFORM"
     if [ "$PLATFORM" = macos ] && command -v brew >/dev/null 2>&1; then
         info "Homebrew"
