@@ -1,4 +1,0 @@
-# Python (pip) 依赖
-# 由 setup.sh 逐条 pip3 install --quiet，已装的跳过。格式: <包名>  # 说明
-
-debugpy          # Python 调试适配器（dap-mcp-server 需要）

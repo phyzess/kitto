@@ -3,7 +3,7 @@ import { setup, parseOptions } from '../lib/kitto.mjs';
 
 const help = `Kitto — portable personal agent configuration
 
-  kitto setup [--agents pi,codex,dsh] [--source PATH_OR_GIT_URL] [--ref BRANCH]
+  kitto setup [--agents pi,codex,dsh] [--source PATH_OR_GIT_URL] [--ref BRANCH_OR_TAG]
               [--dsh-profile PROFILE] [--install-agents] [--dry-run]
   kitto setup --recover [--dry-run]   Restore the last working Kitto code
 

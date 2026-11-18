@@ -1,0 +1,9 @@
+[
+  { "skill": "codegraph", "executable": "codegraph" },
+  { "piCommand": "codegraph", "executable": "codegraph" },
+  { "piCommand": "serena", "executable": "serena" },
+  { "piCommand": "dap-mcp-server", "executable": "dap-mcp-server", "install": { "mise": "npm:dap-mcp-server@0.1.17" } },
+  { "piCommand": "dap-mcp-server", "install": { "pip": "debugpy" } },
+  { "piNpx": "ast-grep-mcp", "platform": "darwin", "executable": "ast-grep", "install": { "brew": "ast-grep" } },
+  { "piNpx": "ast-grep-mcp", "platform": "linux", "executable": "ast-grep", "install": { "mise": "npm:@ast-grep/cli@0.51.2" } }
+]
