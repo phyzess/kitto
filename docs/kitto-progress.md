@@ -1,4 +1,6 @@
-# Kitto implementation progress
+# Kitto implementation history
+
+Historical notes about the initial implementation. For current installation and sync behavior, see the [user guide](usage.md). For the current test matrix, see the [CI workflow](../.github/workflows/check.yml).
 
 Kitto evolves this repository. The daily agent entry points remain native. pstack is outside the current scope.
 
