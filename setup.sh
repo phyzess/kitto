@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# ============================================================
-# pi-config setup — 首次在新机器上复刻 pi agent 环境
-#
-#   bash setup.sh            装依赖 + 部署缺失/不一致的文件
-#   bash setup.sh --force    兼容旧参数（pull 本就按内容覆盖）
-#   bash setup.sh --dry-run  只打印动作，不落盘
-#
-# 等价于:  bash sync.sh deps && bash sync.sh pull
-# 之后日常同步用 sync.sh（status / pull / push）。
-# ============================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+if [[ $# -eq 0 && -t 0 && -t 1 ]] || [[ $# -eq 1 && $1 == --interactive ]]; then
+    exec node "$SCRIPT_DIR/bin/kitto.mjs" setup --interactive
+fi
+
 for arg in "$@"; do
     case "$arg" in
-        -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+        -h|--help) cat <<'HELP'
+./setup.sh                在终端启动 Kitto 环境配置向导
+./setup.sh --interactive  显式使用向导
+./setup.sh --dry-run      预览旧版 Pi 配置同步
+./setup.sh --force        运行旧版 Pi 配置同步
+
+兼容旧版自动化：无终端且无参数时，按原方式执行 Pi 的 deps 和 pull。
+HELP
+            exit 0 ;;
     esac
 done
 

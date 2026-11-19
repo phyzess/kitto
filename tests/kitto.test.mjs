@@ -118,6 +118,49 @@ test('a conflicting existing shared skill stops setup before runtime or host cha
   assert.equal(existsSync(join(f.env.KITTO_HOME, 'runtime')), false);
 });
 
+test('guided setup keeps divergent unowned skills through later Pi syncs', t => {
+  const f = fixture(t);
+  const local = join(f.env.PI_AGENTS_DIR, 'skills/example');
+  const owned = join(f.env.PI_AGENTS_DIR, 'skills/managed/SKILL.md');
+  const source = join(f.source, 'skills/example/SKILL.md');
+  const hostLocal = join(f.env.PI_CODING_AGENT_DIR, 'skills/host-example');
+  const hostSource = join(f.source, 'config/pi/skills/host-example');
+  const state = join(f.env.KITTO_HOME, 'state.json');
+  for (const dir of [local, hostSource, join(f.source, 'skills/managed')]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(local, 'SKILL.md'), 'local shared skill');
+  writeFileSync(join(f.source, 'skills/managed/SKILL.md'), 'managed skill');
+  writeFileSync(join(hostSource, 'SKILL.md'), 'host skill from source');
+  mkdirSync(join(f.env.PI_CODING_AGENT_DIR, 'skills'), { recursive: true });
+  symlinkSync(local, hostLocal, 'dir');
+
+  const setup = command(process.execPath, ['--input-type=module', '-e',
+    `import { setup } from './lib/kitto.mjs';
+     await setup(${JSON.stringify({ source: f.source, agents: ['pi'], keepExistingSkills: true })});`,
+  ], f.env);
+  good(setup);
+  assert.match(setup.stdout, /skill keep: example \(shared\)/);
+  assert.equal(readFileSync(join(local, 'SKILL.md'), 'utf8'), 'local shared skill');
+  assert.equal(readJson(state).keepExistingSkills, true);
+  assert.deepEqual(readJson(state).keptSkills, { shared: ['example'], pi: ['host-example'] });
+  assert.deepEqual(Object.keys(readJson(state).skills), ['managed']);
+
+  // A removed source must not remove the local copy or forget its ownership.
+  rmSync(source);
+  good(f.maintain('sync', '--apply'));
+  assert.deepEqual(readJson(state).keptSkills.shared, ['example']);
+  // A source that briefly matches still cannot turn the local skill into a managed copy.
+  writeFileSync(source, 'local shared skill');
+  good(f.maintain('sync', '--apply'));
+  assert.deepEqual(Object.keys(readJson(state).skills), ['managed']);
+  writeFileSync(source, 'new source body');
+  good(f.maintain('sync', '--apply'));
+  assert.equal(readFileSync(join(local, 'SKILL.md'), 'utf8'), 'local shared skill');
+  assert.equal(readFileSync(join(hostLocal, 'SKILL.md'), 'utf8'), 'local shared skill');
+  writeFileSync(owned, 'local edit of managed skill');
+  assert.match(f.maintain('sync', '--apply').stderr, /Skill conflict/);
+  assert.equal(readFileSync(owned, 'utf8'), 'local edit of managed skill');
+});
+
 test('owned skill updates and removals apply, local modifications stop sync', t => {
   const f = fixture(t), target = join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md');
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
@@ -497,4 +540,71 @@ test('dependency declarations follow the selected host and reject conflicting ve
   assert.doesNotMatch(preview.stdout, /pi-only/);
   writeFileSync(manifest, JSON.stringify([rule, { ...rule, install: { mise: 'npm:test-tool@2.0.0' } }]));
   assert.match(f.maintain('deps', '--apply').stderr, /Conflicting dependency declarations/);
+});
+
+test('interactive CLI previews and applies bundled Pi and Codex setup for future workspaces', async t => {
+  const { realpath } = await import('node:fs/promises');
+  const f = fixture(t);
+  const workspaceParent = join(await realpath(f.temp), 'workspaces');
+  const result = spawnSync(process.execPath, [join(root, 'bin/kitto.mjs'), 'setup', '--interactive'], {
+    env: f.env,
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 60_000,
+    input: ['pi,codex', '2', f.source, 'n', workspaceParent, '1', '2', ''].join('\n'),
+  });
+  good(result);
+  assert.match(result.stdout, /安装计划[\s\S]*Preview only[\s\S]*预览完成[\s\S]*Scope ready/);
+  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  assert.equal(state.ready, true);
+  assert.deepEqual(state.agents, ['pi', 'codex']);
+  assert.equal(state.source, await realpath(f.source));
+  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'),
+    readFileSync(join(f.source, 'skills/example/SKILL.md'), 'utf8'));
+  assert.equal(existsSync(join(f.env.PI_CODING_AGENT_DIR, 'mcp.json')), true);
+  const calls = readFileSync(f.log, 'utf8').trim().split('\n').map(JSON.parse);
+  assert(calls.some(c => c.command === 'pi' && c.args[0] === 'install'));
+  assert(calls.some(c => c.command === 'codex' && c.args.join(' ') === 'plugin add kitto@phyzess-kitto'));
+
+  const registry = readJson(join(f.env.KITTO_HOME, 'scopes.json'));
+  assert.equal(registry.global, true);
+  assert.deepEqual(registry.workspaceParents, [workspaceParent]);
+  const workspace = join(workspaceParent, 'future-team');
+  const project = join(workspace, 'repo');
+  const skills = join(workspace, '.agents', 'skills');
+  const skillName = 'future-workspace-skill';
+  mkdirSync(join(skills, skillName), { recursive: true });
+  writeFileSync(join(skills, skillName, 'SKILL.md'), `---\nname: ${skillName}\ndescription: Fixture skill\n---\nSkill body\n`);
+  writeFileSync(join(workspace, 'AGENTS.md'), 'Future workspace instructions');
+  good(command('git', ['clone', '-q', f.source, project], f.env));
+
+  const nativeEnv = { ...f.env };
+  delete nativeEnv.KITTO_HOME;
+  const extension = join(f.env.PI_CODING_AGENT_DIR, 'extensions/kitto-scopes.js');
+  const pi = command(process.execPath, ['--input-type=module', '-e', `
+    const handlers = new Map();
+    const extension = await import(process.argv[1]);
+    extension.default({ on: (event, handler) => handlers.set(event, handler) });
+    const cwd = process.cwd();
+    const contextFiles = [];
+    await handlers.get('before_agent_start')({ systemPromptOptions: { contextFiles } }, { cwd });
+    const { skillPaths } = await handlers.get('resources_discover')({ cwd });
+    console.log(JSON.stringify({ contextFiles, skillPaths }));
+  `, extension], nativeEnv, project);
+  good(pi);
+  const { contextFiles, skillPaths } = JSON.parse(pi.stdout);
+  assert(contextFiles.some(file => file.content === 'Future workspace instructions'));
+  assert(skillPaths.includes(skills));
+
+  const hooks = readJson(join(f.env.CODEX_HOME, 'hooks.json'));
+  const hook = hooks.hooks.SessionStart[0].hooks[0].command;
+  const codex = spawnSync('sh', ['-c', hook], {
+    cwd: project, env: nativeEnv, encoding: 'utf8', timeout: 8_000,
+    input: JSON.stringify({ cwd: project }),
+  });
+  good(codex);
+  const { additionalContext } = JSON.parse(codex.stdout).hookSpecificOutput;
+  assert.match(additionalContext, /Future workspace instructions/);
+  assert.match(additionalContext, /future-workspace-skill/);
+  assert.equal(command('git', ['status', '--porcelain'], f.env, project).stdout, '');
 });
