@@ -4,7 +4,7 @@ Kitto 把这份仓库里的个人配置带到每台开发机。换一台 Mac 或
 
 ## 新机安装
 
-准备好 Git、Node.js 22 或更新版本，以及你要使用的 agent。在任意目录运行一次：
+准备好 Git、Node.js 26 LTS（Kitto 最低要求 Node.js 22），以及你要使用的 agent。在任意目录运行一次：
 
 ```bash
 npx --yes github:phyzess/kitto setup
@@ -22,4 +22,4 @@ npx --yes github:phyzess/kitto setup
 
 想把改动带到另一台机器，先把配置提交并推送到 Git，再在另一台机器上同步。只属于本机的设置可以留在本地。
 
-[配置与同步指南](docs/usage.md) · [Pi 配置参考](docs/pi.md) · [版本记录](CHANGELOG.md)
+[配置与同步指南](docs/usage.md) · [Pi 配置参考](docs/pi.md) · [版本记录](CHANGELOG.md) · [发布新版本](docs/usage.md#发布新版本)

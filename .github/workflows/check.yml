@@ -16,13 +16,10 @@ jobs:
           python-version: '3.11'
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
-      - run: bash -n setup.sh sync.sh
+          node-version-file: '.node-version'
+      - run: bash -n setup.sh && bash -n sync.sh
       - run: python -m unittest discover -s tests -v
       - run: npm test
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
       - name: Install validated native hosts
         run: |
           node --input-type=module <<'JS'
