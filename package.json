@@ -1,6 +1,6 @@
 {
   "name": "@phyzess/kitto",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Portable personal configuration for Pi, Codex and DeepSeek Harness",
   "type": "module",
   "bin": { "kitto": "bin/kitto.mjs" },
@@ -8,7 +8,11 @@
   "publishConfig": { "access": "public" },
   "repository": { "type": "git", "url": "git+https://github.com/phyzess/kitto.git" },
   "files": ["bin/*.mjs", "lib/*.mjs", "lib/*.py", "integration/", "sync.sh", "CHANGELOG.md"],
-  "scripts": { "test": "node --test tests/kitto.test.mjs", "prepublishOnly": "npm test && python3 -m unittest discover -s tests -v" },
+  "scripts": {
+    "test": "node --test tests/kitto.test.mjs",
+    "prepublishOnly": "npm test && python3 -m unittest discover -s tests -v",
+    "release": "node scripts/release.mjs"
+  },
   "pi": { "extensions": ["./integration/pi.mjs"], "skills": ["./integration/skills"] },
   "dsh": { "manifestVersion": 1, "bundle": { "patch": "./integration/cordis.patch.yml" } }
 }

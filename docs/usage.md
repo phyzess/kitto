@@ -38,3 +38,22 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 如果升级后维护 skill 无法运行，在首页的安装命令末尾加 `--recover --dry-run` 查看恢复计划，再用 `--recover` 执行。恢复会切回之前验证过的 Kitto 程序并重新连接宿主。个人配置的历史版本通过 Git 恢复。
 
 需要解除集成时，可以在 agent 里说“用 Kitto 预览解除集成”。解除后仍保留个人配置、共享 skills 和宿主 CLI。
+
+## 发布新版本
+
+1. 在同一个 PR 里更新 `package.json` 和 `integration/plugin.json` 的 `version`，并在 `CHANGELOG.md` 顶部新增对应小节，例如 `## 0.1.1`。发布脚本接受 `主版本.次版本.补丁版本` 格式的正式版本。
+2. 等 PR 合入、CI 通过，在干净的工作树上切到最新的 `origin/main`。使用与 CI 一致的 Node.js 26，版本记录在 [`.node-version`](../.node-version)。还需要 npm、Git、Bash 和 Python 3.10+。正式发布时，当前账号需要能向 `origin` 推送 tag，并能向 npm 发布 `@phyzess/kitto`。
+3. 在仓库根目录执行下面的命令。第一条从提交快照运行检查并生成临时 npm 包，第二条重复检查，随后推送 `v0.1.1` 并把同一份包发布到 npm `latest`。
+
+   ```bash
+   npm run release -- 0.1.1
+   npm run release -- 0.1.1 --publish
+   ```
+
+如果 tag 已推送、npm 发布中断，回到同一个提交并用同一工具链重跑第二条。远端 tag 指向同一提交时可以继续发布。npm 上已有同版本时，脚本核对包的完整性摘要，吻合便视为已发布。
+
+需要让某台机器复现这一版时，可以把程序和配置都固定到该版本：
+
+```bash
+npx --yes @phyzess/kitto@0.1.1 setup --ref v0.1.1
+```
