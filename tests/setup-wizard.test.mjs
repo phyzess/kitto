@@ -100,3 +100,36 @@ test('wizard asks for separate permission to install pnpm in the DSH service acc
   assert.equal(declined.plans[0].source, false);
   assert.equal(declined.plans[0].serviceInstallAgents, undefined);
 });
+
+test('terminal wizard accepts arrows, Space, blank optional text, and Enter to preview', { timeout: 6000 }, async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  input.isTTY = output.isTTY = true;
+  input.setRawMode = enabled => { input.isRaw = enabled; };
+  output.columns = 100;
+  output.rows = 36;
+  const down = '\x1b[B';
+  const steps = [
+    ['选择宿主', down + ' ' + '\r'], // Deselect Codex from the detected hosts.
+    ['选择配置来源', down + down + '\r'],
+    ['工作区父目录', '\r'],
+    ['下一步', '\r'],
+    ['预览完成', '\r'],
+  ];
+  output.on('data', chunk => {
+    if (steps.length && chunk.toString().includes(steps[0][0])) {
+      const [, keys] = steps.shift();
+      setImmediate(() => input.write(keys));
+    }
+  });
+  const plans = [];
+  await runWizard({ input, output, detect: async () => ({ available: ['pi', 'codex'] }),
+    execute: async plan => plans.push(plan) });
+  assert.deepEqual(steps, []);
+  assert.equal(plans.length, 1);
+  assert.deepEqual(plans[0].agents, ['pi']);
+  assert.equal(plans[0].source, false);
+  assert.equal(plans[0].workspace, undefined);
+  assert.equal(plans[0].dryRun, true);
+  assert.equal(input.isRaw, false);
+});

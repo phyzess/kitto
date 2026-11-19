@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 if [[ $# -eq 0 && -t 0 && -t 1 ]] || [[ $# -eq 1 && $1 == --interactive ]]; then
+    if [[ -t 0 && -t 1 && ! -d "$SCRIPT_DIR/node_modules/@clack/prompts" ]]; then
+        npm install --prefix "$SCRIPT_DIR" --ignore-scripts --no-audit --no-fund
+    fi
     exec node "$SCRIPT_DIR/bin/kitto.mjs" setup --interactive
 fi
 

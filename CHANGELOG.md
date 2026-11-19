@@ -1,5 +1,10 @@
 # Kitto
 
+## 0.2.1
+
+- Select hosts with arrow keys and Space in the setup wizard, then choose a configuration source and preview or apply the plan. Scripted input remains supported.
+- Use the pinned i-have-adhd skill in the default Codex and DSH configuration alongside the existing Pi extension.
+
 ## 0.2.0
 
 - Guide users through host selection, configuration sources, dependencies, preview and installation in one interactive setup.

@@ -10,7 +10,7 @@ Kitto 把一套工作规则和 skills 带到 Pi、Codex 和 DeepSeek Harness（D
 npx --yes @phyzess/kitto@latest setup
 ```
 
-向导会让你选择宿主和配置仓库。选「使用默认 Kitto 配置」即可部署仓库里的规则、skills 和各宿主的 Kitto 集成。选择 Pi 时还会同步 Pi 包、扩展和 MCP 设置。已有自己的配置仓库时，可以填 Git URL 或本地路径。向导会询问是否补装缺少的 CLI 和辅助依赖，也可以在同一次运行里先预览，再确认安装。已有 Kitto 源码的机器可直接运行 `./setup.sh`。
+用 ↑↓ 移动、空格勾选宿主、Enter 确认。随后从菜单选择配置来源，指定本地路径或 Git URL 时直接输入。选「使用默认 Kitto 配置」即可部署仓库里的规则、skills 和各宿主的 Kitto 集成。选择 Pi 时还会同步 Pi 包、扩展和 MCP 设置。已有自己的配置仓库时，可以填 Git URL 或本地路径。向导会询问是否补装缺少的 CLI 和辅助依赖，也可以在同一次运行里先预览，再确认安装。已有 Kitto 源码的机器可直接运行 `./setup.sh`。
 
 ## 以后才建工作区怎么办？
 
