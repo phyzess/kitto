@@ -69,6 +69,12 @@ npx --yes @phyzess/kitto setup --workspace /home/dsh/workspace --dsh-service dsh
 
 DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-profile <name>`，以后按该 profile 的原生方式启动。
 
+## i-have-adhd 回复风格
+
+使用本仓库的完整配置后，Pi、Codex 和 DSH 默认采用行动优先、分步呈现的回复风格。Pi 通过上游扩展启用常开模式；Codex 和 DSH 通过各自的全局工作约定使用同一版本的 skill。向导的「仅配置共享规则与 skills」选项会跳过配置仓库里的这些内容。
+
+在会话中输入 `normal mode` 或 `stop adhd mode` 即可恢复普通风格。需要重新启用时，Pi 输入 `/i-have-adhd`，Codex 和 DSH 可以说「使用 i-have-adhd」。维护时，Pi 包版本与两个宿主的 skill 副本应一起更新。 [上游固定版本](https://github.com/ayghri/i-have-adhd/tree/1ecea1993b7fce257ffbd686c070948b5e07eda6)
+
 ## 配置改在哪里
 
 | 想改变什么 | 改哪里 |
@@ -96,13 +102,13 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 
 ## 发布新版本
 
-1. 在同一个 PR 里更新 `package.json` 和 `integration/plugin.json` 的 `version`，并在 `CHANGELOG.md` 顶部新增对应小节，例如 `## 0.2.0`。发布脚本接受 `主版本.次版本.补丁版本` 格式的正式版本。
+1. 在同一个 PR 里更新 `package.json`、`package-lock.json` 和 `integration/plugin.json` 的 `version`，并在 `CHANGELOG.md` 顶部新增对应小节，例如 `## 0.2.1`。发布脚本接受 `主版本.次版本.补丁版本` 格式的正式版本。
 2. 等 PR 合入、CI 通过，在干净的工作树上切到最新的 `origin/main`。使用与 CI 一致的 Node.js 26，版本记录在 [`.node-version`](../.node-version)。还需要 npm、Git、Bash 和 Python 3.10+。正式发布时，当前账号需要能向 `origin` 推送 tag，并能向 npm 发布 `@phyzess/kitto`。
-3. 在仓库根目录执行下面的命令。第一条从提交快照运行检查并生成临时 npm 包，第二条重复检查，随后推送 `v0.2.0` 并把同一份包发布到 npm `latest`。
+3. 在仓库根目录执行下面的命令。第一条从提交快照运行检查并生成临时 npm 包，第二条重复检查，随后推送 `v0.2.1` 并把同一份包发布到 npm `latest`。
 
    ```bash
-   npm run release -- 0.2.0
-   npm run release -- 0.2.0 --publish
+   npm run release -- 0.2.1
+   npm run release -- 0.2.1 --publish
    ```
 
 如果 tag 已推送、npm 发布中断，回到同一个提交并用同一工具链重跑第二条。远端 tag 指向同一提交时可以继续发布。npm 上已有同版本时，脚本核对包的完整性摘要，吻合便视为已发布。
@@ -110,5 +116,5 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 需要让某台机器复现这一版时，可以把程序和配置都固定到该版本：
 
 ```bash
-npx --yes @phyzess/kitto@0.2.0 setup --ref v0.2.0
+npx --yes @phyzess/kitto@0.2.1 setup --ref v0.2.1
 ```
