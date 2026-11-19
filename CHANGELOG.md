@@ -1,5 +1,12 @@
 # Kitto
 
+## 0.2.0
+
+- Guide users through host selection, configuration sources, dependencies, preview and installation in one interactive setup.
+- Share global and workspace instructions and skills across Pi, Codex and DSH, including workspaces created after setup.
+- Configure an active DSH system service under its own account from the same wizard.
+- Preserve conflicting unowned skills during guided setup and subsequent synchronization.
+
 ## 0.1.1
 
 - Document setup, synchronization and tag-pinned configuration for Pi, Codex and DSH.

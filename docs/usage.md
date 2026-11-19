@@ -2,9 +2,64 @@
 
 [返回首页](../README.md)
 
+## 一次设置，自动发现之后新建的工作区
+
+在终端运行 `npx --yes @phyzess/kitto@latest setup`（已有源码时可运行 `./setup.sh`）。选择宿主、配置来源和可选依赖，在「工作区父目录」填入存放工作区的目录，例如 `/home/dsh/workspaces`。服务端和终端使用不同账号时，在向导中选择检测到的 DSH 系统服务。每个账号有自己的全局配置目录。要让终端和 DSH 服务读取同一份工作区文件，两边应使用相同的工作区绝对路径，并能读取其中的文件。
+
+```text
+/home/dsh/workspaces/
+├── workspace-1/
+│   ├── AGENTS.md                     # 可选，适用于 workspace-1 下所有 repo
+│   ├── .agents/skills/review/SKILL.md
+│   └── repo-a/
+└── workspace-2/
+    └── repo-b/
+```
+
+父目录及其子目录都可以在 setup 之后创建。在 repo-a 中开启新会话就会加载全局配置和 workspace-1 的配置。在 repo-b 中则加载全局配置和 workspace-2 的配置。普通工作区无需创建任何 Kitto 文件。
+
+## 共享工作区
+
+如果只需登记一个已有工作区，运行 `npx --yes @phyzess/kitto setup --workspace /path/to/workspace`。目录可以已经有多个独立 Git 仓库。Kitto 会保留已有的规则与 skill，创建缺少的目录和规则文件，并为当前账号能运行的宿主安装适配器。加 `--dry-run` 可以预览，`--agents pi,codex` 可选定宿主。
+
+```text
+workspace/
+├── AGENTS.md
+├── .agents/skills/review/SKILL.md
+├── repo-a/AGENTS.md
+└── repo-b/
+```
+
+例如在工作区的 `AGENTS.md` 写「改代码后运行当前 repo 的测试」。在 `repo-a/AGENTS.md` 写「测试命令为 make check」。新会话能看到两条规则；在 `repo-b` 中只有工作区的通用约定。以后新 clone 的 repo 自动按会话的工作目录加入这个范围。DSH Web 使用所选项目的会话目录，服务启动目录可以在其他位置。
+
+共享 skill 使用三个宿主通用的目录格式。例如 `.agents/skills/review/SKILL.md` 可以写成：
+
+```markdown
+---
+name: review
+description: 审查当前仓库的代码修改。
+---
+
+读当前 Git diff，按影响列出需要修正的问题，并指出缺少的回归测试。
+```
+
+打开新会话并说「使用 review 审查这个修改」。Pi 和 DSH 使用原生 skill 发现。Codex 通过 SessionStart hook 把工作区 skill 的说明和路径交给模型，原生 `/skills` 菜单仅列出 Codex 自己发现的条目。首次在 Codex 用 `/hooks` 信任 Kitto 的 hook；DSH 在重启对应 profile 后加载适配器。
+
+`setup --global` 的文件位于 Kitto 数据目录的 `global/AGENTS.md` 和 `global/.agents/skills/`。默认数据目录为 `~/.local/share/kitto`。全局与工作区可以叠加，已登记的多层工作区按从外到内的顺序加载规则。同名 skill 的选择沿用各宿主的发现机制，给不同流程使用不同名称即可跨宿主一致引用。个人宿主扩展、模型和项目本身的设置继续使用各自的配置。
+
+### DSH 使用独立服务账号
+
+如果 Pi、Codex 在当前账号下运行，DSH Web 则由另一账号的 Linux systemd 系统服务启动，可以在有权限的 root 终端指定服务一次：
+
+```bash
+npx --yes @phyzess/kitto setup --workspace /home/dsh/workspace --dsh-service dsh.service
+```
+
+这会把同一工作区登记到两个账号。服务账号需要能访问工作区，命令从正在运行的服务取得宿主环境。正式应用后，在合适的时候重启该服务，再在 Web 中选 repo。每个项目继续使用同一套工作区文件。
+
 ## 选择 agent
 
-首页的 setup 默认选择本机已安装的 agent。只想配置 Codex 时，在安装命令末尾加 `--agents codex`。如果新机还没有 Codex，加 `--agents codex --install-agents` 即可一起安装。多个宿主用逗号分隔，例如 `--agents pi,codex`。再次 setup 可以追加宿主。
+交互向导默认选中检测到的宿主。下面的显式参数用于非交互部署配置仓库。只想配置 Codex 时，在安装命令末尾加 `--agents codex`。如果新机还没有 Codex，加 `--agents codex --install-agents` 即可一起安装。多个宿主用逗号分隔，例如 `--agents pi,codex`。再次 setup 可以追加宿主。
 
 | 宿主 | Kitto 管理的内容 | 使用前准备 |
 |---|---|---|
@@ -41,13 +96,13 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 
 ## 发布新版本
 
-1. 在同一个 PR 里更新 `package.json` 和 `integration/plugin.json` 的 `version`，并在 `CHANGELOG.md` 顶部新增对应小节，例如 `## 0.1.1`。发布脚本接受 `主版本.次版本.补丁版本` 格式的正式版本。
+1. 在同一个 PR 里更新 `package.json` 和 `integration/plugin.json` 的 `version`，并在 `CHANGELOG.md` 顶部新增对应小节，例如 `## 0.2.0`。发布脚本接受 `主版本.次版本.补丁版本` 格式的正式版本。
 2. 等 PR 合入、CI 通过，在干净的工作树上切到最新的 `origin/main`。使用与 CI 一致的 Node.js 26，版本记录在 [`.node-version`](../.node-version)。还需要 npm、Git、Bash 和 Python 3.10+。正式发布时，当前账号需要能向 `origin` 推送 tag，并能向 npm 发布 `@phyzess/kitto`。
-3. 在仓库根目录执行下面的命令。第一条从提交快照运行检查并生成临时 npm 包，第二条重复检查，随后推送 `v0.1.1` 并把同一份包发布到 npm `latest`。
+3. 在仓库根目录执行下面的命令。第一条从提交快照运行检查并生成临时 npm 包，第二条重复检查，随后推送 `v0.2.0` 并把同一份包发布到 npm `latest`。
 
    ```bash
-   npm run release -- 0.1.1
-   npm run release -- 0.1.1 --publish
+   npm run release -- 0.2.0
+   npm run release -- 0.2.0 --publish
    ```
 
 如果 tag 已推送、npm 发布中断，回到同一个提交并用同一工具链重跑第二条。远端 tag 指向同一提交时可以继续发布。npm 上已有同版本时，脚本核对包的完整性摘要，吻合便视为已发布。
@@ -55,5 +110,5 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 需要让某台机器复现这一版时，可以把程序和配置都固定到该版本：
 
 ```bash
-npx --yes @phyzess/kitto@0.1.1 setup --ref v0.1.1
+npx --yes @phyzess/kitto@0.2.0 setup --ref v0.2.0
 ```

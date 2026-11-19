@@ -34,3 +34,7 @@ jobs:
         env:
           KITTO_NATIVE_BIN: ${{ runner.temp }}/kitto-hosts/node_modules/.bin
         run: node --test tests/native.test.mjs
+      - name: Verify workspace sessions with native Codex and DSH
+        run: |
+          export PATH="$RUNNER_TEMP/kitto-hosts/node_modules/.bin:$PATH"
+          node --test tests/scope-codex.test.mjs tests/scope-dsh.test.mjs
