@@ -5,6 +5,7 @@
 - Document setup, synchronization and tag-pinned configuration for Pi, Codex and DSH.
 - Use Node.js 26 LTS for release checks and CI.
 - Validate, tag and publish release snapshots with `npm run release`.
+- Allow switching configuration tags when the Kitto home path uses a filesystem alias.
 
 ## 0.1.0
 

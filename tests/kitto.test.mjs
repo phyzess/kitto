@@ -450,6 +450,9 @@ test('dependency apply reports missing installers and checks successful installs
 
 test('tag install pins a snapshot and managed setup can switch it without losing local changes', t => {
   const f = fixture(t), mirror = join(f.temp, 'remote.git');
+  const homeAlias = join(f.temp, 'home-alias');
+  symlinkSync(f.home, homeAlias, 'dir');
+  f.env.KITTO_HOME = join(homeAlias, 'kitto');
   const git = (...args) => command('git', args, f.env, f.source);
   const first = git('rev-parse', 'HEAD').stdout.trim();
   good(git('tag', 'v1'));
