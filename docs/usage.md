@@ -57,6 +57,22 @@ npx --yes @phyzess/kitto setup --workspace /home/dsh/workspace --dsh-service dsh
 
 这会把同一工作区登记到两个账号。服务账号需要能访问工作区，命令从正在运行的服务取得宿主环境。正式应用后，在合适的时候重启该服务，再在 Web 中选 repo。每个项目继续使用同一套工作区文件。
 
+## 查看与移除 scope 登记
+
+`setup` 只会把 global、工作区和父目录登记到 Kitto 数据目录的 `scopes.json`（默认 `~/.local/share/kitto/scopes.json`）。下面的命令只读写这份登记，不安装或修改宿主：
+
+```bash
+kitto scope list
+kitto scope list --json
+kitto scope remove --global
+kitto scope remove --workspace /path/to/workspace
+kitto scope remove --workspace-parent /path/to/workspaces
+```
+
+`scope list` 只读；文件不存在时按空登记处理，不会创建文件。`--json` 输出 `version`、`global`、`workspaces`、`workspaceParents`，并保留文件中的未知顶层字段，方便脚本读取。
+
+`scope remove` 只移除登记，**不删除**任何 `AGENTS.md`、`.agents/skills`、宿主 hook/symlink/profile patch 或用户文件。要解除宿主集成，仍使用「用 Kitto 预览解除集成」。路径按登记时的绝对路径精确匹配；传入相对路径时从当前目录解析。要移除的项不存在时命令以退出码 1 失败且不写文件；`--global` 在全局未登记时同样失败。写回使用临时文件加 rename，文件权限为 0600。
+
 ## 选择 agent
 
 交互向导默认选中检测到的宿主。下面的显式参数用于非交互部署配置仓库。只想配置 Codex 时，在安装命令末尾加 `--agents codex`。如果新机还没有 Codex，加 `--agents codex --install-agents` 即可一起安装。多个宿主用逗号分隔，例如 `--agents pi,codex`。再次 setup 可以追加宿主。

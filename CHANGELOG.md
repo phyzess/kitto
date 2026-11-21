@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Scope lifecycle: add `kitto scope list [--json]` and `kitto scope remove --global|--workspace|--workspace-parent`. Registry writes are validated and atomic (temp file + rename, mode 0600), unknown top-level fields survive, and removal only unregisters a scope: instructions, skills, host adapters and user files are never deleted.
 - DSH: report missing CodeGraph indexes in `status`, and initialize registered scoped workspaces during `setup` when the CodeGraph CLI is available. General `sync`/`deps`/`export` never write indexes; set `KITTO_NO_CODEGRAPH_INIT=1` to keep setup report-only.
 - DSH/Codex: make the Codex `i-have-adhd` skill model-invocable (`allow_implicit_invocation: true`), align its startup instruction with DSH, and support a custom `DSH_HOME` in the fallback path.
 - Skills: replace deployed skill directories with a temp directory and rename, so an interrupted sync cannot leave a half-copied tree that is permanently reported as a conflict.
