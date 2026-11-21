@@ -98,7 +98,9 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 | 凭据/env | `~/.pi-agent-env` | 宿主自管 | 宿主 env/service env |
 | workspace scope | scoped-pi | scoped-codex | scoped-dsh |
 
-MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 `setup` 和 `sync` 时由 Kitto 把 `config/pi/mcp.json`（叠加当前平台的 `config/pi/platform/<macos|linux>/mcp.json`）中没有 `env`/`headers` 的 server 同步为 `$DSH_HOME/cordis.patch.yml` 里的 `kitto-mcp-*` 条目；该 home patch 对所有 profile 生效，同步只增删这些条目，保留其它 YAML、注释、`!!js` 和顺序。带 `env`/`headers` 的 server、`mcp.private.json` 和 `local/mcp.json` 不会同步，仍需在 DSH 原生配置或环境中手动准备；已有同名 `serverName`（例如 CodeGraph 安装器写入的 `mcp-codegraph`）会跳过并警告。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步。Codex 的 MCP、模型/settings 和凭据继续使用各自原生配置。
+MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 `setup` 和 `sync` 时由 Kitto 把 `config/pi/mcp.json`（叠加当前平台的 `config/pi/platform/<macos|linux>/mcp.json`，跳过 `enabled: false`）中没有 `env`/`headers` 的 server 同步为 `$DSH_HOME/cordis.patch.yml` 里的 `kitto-mcp-*` 条目；home patch 对所有 profile 生效，同步只增删这些条目，保留其它 YAML 行、注释和 `!!js`，Kitto 自己的条目按源顺序追加到末尾。`env`/`headers` server 会跳过并警告；`mcp.private.json` 和 `local/mcp.json` 根本不读取，仍需在 DSH 原生配置或环境中手动准备。
+
+home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。Codex 的 MCP、模型/settings 和凭据继续使用各自原生配置。
 
 `kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。
 
@@ -148,7 +150,7 @@ Kitto 也会检查已登记工作区是否对当前账号可写。只读工作�
 
 如果升级后维护 skill 无法运行，在首页的安装命令末尾加 `--recover --dry-run` 查看恢复计划，再用 `--recover` 执行。恢复会切回之前验证过的 Kitto 程序并重新连接宿主。个人配置的历史版本通过 Git 恢复。
 
-需要解除集成时，可以在 agent 里说“用 Kitto 预览解除集成”。解除后仍保留个人配置、共享 skills 和宿主 CLI。
+需要解除集成时，可以在 agent 里说“用 Kitto 预览解除集成”。解除 DSH 时会同时删除 `$DSH_HOME/cordis.patch.yml` 中 Kitto 自有的 `kitto-mcp-*` 行，保留其它内容。解除后仍保留个人配置、共享 skills 和宿主 CLI。
 
 ## 发布新版本
 

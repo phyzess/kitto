@@ -36,6 +36,8 @@ jobs:
           KITTO_NATIVE_BIN: ${{ runner.temp }}/kitto-hosts/node_modules/.bin
         run: node --test tests/native.test.mjs
       - name: Verify workspace sessions and MCP sync with native Codex and DSH
+        env:
+          KITTO_REQUIRE_NATIVE_DSH: '1'
         run: |
           export PATH="$RUNNER_TEMP/kitto-hosts/node_modules/.bin:$PATH"
           node --test tests/mcp-sync.test.mjs tests/scope-codex.test.mjs tests/scope-dsh.test.mjs
