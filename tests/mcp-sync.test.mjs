@@ -201,11 +201,48 @@ test('reference env/headers become DSH credential templates; literal values are 
   assert.match(joined, /skipped urlQueryKey \(url has a credential-like query parameter/);
   assert.match(joined, /skipped cmdFlag \(args\[1\] looks like a literal credential/);
   assert.match(joined, /skipped cmdAssign \(args\[0\] looks like a literal credential/);
-  assert.match(joined, /skipped cmdHeader \(args\[1\] looks like a literal credential/);
+  assert.match(joined, /skipped cmdHeader \(args\[1\] looks like a sensitive header/);
   assert.doesNotMatch(joined, /plain-literal|short-token|ghp_|sk-|user:pass|abcd/);
 
   const again = await syncDshMcp({ source, dshHome }, { yaml, warn: () => {} });
   assert.equal(again.changed, false);
+});
+
+test('sensitive query keys and header flags are refused without values', { skip: !yaml }, async t => {
+  const queryKeys = ['sig', 'signature', 'auth', 'apikey', 'api_key', 'access_token',
+    'refresh_token', 'credential', 'token', 'key', 'secret', 'password'];
+  const servers = {};
+  for (const key of queryKeys) {
+    servers[`query_${key}`] = { type: 'http', url: `https://example.test/mcp?${key}=abcd` };
+  }
+  servers.safeQuery = { type: 'http', url: 'https://example.test/mcp?tenant=acme&monkey=1&author=me&design=plain&signal=ok' };
+  servers.headerSeparate = { command: 'npx', args: ['-H', 'X-Key: abcd'] };
+  servers.headerInline = { command: 'npx', args: ['--header=X-Key: abcd'] };
+  servers.headerNameThenValue = { command: 'npx', args: ['--header', 'X-Key', 'abcd'] };
+  servers.headerInlineNameThenValue = { command: 'npx', args: ['--header=X-Key', 'abcd'] };
+  servers.headerSafe = { command: 'npx', args: ['-H', 'Accept: application/json'] };
+  servers.headerValue = { command: 'npx', args: ['-H', 'X-Custom: some-long-unbroken-value-1234'] };
+  servers.flagToken = { command: 'npx', args: ['--token', 'abcd'] };
+  servers.flagSecret = { command: 'npx', args: ['--secret=abcd'] };
+  const source = await sourceFixture(t, servers);
+  const dshHome = await temporary(t, 'kitto-mcp-dsh-');
+  const warnings = [];
+  await syncDshMcp({ source, dshHome }, { yaml, warn: line => warnings.push(line) });
+  const configs = kittoConfigs(await read(join(dshHome, 'cordis.patch.yml')), yaml);
+  assert.deepEqual([...configs.keys()], ['safeQuery', 'headerSafe']);
+  assert.equal(configs.get('safeQuery').url, 'https://example.test/mcp?tenant=acme&monkey=1&author=me&design=plain&signal=ok');
+  const joined = warnings.join('\n');
+  for (const key of queryKeys) {
+    assert.match(joined, new RegExp(`skipped query_${key} \\(url has a credential-like query parameter`), key);
+  }
+  assert.match(joined, /skipped headerSeparate \(args\[1\] looks like a sensitive header/);
+  assert.match(joined, /skipped headerInline \(args\[0\] looks like a sensitive header/);
+  assert.match(joined, /skipped headerNameThenValue \(args\[1\] looks like a sensitive header/);
+  assert.match(joined, /skipped headerInlineNameThenValue \(args\[0\] looks like a sensitive header/);
+  assert.match(joined, /skipped headerValue \(args\[1\] looks like a credential header value/);
+  assert.match(joined, /skipped flagToken \(args\[1\] looks like a literal credential/);
+  assert.match(joined, /skipped flagSecret \(args\[0\] looks like a literal credential/);
+  assert.doesNotMatch(joined, /abcd/);
 });
 
 test('private and local MCP sources are opt-in for DSH sync', { skip: !yaml }, async t => {

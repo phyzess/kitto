@@ -746,6 +746,13 @@ test('literal URL and command credentials are refused before argv', async t => {
     flag: { command: 'npx', args: ['--api-key', 'abcd'] },
     assign: { command: 'npx', args: ['TOKEN=abcd'] },
     header: { command: 'npx', args: ['--header', 'Authorization: Bearer abcd'] },
+    sigQuery: { url: 'https://example.invalid/mcp?sig=abcd' },
+    authQuery: { url: 'https://example.invalid/mcp?auth=abcd' },
+    apikeyQuery: { url: 'https://example.invalid/mcp?apikey=abcd' },
+    headerSeparate: { command: 'npx', args: ['-H', 'X-Key: abcd'] },
+    headerInline: { command: 'npx', args: ['--header=X-Key: abcd'] },
+    headerSafe: { command: 'npx', args: ['-H', 'Accept: application/json'] },
+    flagToken: { command: 'npx', args: ['--token', 'abcd'] },
     safe: { url: 'https://example.invalid/mcp?tenant=acme' },
   });
   const state = f.state();
@@ -756,18 +763,25 @@ test('literal URL and command credentials are refused before argv', async t => {
     ['query', /url has a credential-like query parameter/],
     ['flag', /args\[1\] looks like a literal credential/],
     ['assign', /args\[0\] looks like a literal credential/],
-    ['header', /args\[1\] looks like a literal credential/],
+    ['header', /args\[1\] looks like a sensitive header/],
+    ['sigQuery', /url has a credential-like query parameter/],
+    ['authQuery', /url has a credential-like query parameter/],
+    ['apikeyQuery', /url has a credential-like query parameter/],
+    ['headerSeparate', /args\[1\] looks like a sensitive header/],
+    ['headerInline', /args\[0\] looks like a sensitive header/],
+    ['flagToken', /args\[1\] looks like a literal credential/],
   ]) {
     assert.equal(byName.get(name).action, 'skip', name);
     assert.match(byName.get(name).reason, reason, name);
   }
   assert.equal(byName.get('safe').action, 'add');
+  assert.equal(byName.get('headerSafe').action, 'add');
   assert(!JSON.stringify(operations).includes('user:pass'));
   assert(!JSON.stringify(operations).includes('abcd'));
 
   await f.apply(state);
-  assert.deepEqual(f.mcpCalls('add').map(call => call.args[2]), ['safe']);
-  assert(f.mcpCalls('add')[0].args.includes('https://example.invalid/mcp?tenant=acme'));
+  assert.deepEqual(f.mcpCalls('add').map(call => call.args[2]), ['headerSafe', 'safe']);
+  assert(f.mcpCalls('add').some(call => call.args.includes('https://example.invalid/mcp?tenant=acme')));
   assert(!JSON.stringify(f.calls()).includes('user:pass'));
   assert(!JSON.stringify(f.calls()).includes('abcd'));
 });

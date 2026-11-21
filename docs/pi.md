@@ -42,7 +42,7 @@ Pi 的 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`）由 K
 
 私有服务器使用 [mcp.private.example.json](../config/pi/mcp.private.example.json) 作为模板，保存为同目录的 `mcp.private.json`。令牌通过环境变量提供。同步会根据当前配置的 Bash 或 Zsh 查找启动文件，必要时提示你加载 `~/.pi-agent-env`。
 
-`local/` 和 `mcp.private.json` 是机器专属文件：DSH/Codex 的 MCP 同步默认不读取它们，只有全局 `setup`/`update` 加 `--include-private` 才纳入。同步只接受 env/headers 里的完整 `${VAR}` 引用（HTTP `Authorization` 可用 `Bearer ${VAR}`）；字面值与字面 token 会整条跳过，原因只打印键名或 token 类型。URL userinfo、token/key/secret/password 类 query，以及 command/args 中凭据形状的 flag、env 赋值或字面 Authorization 也会被拒绝。`YOUR_*` 占位符尚未替换的条目也会跳过。
+`local/` 和 `mcp.private.json` 是机器专属文件：DSH/Codex 的 MCP 同步默认不读取它们，只有全局 `setup`/`update` 加 `--include-private` 才纳入。同步只接受 env/headers 里的完整 `${VAR}` 引用（HTTP `Authorization` 可用 `Bearer ${VAR}`）；字面值与字面 token 会整条跳过，原因只打印键名或 token 类型。URL userinfo、token/key/secret/password/sig/signature/auth 类 query，以及 command/args 中凭据形状的 flag（含 `--header`/`-H` 后跟敏感 header 名或凭据值）、env 赋值或字面 Authorization 也会被拒绝。`YOUR_*` 占位符尚未替换的条目也会跳过。
 
 只对某个项目启用的服务器，可参考 [项目 MCP 模板](../config/pi/mcp.per-project.example.json)，把需要的条目写到项目的 `.pi/mcp.json`。
 
