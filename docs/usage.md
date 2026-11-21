@@ -65,13 +65,13 @@ npx --yes @phyzess/kitto setup --workspace /home/dsh/workspace --dsh-service dsh
 |---|---|---|
 | Pi | settings、MCP、扩展、规则和 skills | Bash、Python 3.10+。通过 Kitto 安装 Pi CLI 需要 Node 22.19+ |
 | Codex | 全局规则、skills 和 Kitto 插件 | 登录 Codex，按需配置自己的模型、权限和 MCP |
-| DSH | 全局规则、skills 和指定 profile 的 Kitto bundle | pnpm。通过 Kitto 安装 DSH CLI 需要 Node 24.9+；`--install-agents` 可补装 pnpm |
+| DSH | 全局规则、skills、指定 profile 的 Kitto bundle，以及 CodeGraph 索引提醒/初始化 | pnpm。通过 Kitto 安装 DSH CLI 需要 Node 24.9+；`--install-agents` 可补装 pnpm |
 
 DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-profile <name>`，以后按该 profile 的原生方式启动。
 
 ## i-have-adhd 回复风格
 
-使用本仓库的完整配置后，Pi、Codex 和 DSH 默认采用行动优先、分步呈现的回复风格。Pi 通过上游扩展启用常开模式；Codex 和 DSH 通过各自的全局工作约定使用同一版本的 skill。向导的「仅配置共享规则与 skills」选项会跳过配置仓库里的这些内容。
+使用本仓库的完整配置后，Pi、Codex 和 DSH 默认采用行动优先、分步呈现的回复风格。Pi 通过上游扩展启用常开模式；Codex 和 DSH 通过各自的全局工作约定加载同一版本的 skill。DSH 的 `i-have-adhd` 副本可由模型加载，AGENTS.md 会在会话开始要求加载它。向导的「仅配置共享规则与 skills」选项会跳过配置仓库里的这些内容。
 
 在会话中输入 `normal mode` 或 `stop adhd mode` 即可恢复普通风格。需要重新启用时，Pi 输入 `/i-have-adhd`，Codex 和 DSH 可以说「使用 i-have-adhd」。维护时，Pi 包版本与两个宿主的 skill 副本应一起更新。 [上游固定版本](https://github.com/ayghri/i-have-adhd/tree/1ecea1993b7fce257ffbd686c070948b5e07eda6)
 
@@ -91,6 +91,12 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 在第一台机器上，告诉 Kitto 这次修改适用于哪些机器和 agent。检查配置仓库中的差异，提交并推送。到第二台机器，让 Kitto 从远端更新配置。遇到本地修改时，先处理报告里的冲突，再重试。
 
 需要复现某次配置时，在 setup 命令末尾加 `--ref <已存在的-tag>`。Kitto 创建的配置仓库可以用同一参数切换到另一个 tag；自己提供的本地仓库用 Git 切换。状态中的 `deployed` 表示上次成功部署的提交，`checkout` 表示源目录当前的提交。检查上游工具版本时，可以直接说“用 Kitto 在线检查已启用工具的版本”。
+
+## CodeGraph 索引与工作区权限
+
+DSH 的 CodeGraph MCP 只查询已经建立索引的仓库。Kitto 在 `status` 中报告缺失的索引，在 `setup` 和 `sync --apply` 时检测已登记工作区并执行 `codegraph init`；这要求 `codegraph` 在 PATH 中。设置 `KITTO_NO_CODEGRAPH_INIT=1` 可以只提醒、不自动执行。
+
+Kitto 也会检查已登记工作区是否对当前账号可写。只读工作区会让 agent 无法创建 `.codegraph`、`.pi` 或修改文件；setup 会打印警告。按提示给运行 DSH 的账号授予写权限（`chown` 或 `setfacl`）后重试。
 
 ## 安装失败或需要恢复
 

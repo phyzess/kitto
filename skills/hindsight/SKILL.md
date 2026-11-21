@@ -5,7 +5,7 @@ description: Agent-curated project memory — retain and recall key insights acr
 
 # Hindsight — Agent-Curated Project Memory
 
-Persistent, agent-curated memory for this project. Hindsight is **active curation**, not passive capture: the agent decides what is worth remembering and writes it down. Next session, it loads automatically.
+Persistent, agent-curated memory for this project. Hindsight is **active curation**, not passive capture: the agent decides what is worth remembering and writes it down. If the host auto-loads skills, it can be loaded next session; otherwise load it at session start and run the recall command below.
 
 ## Memory Store
 
@@ -31,7 +31,7 @@ echo '{"timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","context":"<brief context>",
 
 ## When to RECALL (load memories)
 
-On every session start, load the last 20 entries:
+At session start (and whenever memory may be relevant), load the last 20 entries:
 ```bash
 tail -20 .pi/hindsight.jsonl 2>/dev/null
 ```
@@ -50,10 +50,12 @@ After completing a significant piece of work, take 30 seconds to reflect:
 
 ## 与其他记忆层的关系
 
+以下 `atlas/` 层是可选的；工作区没有 `atlas/` 时，Hindsight 只使用 `.pi/hindsight.jsonl`。
+
 Hindsight 存的是**需要判断力**的战略性洞察。另外三层负责别的,不要重复写:
 
 - `atlas/session-notes/`(`session-notes.ts` 归档)—— 各 harness 压缩时生成的会话摘要:自动、量大、未筛选。
-- `atlas/BOOTSTRAP.md` §5「记忆摘要」—— 开局自动装配最近的 hindsight 条目,所以写进来的洞察下一轮就会读到;这是 Hindsight 的**主要出口**。
+- `atlas/BOOTSTRAP.md` §5「记忆摘要」—— 如果存在，会在开局自动装配最近的 hindsight 条目，写进来的洞察下一轮就会读到；这是有 atlas 时的**主要出口**。
 - `atlas/scripts/task-registry.ts` —— 跨 harness 的任务身份与恢复候选,回答「上次在做哪个工单」。
 
 分工的理由:自动捕获的事件量会淹没重点,而 Hindsight 由 agent 决定「什么值得记」—— 这是它不可替代的地方,也是它必须**少而精**的原因。

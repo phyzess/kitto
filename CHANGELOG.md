@@ -1,5 +1,13 @@
 # Kitto
 
+## Unreleased
+
+- DSH: report missing CodeGraph indexes in `status`, and initialize them during `setup` and `sync --apply` when the CodeGraph CLI is available. Disable auto-initialization with `KITTO_NO_CODEGRAPH_INIT=1`.
+- DSH: warn when a registered workspace is not writable by the current user, so agents do not fail later on `.codegraph`, `.pi` or file edits.
+- Config: make the DSH `i-have-adhd` skill model-invocable and make the session-start instruction explicit.
+- Config: correct CodeGraph MCP tool names, add the DSH `mcp__codegraph__*` and `projectPath` guidance, and mark `codegraph affected` as CLI-only.
+- Config: stop claiming Hindsight auto-loads in DSH; document manual recall and the optional `atlas/` layers.
+
 ## 0.2.1
 
 - Select hosts with arrow keys and Space in the setup wizard, then choose a configuration source and preview or apply the plan. Scripted input remains supported.
