@@ -1513,8 +1513,8 @@ test('kitto hosts --apply keeps a prerelease DSH baseline exact', t => {
   const result = tools.run('hosts', '--apply');
   good(result);
   assert.deepEqual(tools.installs(),
-    [{ command: 'npm', args: ['install', '--global', '@deepseek-ai/dsh@0.2.2-rc.1'] }]);
-  assert.match(result.stdout, /verified dsh 0\.2\.2-rc\.1/);
+    [{ command: 'npm', args: ['install', '--global', '@deepseek-ai/dsh@0.2.2-rc.2'] }]);
+  assert.match(result.stdout, /verified dsh 0\.2\.2-rc\.2/);
 });
 
 test('kitto hosts --version pins one exact version and refuses dist-tags', t => {
@@ -1597,7 +1597,7 @@ test('kitto hosts leaves the app-managed DSH Desktop CLI to the Desktop app', t 
 
   const check = tools.run('hosts');
   good(check);
-  assert.match(check.stdout, /dsh: app-managed by DeepSeek Harness Desktop; Kitto baseline 0\.2\.2-rc\.1/);
+  assert.match(check.stdout, /dsh: app-managed by DeepSeek Harness Desktop; Kitto baseline 0\.2\.2-rc\.2/);
   assert.match(check.stdout, /Nothing for Kitto to manage/);
 
   const applied = tools.run('hosts', '--apply');
@@ -1606,7 +1606,7 @@ test('kitto hosts leaves the app-managed DSH Desktop CLI to the Desktop app', t 
   assert.equal(tools.calls().some(call => call.command === 'npm'), false);
   assert.deepEqual(snapshot(home), before);
 
-  const pinned = tools.run('hosts', '--host', 'dsh', '--version', '0.2.2-rc.1', '--apply');
+  const pinned = tools.run('hosts', '--host', 'dsh', '--version', '0.2.2-rc.2', '--apply');
   assert.notEqual(pinned.status, 0);
   assert.match(pinned.stderr, /app-managed/);
 });

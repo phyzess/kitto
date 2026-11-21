@@ -229,7 +229,7 @@ npx --yes @phyzess/kitto@latest hosts --apply  # 只把低于基线的已选宿�
 npx --yes @phyzess/kitto@latest hosts --host codex --version 0.170.0 --apply
 ```
 
-`kitto hosts` 只处理 `state.json` 中已选的宿主，逐行显示当前 `--version`、Kitto 基线 `hosts[name].version` 和对应的原生管理命令。`--check`（默认行为）只读：不写宿主、不写 Kitto 状态；`--apply` 才执行 `npm install --global <包>@<版本>`。Pi 和 Codex 安装各自的 npm 全局包；DSH 安装 `@deepseek-ai/dsh@<基线>`，基线是 prerelease 时保留精确版本（例如 `0.2.2-rc.1`），不会替换成 `next` 或 `latest`。
+`kitto hosts` 只处理 `state.json` 中已选的宿主，逐行显示当前 `--version`、Kitto 基线 `hosts[name].version` 和对应的原生管理命令。`--check`（默认行为）只读：不写宿主、不写 Kitto 状态；`--apply` 才执行 `npm install --global <包>@<版本>`。Pi 和 Codex 安装各自的 npm 全局包；DSH 安装 `@deepseek-ai/dsh@<基线>`，基线是 prerelease 时保留精确版本（例如 `0.2.2-rc.2`），不会替换成 `next` 或 `latest`。
 
 - 版本低于基线或尚未安装：`--apply` 安装基线。
 - 已等于基线：不做任何事。
