@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { probeDesktopProfile } from '../lib/dsh-profile.mjs';
 import { composeInstructions } from '../lib/host-config.mjs';
 import { compareVersions } from '../lib/hosts.mjs';
-import { parseOptions, replaceDirectory, treeHash } from '../lib/kitto.mjs';
+import { hosts, meetsBaseline, parseOptions, replaceDirectory, treeHash } from '../lib/kitto.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -100,6 +100,18 @@ test('private MCP sources are an explicit opt-in option', () => {
   assert.equal(parseOptions(['--no-include-private'])['no-include-private'], true);
   assert.throws(() => parseOptions(['--include-private', '--no-include-private']), /Choose either/);
   assert.throws(() => parseOptions(['--recover', '--include-private']), /only accepts/);
+});
+
+test('host baseline comparison orders prereleases', () => {
+  assert.equal(hosts.dsh.version, '0.2.2-rc.2', 'the DSH baseline must support credential templates');
+  assert.equal(meetsBaseline('0.2.2-rc.2', '0.2.2-rc.2'), true);
+  assert.equal(meetsBaseline('0.2.2-rc.1', '0.2.2-rc.2'), false, 'rc.1 is older than rc.2');
+  assert.equal(meetsBaseline('0.2.2-rc.10', '0.2.2-rc.2'), true, 'numeric prerelease identifiers compare as numbers');
+  assert.equal(meetsBaseline('0.2.2', '0.2.2-rc.2'), true);
+  assert.equal(meetsBaseline('0.2.2-rc.2', '0.2.2'), false);
+  assert.equal(meetsBaseline('0.2.1', '0.2.2-rc.2'), false);
+  assert.equal(meetsBaseline('0.3.0-rc.1', '0.2.2-rc.2'), true);
+  assert.equal(meetsBaseline('not-a-version', '0.2.2-rc.2'), false);
 });
 
 test('skill directory replacement is atomic and leaves no backup', async t => {

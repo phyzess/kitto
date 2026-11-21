@@ -161,6 +161,13 @@ test('reference env/headers become DSH credential templates; literal values are 
     secretArgs: { command: 'npx', args: [`--token=${openAiToken}`] },
     partialHeader: { type: 'http', url: 'https://example.test/mcp', headers: { 'X-Api-Key': 'prefix-${KEY}' } },
     urlTemplate: { type: 'http', url: 'https://example.test/${TENANT}/mcp' },
+    urlUserinfo: { type: 'http', url: 'https://user:pass@example.test/mcp' },
+    urlQueryToken: { type: 'http', url: 'https://example.test/mcp?access_token=abcd' },
+    urlQueryKey: { type: 'http', url: 'https://example.test/mcp?api-key=abcd' },
+    urlQuerySafe: { type: 'http', url: 'https://example.test/mcp?tenant=acme' },
+    cmdFlag: { command: 'npx', args: ['--api-key', 'abcd'] },
+    cmdAssign: { command: 'npx', args: ['TOKEN=abcd'] },
+    cmdHeader: { command: 'npx', args: ['--header', 'Authorization: Bearer abcd'] },
   });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
@@ -176,9 +183,11 @@ test('reference env/headers become DSH credential templates; literal values are 
   assert.deepEqual(configs.get('headerServer').headers, { 'X-Api-Key': '${credential:API_KEY}' });
   assert.equal(configs.get('bearerServer').expandTemplates, true);
   assert.equal(configs.get('headerServer').expandTemplates, true);
-  for (const name of ['literalEnv', 'partialEnv', 'literalBearer', 'secretHeader', 'secretArgs', 'partialHeader', 'urlTemplate']) {
+  for (const name of ['literalEnv', 'partialEnv', 'literalBearer', 'secretHeader', 'secretArgs', 'partialHeader',
+    'urlTemplate', 'urlUserinfo', 'urlQueryToken', 'urlQueryKey', 'cmdFlag', 'cmdAssign', 'cmdHeader']) {
     assert.equal(configs.has(name), false, name);
   }
+  assert.equal(configs.get('urlQuerySafe').url, 'https://example.test/mcp?tenant=acme');
   const joined = warnings.join('\n');
   assert.match(joined, /skipped literalEnv \(env\.TOKEN is a literal value; only \$\{VAR\} references are synced\)/);
   assert.match(joined, /skipped partialEnv \(env\.TOKEN is not a whole \$\{VAR\} reference\)/);
@@ -187,7 +196,13 @@ test('reference env/headers become DSH credential templates; literal values are 
   assert.match(joined, /skipped secretArgs \(contains a literal secret \(openai-style key\) at args\[0\]\)/);
   assert.match(joined, /skipped partialHeader \(headers\.X-Api-Key is not a whole \$\{VAR\} reference\)/);
   assert.match(joined, /skipped urlTemplate \(url contains a credential template/);
-  assert.doesNotMatch(joined, /plain-literal|short-token|ghp_|sk-/);
+  assert.match(joined, /skipped urlUserinfo \(url contains userinfo credentials; only env\/headers references are synced\)/);
+  assert.match(joined, /skipped urlQueryToken \(url has a credential-like query parameter/);
+  assert.match(joined, /skipped urlQueryKey \(url has a credential-like query parameter/);
+  assert.match(joined, /skipped cmdFlag \(args\[1\] looks like a literal credential/);
+  assert.match(joined, /skipped cmdAssign \(args\[0\] looks like a literal credential/);
+  assert.match(joined, /skipped cmdHeader \(args\[1\] looks like a literal credential/);
+  assert.doesNotMatch(joined, /plain-literal|short-token|ghp_|sk-|user:pass|abcd/);
 
   const again = await syncDshMcp({ source, dshHome }, { yaml, warn: () => {} });
   assert.equal(again.changed, false);

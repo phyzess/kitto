@@ -131,3 +131,62 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.match(state().mcp.codex['kitto-fixture'], /^[0-9a-f]{64}$/);
   assert(dshProfile().dsh.profile.bundles.includes('@phyzess/kitto'));
 });
+
+test('native hosts load and remove reference-only MCP credentials', { skip: !nativeBin, timeout: 240_000 }, t => {
+  const temp = mkdtempSync(join(tmpdir(), "kitto native creds's "));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const home = join(temp, 'home'), source = join(temp, 'config');
+  for (const dir of [home, join(source, 'config/pi'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
+  const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'),
+    PI_CODING_AGENT_DIR: join(home, 'pi'), PI_AGENTS_DIR: join(home, '.agents'), CODEX_HOME: join(home, 'codex'),
+    DSH_HOME: join(home, 'dsh'), DSH_AGENTS_HOME: join(home, '.agents'), KITTO_UPDATE_CHECK: '0',
+    KITTO_TEST_TOKEN: 'native-fixture-token',
+    PATH: `${resolve(nativeBin)}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const run = (command, args) => execFileSync(command, args, { env, cwd: home, encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const cli = (...args) => run(process.execPath, [join(root, 'bin/kitto.mjs'), 'setup', ...args]);
+  const maintain = (...args) => run(process.execPath, [join(env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args]);
+  const codexServers = () => JSON.parse(run('codex', ['mcp', 'list', '--json']));
+  const files = {
+    '.gitignore': 'config/pi/local/\n',
+    'config/pi/settings.json': '{"packages":[],"quietStartup":true}',
+    'config/pi/mcp.json': JSON.stringify({ mcpServers: {
+      'plain-fixture': { command: 'kitto-plain-mcp', args: ['serve'] },
+      'dsh-env-fixture': { command: 'kitto-env-mcp', env: { FIXTURE_TOKEN: '${KITTO_TEST_TOKEN}' } },
+      'dsh-cred-fixture': { type: 'http', url: 'http://127.0.0.1:9/mcp',
+        headers: { Authorization: 'Bearer ${KITTO_TEST_TOKEN}' } },
+    } }),
+    'config/pi/AGENTS.md': 'Native credential fixture.',
+    'config/pi/i-have-adhd-always': '', 'config/env.example': '# no credentials\n',
+    'skills/example/SKILL.md': '---\nname: example\ndescription: Native credential fixture.\n---\nPreserve this.\n',
+  };
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(source, name), text);
+  for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'],
+    ['config', 'user.name', 'Kitto test'], ['add', '.'], ['commit', '-m', 'fixture']]) run('git', ['-C', source, ...args]);
+
+  cli('--agents', 'codex,dsh', '--source', source);
+
+  const codexCred = JSON.parse(run('codex', ['mcp', 'get', 'dsh-cred-fixture', '--json']));
+  assert.equal(codexCred.transport.bearer_token_env_var, 'KITTO_TEST_TOKEN');
+  assert.deepEqual(codexServers().map(server => server.name).sort(), ['dsh-cred-fixture', 'plain-fixture']);
+  const codexConfig = readFileSync(join(env.CODEX_HOME, 'config.toml'), 'utf8');
+  assert.match(codexConfig, /bearer_token_env_var = "KITTO_TEST_TOKEN"/);
+  assert.doesNotMatch(codexConfig, /native-fixture-token/);
+
+  const patch = readFileSync(join(env.DSH_HOME, 'cordis.patch.yml'), 'utf8');
+  assert.match(patch, /\$\{credential:KITTO_TEST_TOKEN\}/);
+  assert.match(patch, /expandTemplates: true/);
+  assert.doesNotMatch(patch, /native-fixture-token/);
+  const dump = run('dsh', ['web', '--dump-config']);
+  for (const name of ['plain-fixture', 'dsh-env-fixture', 'dsh-cred-fixture']) {
+    assert.match(dump, new RegExp(`id: kitto-mcp-${name}`), name);
+  }
+  assert.match(dump, /expandTemplates: true/);
+  assert.match(dump, /\$\{credential:KITTO_TEST_TOKEN\}/);
+  assert.doesNotMatch(dump, /native-fixture-token/);
+
+  maintain('remove', '--apply');
+  assert.deepEqual(codexServers(), []);
+  const dumpAfter = run('dsh', ['web', '--dump-config']);
+  assert.doesNotMatch(dumpAfter, /kitto-mcp-|credential:KITTO_TEST_TOKEN/);
+  assert.doesNotMatch(readFileSync(join(env.DSH_HOME, 'cordis.patch.yml'), 'utf8'), /kitto-mcp-/);
+});

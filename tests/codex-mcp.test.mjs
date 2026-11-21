@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  applyCodexMcp, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
+  applyCodexMcp, defaultCodexRun, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
 } from '../lib/codex-mcp.mjs';
 
 // The fake Codex CLI records argv and keeps a small JSON config. It never starts
@@ -736,4 +736,54 @@ test('setup --include-private persists the opt-in and --no-include-private remov
   assert.equal(state().includePrivate, false);
   assert.equal(f.codexState().mcpServers.privateApi, undefined);
   assert(f.codexState().mcpServers.plain);
+});
+
+test('literal URL and command credentials are refused before argv', async t => {
+  const f = fixture(t);
+  f.writeSource({
+    userinfo: { url: 'https://user:pass@example.invalid/mcp' },
+    query: { url: 'https://example.invalid/mcp?access_token=abcd' },
+    flag: { command: 'npx', args: ['--api-key', 'abcd'] },
+    assign: { command: 'npx', args: ['TOKEN=abcd'] },
+    header: { command: 'npx', args: ['--header', 'Authorization: Bearer abcd'] },
+    safe: { url: 'https://example.invalid/mcp?tenant=acme' },
+  });
+  const state = f.state();
+  const { operations } = await f.plan(state);
+  const byName = new Map(operations.map(operation => [operation.name, operation]));
+  for (const [name, reason] of [
+    ['userinfo', /url contains userinfo credentials/],
+    ['query', /url has a credential-like query parameter/],
+    ['flag', /args\[1\] looks like a literal credential/],
+    ['assign', /args\[0\] looks like a literal credential/],
+    ['header', /args\[1\] looks like a literal credential/],
+  ]) {
+    assert.equal(byName.get(name).action, 'skip', name);
+    assert.match(byName.get(name).reason, reason, name);
+  }
+  assert.equal(byName.get('safe').action, 'add');
+  assert(!JSON.stringify(operations).includes('user:pass'));
+  assert(!JSON.stringify(operations).includes('abcd'));
+
+  await f.apply(state);
+  assert.deepEqual(f.mcpCalls('add').map(call => call.args[2]), ['safe']);
+  assert(f.mcpCalls('add')[0].args.includes('https://example.invalid/mcp?tenant=acme'));
+  assert(!JSON.stringify(f.calls()).includes('user:pass'));
+  assert(!JSON.stringify(f.calls()).includes('abcd'));
+});
+
+test('native Codex failures never echo argv', async t => {
+  const temp = mkdtempSync(join(tmpdir(), 'kitto-codex-failure-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const bin = join(temp, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'codex'), `#!${process.execPath}\nprocess.exit(9)\n`, { mode: 0o755 });
+  const env = { ...process.env, HOME: temp, CODEX_HOME: join(temp, 'codex'), PATH: `${bin}:${process.env.PATH}` };
+  assert.throws(() => defaultCodexRun(
+    ['mcp', 'add', 'secret-server-name', '--url', 'https://user:pass@example.invalid/mcp'], { env },
+  ), error => {
+    assert.match(error.message, /codex mcp add failed/);
+    assert.doesNotMatch(error.message, /secret-server-name|user:pass/);
+    return true;
+  });
 });
