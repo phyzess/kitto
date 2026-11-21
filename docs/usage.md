@@ -104,9 +104,17 @@ home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `server
 
 MCP 的启用 server 会从 Pi 源（`config/pi/mcp.json` 加当前平台覆盖）同步到 Codex。同步只传递 stdio 的 command/args 或 HTTP 的 URL；env、headers、`env_http_headers` 和含 `${...}` 的凭据字段在 v1 不写入，相关 server 会跳过并给出原因。DSH 的 MCP 由 Kitto 同步白名单 server；模型/settings 和凭据继续使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
 
-Codex 的 MCP 归属记录在 `state.json` 的 `mcp.codex`：只有带有 Kitto 指纹且 live 配置未被改动的 server 才会被更新或删除。同名但不是 Kitto 添加的 server、以及被本机修改过的 server（包括额外 env、headers、工具过滤或超时）都会保留，并在 `status`/`sync` 计划中标记为 `mcp conflict`。Codex 的 `mcp add` 会重写对应的 TOML 表，因此该表附近的注释可能丢失；Kitto 只在目标与 live 不一致时才调用它。
+Codex 的 MCP 归属记录在 `state.json` 的 `mcp.codex`：只有带有 Kitto 指纹且 live 配置未被改动的 server 才会被更新或删除。写入前，Kitto 先把目标指纹记为 pending；`codex mcp add` 成功并通过重新 list 校验后才转为正式归属。若进程在 live 写入后、state 保存前中断，下次 sync 会直接收养（`mcp adopt`），不会留下永久无归属的 server。verified list 确认 owned server 已从 live 消失时，Kitto 会清除旧指纹（`mcp forget`），避免之后误删同名同 transport 的用户 server。同名但不是 Kitto 添加的 server、以及被本机修改过的 server（包括额外 env、headers、工具过滤或超时）都会保留，并在 `status`/`sync` 计划中标记为 `mcp conflict`。
 
-`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。
+Codex MCP 的已知边界：
+
+1. 源文件必需：Kitto 从 `config/pi/mcp.json` 加当前平台覆盖生成计划；即使只选 Codex，缺少这个文件也会让 setup 明确失败。
+2. 凭据和语义字段不映射：`env`、`headers`、`env_http_headers`、含 `${...}` 的字段，以及 Pi 源中的 `oauth`、`scopes`、`tools`/`toolFilter`、`timeout` 等字段不会写入 Codex。包含这些字段的 server 会整条跳过并打印原因，相关能力继续在 Codex 原生配置中维护。Pi 专用的 `lifecycle`、`directTools` 等展示/生命周期字段会被忽略。
+3. `--url` 只写 URL，不执行认证：需要 OAuth 或 bearer token 的 HTTP server，请在 Codex 中运行 `codex mcp login <NAME>` 或配置原生凭据；Kitto 不读取也不写入 token。
+4. Codex 原生字段不由 Kitto 写入：`startup_timeout_sec`、`tool_timeout_sec`、`enabled_tools`/`disabled_tools` 等如果出现在 live 中，会视为本机修改并保留，不会被覆盖。
+5. TOML 重写：`codex mcp add/remove` 会重写配置，可能丢失注释（尤其是被操作的 `mcp_servers` 表及其邻近注释，更新已有 server 时文件顶部注释也可能消失）并调整 mcp 表顺序；Kitto 不直接写 TOML，只在 transport 有差异时调用原生命令。
+
+`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。读取 Codex MCP 时使用临时 `CODEX_HOME` 副本，不会在真实 Codex 目录下产生辅助文件。
 
 ### 一键迁移仍需要手动做的事
 

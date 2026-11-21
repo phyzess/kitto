@@ -22,16 +22,17 @@ test('mcpParity compares Pi, Codex and DSH native configs', async t => {
   writeFileSync(join(piHome, 'mcp.json'), JSON.stringify({
     mcpServers: { alpha: { command: 'a' }, beta: { command: 'b' } },
   }));
-  writeFileSync(join(codexHome, 'config.toml'), '[mcp_servers.alpha]\ncommand = "a"\n');
+  writeFileSync(join(codexHome, 'config.toml'),
+    '[mcp_servers.alpha]\ncommand = "a"\n\n[mcp_servers."dot.name"]\ncommand = "d"\n');
   writeFileSync(join(dshHome, 'cordis.patch.yml'), '- insert:\n    - id: x\n      config:\n        serverName: alpha\n');
   const state = { agents: ['pi', 'codex', 'dsh'], source: directory, piHome, codexHome, dshHome, dshProfile: 'web' };
   const parity = await mcpParity(state);
-  assert.deepEqual(parity.all, ['alpha', 'beta']);
+  assert.deepEqual(parity.all, ['alpha', 'beta', 'dot.name']);
   assert.deepEqual(parity.hosts.pi, ['alpha', 'beta']);
-  assert.deepEqual(parity.hosts.codex, ['alpha']);
+  assert.deepEqual(parity.hosts.codex, ['alpha', 'dot.name']);
   assert.deepEqual(parity.hosts.dsh, ['alpha']);
   assert.deepEqual(parity.missing.codex, ['beta']);
-  assert.deepEqual(parity.missing.dsh, ['beta']);
+  assert.deepEqual(parity.missing.dsh, ['beta', 'dot.name']);
 });
 
 test('printMcpParity prints one line per host and missing list', async t => {

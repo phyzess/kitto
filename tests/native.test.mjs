@@ -74,6 +74,14 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.equal(codexConfigHash(), configHashAfterSetup);
   assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
+  // A source transport change is an update, not a second add.
+  writeFileSync(join(source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: {
+    ...kittoMcp,
+    'kitto-fixture': { command: 'kitto-fixture-mcp', args: ['serve', '--updated'] },
+  } }));
+  maintain('sync', '--apply');
+  assert.deepEqual(codexServer('kitto-fixture').transport.args, ['serve', '--updated']);
+  assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
   const patch = join(env.DSH_HOME, 'profiles', profile, 'cordis.patch.yml');
   const originalPatch = existsSync(patch) ? readFileSync(patch, 'utf8') : '[]\n';
   writeFileSync(patch, originalPatch + '\n# personal override marker\n');
@@ -119,6 +127,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.equal(ownedPi().length, 1);
   assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
+  assert.deepEqual(codexServer('kitto-fixture').transport.args, ['serve', '--updated']);
   assert.match(state().mcp.codex['kitto-fixture'], /^[0-9a-f]{64}$/);
   assert(dshProfile().dsh.profile.bundles.includes('@phyzess/kitto'));
 });

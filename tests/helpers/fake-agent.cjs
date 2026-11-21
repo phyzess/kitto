@@ -22,7 +22,9 @@ if (name === 'pi') {
     save(file, data);
   }
 } else if (name === 'codex') {
-  const file = path.join(process.env.CODEX_HOME, '_fake-codex.json');
+  // Read-only MCP probes run with a scratch CODEX_HOME; tests point this at the
+  // real fixture state instead of copying test-only files into production logic.
+  const file = process.env.FAKE_CODEX_STATE || path.join(process.env.CODEX_HOME, '_fake-codex.json');
   const data = load(file, { marketplaces: [], installed: [] });
   data.marketplaces ||= [];
   data.installed ||= [];
