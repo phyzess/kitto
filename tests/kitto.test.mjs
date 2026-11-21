@@ -454,9 +454,13 @@ test('kitto update refreshes the runtime copy, deploys the new source and record
   assert.equal(checkpoint.hash, await treeHash(join(home, 'runtime.previous'), true));
   assert(existsSync(join(home, 'runtime.previous/lib/kitto.mjs')));
   // The refreshed copy is what later Kitto calls use; it cannot replace itself.
+  // Semantics: report the installed version, never a version bump, and write nothing.
+  const installed = snapshot(home);
   const refreshed = command(process.execPath, [join(runtime, 'bin/kitto.mjs'), 'update', '--check'], f.env);
   good(refreshed);
-  assert.match(refreshed.stdout, /runs from the installed copy/);
+  assert.match(refreshed.stdout, /Runtime: 0\.1\.0-test\.2 \(this entry runs from the installed copy/);
+  assert.doesNotMatch(refreshed.stdout, /Runtime: 0\.1\.0-test\.2 ->/);
+  assert.deepEqual(snapshot(home), installed);
   good(f.maintain('status'));
 });
 
@@ -540,15 +544,65 @@ test('maintain update fast-forwards and redeploys without replacing its own runt
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'maintain update content');
   commitAll(f, 'maintain config');
   good(command('git', ['push', 'origin', 'main'], f.env, f.source));
+  // Preview from the bundled runner must report the installed version and not write.
+  const before = snapshot(home);
   const preview = f.maintain('update');
   good(preview);
-  assert.match(preview.stdout, /runs from the installed copy|cannot replace itself/);
+  assert.match(preview.stdout, /Runtime: 0\.1\.0-test\.1 \(this entry runs from the installed copy/);
+  assert.doesNotMatch(preview.stdout, /Runtime: 0\.1\.0-test\.1 ->/);
+  assert.deepEqual(snapshot(home), before);
   assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
   good(f.maintain('update', '--apply'));
   assert.match(readJson(join(home, 'state.json')).deployed.commit, /./);
   assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'maintain update content');
   assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
   assert.equal(readJson(join(home, 'state.json')).version, '0.1.0-test.1');
+});
+
+test('the installed runtime is recognized through a symlinked KITTO_HOME', t => {
+  // macOS resolves /var through /private/var (and users symlink their home), so
+  // the runtime identity check must compare realpaths, not the spelling used to
+  // launch the entry point.
+  const f = fixture(t);
+  const alias = join(f.temp, 'home-alias');
+  symlinkSync(f.home, alias, 'dir');
+  f.env.KITTO_HOME = join(alias, 'kitto');
+  good(f.cli('setup', '--agents', 'codex', '--source', f.source));
+  withRemote(f);
+  const version = readJson(join(root, 'package.json')).version;
+  const home = join(f.home, 'kitto'), runtime = join(alias, 'kitto', 'runtime');
+  const before = snapshot(home);
+  const preview = command(process.execPath, [join(runtime, 'bin/kitto.mjs'), 'update', '--check'], f.env);
+  good(preview);
+  assert(preview.stdout.includes(`Runtime: ${version} (this entry runs from the installed copy`));
+  assert.doesNotMatch(preview.stdout, new RegExp(`Runtime: ${version.replaceAll('.', '\\.')} ->`));
+  assert.deepEqual(snapshot(home), before);
+
+  const applied = command(process.execPath, [join(runtime, 'bin/maintain.mjs'), 'update', '--apply'], f.env);
+  good(applied);
+  assert.match(applied.stdout, /cannot replace itself/);
+  assert.equal(readJson(join(home, 'state.json')).version, version);
+  assert.equal(readJson(join(home, 'runtime/package.json')).version, version);
+});
+
+test('update preview covers the app-managed DSH desktop branch without a dsh CLI', t => {
+  const f = fixture(t);
+  // The Desktop profile must need no dsh CLI at all, including during update.
+  rmSync(join(f.temp, 'bin/dsh'));
+  mkdirSync(join(f.source, 'config/dsh'), { recursive: true });
+  writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
+  commitAll(f, 'desktop rules');
+  good(f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source));
+  withRemote(f);
+  const home = f.env.KITTO_HOME;
+  const logBefore = existsSync(f.log) ? readFileSync(f.log, 'utf8') : '';
+  const before = snapshot(home);
+  const preview = f.cli('update', '--check');
+  good(preview);
+  assert.match(preview.stdout, /dsh: app-managed .*upgrade through DeepSeek Harness Desktop/);
+  assert.match(preview.stdout, /Preview only/);
+  assert.deepEqual(snapshot(home), before);
+  assert.equal(existsSync(f.log) ? readFileSync(f.log, 'utf8') : '', logBefore);
 });
 
 test('kitto update restores a lost managed checkout from the recorded source URL', t => {
