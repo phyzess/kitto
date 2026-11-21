@@ -84,6 +84,8 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 
 MCP、模型/settings、凭据目前**只在 Pi 上由 Kitto 管理**；Codex/DSH 使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
 
+`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。
+
 ### 一键迁移仍需要手动做的事
 
 `setup` 会部署规则、skills、宿主注册和依赖检查，但以下项目按宿主/账号不同，必须手动完成：

@@ -7,6 +7,7 @@
 - Skills: replace deployed skill directories with a temp directory and rename, so an interrupted sync cannot leave a half-copied tree that is permanently reported as a conflict.
 - Pi export: stage newly added managed extensions and skills with `git add -A` so a new file is committed, not silently left untracked.
 - Docs: add a Pi/Codex/DSH capability matrix and the manual steps that remain in a one-command migration.
+- Status: report MCP names per selected host and the servers missing on each host; read-only, no host writes.
 - DSH: warn when a registered workspace is not writable by the current user, so agents do not fail later on `.codegraph`, `.pi` or file edits.
 - Config: make the DSH `i-have-adhd` skill model-invocable and make the session-start instruction explicit.
 - Config: correct CodeGraph MCP tool names, add the DSH `mcp__codegraph__*` and `projectPath` guidance, and mark `codegraph affected` as CLI-only.
