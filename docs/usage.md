@@ -150,7 +150,7 @@ Kitto 也会检查已登记工作区是否对当前账号可写。只读工作�
 
 如果升级后维护 skill 无法运行，在首页的安装命令末尾加 `--recover --dry-run` 查看恢复计划，再用 `--recover` 执行。恢复会切回之前验证过的 Kitto 程序并重新连接宿主。个人配置的历史版本通过 Git 恢复。
 
-需要解除集成时，可以在 agent 里说“用 Kitto 预览解除集成”。解除 DSH 时会同时删除 `$DSH_HOME/cordis.patch.yml` 中 Kitto 自有的 `kitto-mcp-*` 行，保留其它内容。解除后仍保留个人配置、共享 skills 和宿主 CLI。
+需要解除集成时，可以在 agent 里说“用 Kitto 预览解除集成”。解除 DSH 时会同时删除 `$DSH_HOME/cordis.patch.yml` 中 Kitto 自有的 `kitto-mcp-*` 行，保留其它内容；patch 无法安全解析时保留文件并警告，不阻塞解除。解除后仍保留个人配置、共享 skills 和宿主 CLI。
 
 ## 发布新版本
 
