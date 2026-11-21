@@ -167,7 +167,7 @@ Codex MCP 的已知边界：
 
 三个宿主的共同工作规则在 [config/instructions/common.md](../config/instructions/common.md)：语言、只读审查、保留改动、发布/外部消息/不可逆操作确认、验证、工具可用性/CodeGraph、会话开始加载 `i-have-adhd` 和 `hindsight` 等。`config/<宿主>/AGENTS.md` 只放该宿主的 addendum，例如 Pi 的 MCP 工具表、浏览器和 Plannotator 约定，Codex/DSH 的 skill 回退路径。Pi 配置目录默认 `~/.pi/agent`，可由 `PI_CODING_AGENT_DIR` 覆盖；Codex/DSH 路径分别由 `CODEX_HOME`、`DSH_HOME` 控制。
 
-Kitto 部署时直接按文件拼接组合，不使用模板：
+Kitto 部署时直接按文件拼接组合，不使用模板。共享段与宿主段之间固定插入一行 `<!-- kitto:host-addendum -->` 作为分隔哨兵，push 依赖它切分并校验两段：
 
 | 宿主 | 部署结果 |
 |---|---|
@@ -175,7 +175,7 @@ Kitto 部署时直接按文件拼接组合，不使用模板：
 | Codex | `common.md` + `config/codex/AGENTS.md` 写入 `$CODEX_HOME/AGENTS.md` 的 Kitto 标记块 |
 | DSH | `common.md` + `config/dsh/AGENTS.md` 写入 `$DSH_HOME/AGENTS.md` 的 Kitto 标记块 |
 
-Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖，旧版遗留的全文件会被新组合替换一次，不会重复共享规则。`sync.sh push` 只把 `$PI_CODING_AGENT_DIR/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件不以当前共享规则开头，或与当前共享层的组合结果不一致（例如 common 被截短但本机尚未 pull）时，push 会在写仓库前拒绝导出。
+Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖，旧版遗留的全文件会被新组合替换一次，不会重复共享规则。`sync.sh push` 只把 `$PI_CODING_AGENT_DIR/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件缺少分隔哨兵、共享段与当前 `common.md` 不完全一致，或组合结果不规范（例如整段删除共享规则但本机尚未 pull）时，push 会在写仓库前拒绝导出。
 
 只改这台机器的规则写在 Codex/DSH 标记块外，或使用工作区/仓库自己的 `AGENTS.md`；不要直接编辑 Pi 的全局 `AGENTS.md`，它会在下次 pull 时被整份重写。配置源还没有 `config/instructions/common.md` 时（旧的配置 checkout），Pi 回退到旧的整文件部署，Codex/DSH 则把旧的宿主文件内容作为 addendum 写入标记块，先同步配置源即可恢复共享层。
 

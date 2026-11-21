@@ -14,12 +14,12 @@
 
 ## 全局规则如何组合
 
-Pi 的 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`）由 Kitto 在 pull 时生成：先是三个宿主共享的 [config/instructions/common.md](../config/instructions/common.md)，空一行，再是 [config/pi/AGENTS.md](../config/pi/AGENTS.md)（Pi 专属 addendum）。因此：
+Pi 的 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`）由 Kitto 在 pull 时生成：先是三个宿主共享的 [config/instructions/common.md](../config/instructions/common.md)，然后是一行固定的分隔哨兵 `<!-- kitto:host-addendum -->`，最后是 [config/pi/AGENTS.md](../config/pi/AGENTS.md)（Pi 专属 addendum）。因此：
 
 - 改三个宿主都适用的规则，编辑 `common.md`；
 - 改 Pi 的 MCP 工具表、浏览器或 Plannotator 约定，编辑 `config/pi/AGENTS.md`；
 - 不要直接编辑本机生成的 `AGENTS.md`：pull 会按组合结果整份覆盖，旧版遗留的全文件也会被替换一次；
-- `sync.sh push` 从本机文件里去掉 `common.md` 前缀，只把 Pi 专属段写回 `config/pi/AGENTS.md`。若本机文件不是当前共享层组合出来的（包括 common 被截短但本机尚未 pull），push 会在写仓库前拒绝并提示先同步，而不是把共享规则或已删除的规则写回 addendum。
+- `sync.sh push` 用分隔哨兵切分本机文件，只把 Pi 专属段写回 `config/pi/AGENTS.md`。缺少哨兵（旧组合）、共享段与当前 `common.md` 不完全一致（包括整段删除共享规则但本机尚未 pull），或组合结果不规范时，push 会在写仓库前拒绝并提示先同步，而不是把共享规则或已删除的规则写回 addendum。
 
 需要本机或项目专属规则时，使用该工作区/仓库自己的 `AGENTS.md`。`config/pi/local/` 仍只覆盖 settings、MCP 和包清单。
 

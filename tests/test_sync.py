@@ -108,6 +108,7 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(text.count(common), 1)
         self.assertIn(addendum, text)
         self.assertEqual(text.count('## Pi 专属补充'), 1)
+        self.assertEqual(text.count('<!-- kitto:host-addendum -->'), 1)
         repo_addendum = (self.repo / 'config/pi/AGENTS.md').read_text()
         self.assertNotIn('# 共享工作规则', repo_addendum)
         self.assertTrue(repo_addendum.startswith('## Pi 专属补充'))
@@ -148,7 +149,37 @@ class SyncTests(unittest.TestCase):
         before = (self.repo / 'config/pi/AGENTS.md').read_text()
         result = self.run_sync('push', check=False)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('does not match the current shared rules composition', result.stderr)
+        self.assertIn('shared rules differ', result.stderr)
+        self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), before)
+
+    def test_pi_push_refuses_a_whole_section_truncation(self):
+        self.run_sync('pull')
+        common = self.repo / 'config/instructions/common.md'
+        text = common.read_text()
+        marker = '\n## 会话开始\n'
+        self.assertIn(marker, text)
+        common.write_text(text[:text.index(marker)] + '\n')
+        settings = self.get(self.machine)
+        settings['theme'] = 'light'
+        self.put(self.machine, settings)
+        repo_settings_before = (self.repo / 'config/pi/settings.json').read_text()
+        before = (self.repo / 'config/pi/AGENTS.md').read_text()
+        result = self.run_sync('push', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('shared rules differ', result.stderr)
+        self.assertEqual((self.repo / 'config/pi/settings.json').read_text(), repo_settings_before)
+        self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), before)
+
+    def test_pi_push_refuses_a_legacy_composition_without_the_boundary(self):
+        self.run_sync('pull')
+        machine = self.home / '.pi/agent/AGENTS.md'
+        common = (self.repo / 'config/instructions/common.md').read_text().strip()
+        addendum = (self.repo / 'config/pi/AGENTS.md').read_text().strip()
+        machine.write_text(common + '\n\n' + addendum + '\n')
+        before = (self.repo / 'config/pi/AGENTS.md').read_text()
+        result = self.run_sync('push', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('host-specific section', result.stderr)
         self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), before)
 
     def test_pi_push_validates_agents_before_writing_the_repository(self):
@@ -173,6 +204,20 @@ class SyncTests(unittest.TestCase):
         self.assertNotIn('\r', exported)
         self.assertTrue(exported.startswith('## Pi 专属补充'))
 
+    def test_pull_upgrades_a_pre_boundary_composition(self):
+        self.run_sync('pull')
+        machine = self.home / '.pi/agent/AGENTS.md'
+        common = (self.repo / 'config/instructions/common.md').read_text().strip()
+        addendum = (self.repo / 'config/pi/AGENTS.md').read_text().strip()
+        machine.write_text(common + '\n\n' + addendum + '\n')
+        self.assertNotIn('<!-- kitto:host-addendum -->', machine.read_text())
+        self.run_sync('pull')
+        upgraded = machine.read_text()
+        self.assertEqual(upgraded.count('<!-- kitto:host-addendum -->'), 1)
+        self.assertIn('## Pi 专属补充', upgraded)
+        self.run_sync('push')
+        self.assertNotIn('# 共享工作规则', (self.repo / 'config/pi/AGENTS.md').read_text())
+
     def test_legacy_whole_file_pi_agents_is_replaced_without_duplication(self):
         path = self.home / '.pi/agent/AGENTS.md'
         path.parent.mkdir(parents=True)
@@ -180,6 +225,7 @@ class SyncTests(unittest.TestCase):
         self.run_sync('pull')
         text = path.read_text()
         self.assertEqual(text.count('# 共享工作规则'), 1)
+        self.assertEqual(text.count('<!-- kitto:host-addendum -->'), 1)
         self.assertIn('## Pi 专属补充', text)
         self.assertNotIn('old whole-file rule', text)
 
@@ -207,7 +253,8 @@ class SyncTests(unittest.TestCase):
         common.write_text('\ufeff# Shared\r\n\r\n- one\r\n')
         addendum.write_text('## Host\r\n\r\n- two\r\n')
         self.assertEqual(helper.cmd_compose_agents([str(common), str(addendum), str(out)]), 0)
-        self.assertEqual(out.read_text(), '# Shared\n\n- one\n\n## Host\n\n- two\n')
+        self.assertEqual(out.read_text(),
+                         '# Shared\n\n- one\n\n<!-- kitto:host-addendum -->\n\n## Host\n\n- two\n')
         extracted = self.base / 'extracted.md'
         self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 0)
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
@@ -216,12 +263,17 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
         out.write_text('# Shared\n')
         self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
-        # A truncated common prefix still matches the old deployed file; the
-        # re-composition check must refuse it instead of exporting shared rules.
+        # Deleting the trailing shared section (including its leading blank
+        # line) must not turn old shared rules into an addendum.
         truncated = self.base / 'common-truncated.md'
-        truncated.write_text('# Shared\n\n- one\n')
-        out.write_text(helper.compose_agents('# Shared\n\n- one\n- two\n', '## Host\n\n- two\n'))
+        truncated.write_text('# Shared\n')
+        out.write_text(helper.compose_agents('# Shared\n\n## Tail\n\n- two\n', '## Host\n\n- host\n'))
         self.assertEqual(helper.cmd_extract_agents([str(out), str(truncated), str(extracted)]), 1)
+        self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
+        # A composition made before the boundary existed is refused, not split
+        # by prefix.
+        out.write_text('# Shared\n\n- one\n\n## Host\n\n- two\n')
+        self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
 
     def test_legacy_skill_sync_requires_explicit_opt_in(self):

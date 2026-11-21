@@ -133,7 +133,7 @@ test('JS and Python compose the shared layer byte-identically after BOM/CRLF nor
   writeFileSync(addendum, '## Host\r\n\r\n- 宿主规则\r\n');
   const result = command('python3', [join(root, 'lib/pi_config.py'), 'compose-agents', common, addendum, out], process.env);
   assert.equal(result.status, 0, result.stderr);
-  const expected = '# 共享\n\n- 规则一\n\n- 规则二\n\n## Host\n\n- 宿主规则\n';
+  const expected = '# 共享\n\n- 规则一\n\n- 规则二\n\n<!-- kitto:host-addendum -->\n\n## Host\n\n- 宿主规则\n';
   assert.equal(readFileSync(out, 'utf8'), expected);
   assert.equal(composeInstructions(readFileSync(common, 'utf8'), readFileSync(addendum, 'utf8')), expected);
 });
@@ -152,6 +152,8 @@ test('hosts without the shared layer keep their legacy addendum block', t => {
   assert.match(dsh, /<!-- kitto:begin -->\nLegacy dsh rules\n<!-- kitto:end -->/);
   assert.doesNotMatch(codex, /shared-marker/);
   assert.doesNotMatch(dsh, /shared-marker/);
+  assert.doesNotMatch(codex, /kitto:host-addendum/);
+  assert.doesNotMatch(dsh, /kitto:host-addendum/);
 });
 
 test('shared rules compose into all three hosts with addenda kept host-specific', t => {
@@ -171,6 +173,7 @@ test('shared rules compose into all three hosts with addenda kept host-specific'
   for (const [host, file] of Object.entries(files)) {
     const text = readFileSync(file, 'utf8');
     assert.equal(text.split(common).length - 1, 1, `${host}: shared rules must appear once`);
+    assert.equal(text.split('<!-- kitto:host-addendum -->').length - 1, 1, `${host}: one shared/host boundary`);
     assert.equal(text.split(addenda[host]).length - 1, 1, `${host}: own addendum must appear once`);
     for (const [other, addendum] of Object.entries(addenda)) {
       if (other !== host) assert.equal(text.includes(addendum), false, `${host} must not contain ${other}'s addendum`);
@@ -230,6 +233,7 @@ test('a legacy whole-file Pi AGENTS is replaced once without duplicating shared 
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
   const text = readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8');
   assert.equal(text.split('shared-marker').length - 1, 1);
+  assert.equal(text.split('<!-- kitto:host-addendum -->').length - 1, 1);
   assert.match(text, /Pi instructions/);
   assert.doesNotMatch(text, /legacy Pi-only rule/);
 });
