@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, realpath, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { setup, parseOptions, update } from '../lib/kitto.mjs';
+import { hostsCommand } from '../lib/hosts.mjs';
 import { readScopeRegistry, scopeHome, writeScopeRegistry } from '../lib/scopes.mjs';
 
 const help = `Kitto — portable personal agent configuration
@@ -18,6 +19,12 @@ const help = `Kitto — portable personal agent configuration
   kitto update [--check|--apply]      Preview (the default; --check makes it explicit) or apply:
                                       fetch and fast-forward the configuration source, refresh the
                                       installed runtime copy, then deploy configuration, skills and MCP
+  kitto hosts [--check|--apply] [--host NAME] [--version VERSION]
+                                      List selected host CLIs, their Kitto-validated baselines and the
+                                      exact native-manager command. --check (the default) is read-only;
+                                      --apply installs only the pinned target, never the latest release.
+                                      --host limits this to one selected host; --version pins one host
+                                      to an exact version instead of its baseline.
   kitto scope list [--json]   Show global, workspace and workspace-parent scope registrations
   kitto scope remove --global
   kitto scope remove --workspace PATH
@@ -28,6 +35,8 @@ After scoped setup, edit the shared files and start a new native agent session.
 Plain setup installs the Kitto maintenance skill for configuration synchronization.
 kitto update only previews unless --apply is used (--check is the same preview, written explicitly);
 it updates Kitto's code copy and configuration, never a host CLI or the Kitto package itself.
+Host CLIs are upgraded separately and explicitly with kitto hosts --apply, only to Kitto's validated
+baseline (or an explicit --version). Kitto never upgrades a host automatically.
 Kitto needs Node >=22 and Git. Pi sync also needs Bash and Python >=3.10.
 DSH web/headless needs pnpm and uses the web profile by default. The Desktop app owns the desktop
 profile: Kitto deploys only its global AGENTS.md and skills, never checks or installs a dsh CLI, and
@@ -158,6 +167,10 @@ try {
   else if (command === 'update') {
     if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) console.log(help);
     else await update(args);
+  }
+  else if (command === 'hosts') {
+    if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) console.log(help);
+    else await hostsCommand(args);
   }
   else if (command === 'setup') {
     if ((args.length === 0 && process.stdin.isTTY && process.stdout.isTTY) ||
