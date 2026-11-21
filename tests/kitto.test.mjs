@@ -24,7 +24,7 @@ function fixture(t) {
   };
   for (const [name, content] of Object.entries(files)) writeFileSync(join(source, name), content);
   const log = join(temp, 'calls.jsonl');
-  for (const name of ['pi', 'codex', 'dsh', 'pnpm']) {
+  for (const name of ['pi', 'codex', 'dsh', 'pnpm', 'codegraph']) {
     writeFileSync(join(bin, name), `#!${process.execPath}\nrequire(${JSON.stringify(join(root, 'tests/helpers/fake-agent.cjs'))});\n`, { mode: 0o755 });
   }
   const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'), PATH: `${bin}:${process.env.PATH}`, CALL_LOG: log,
