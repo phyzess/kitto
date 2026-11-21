@@ -95,6 +95,13 @@ test('public options reject unknown hosts, flags and missing values', () => {
   for (const args of [['--agents', 'other'], ['--source'], ['--run'], ['--agents', 'pi,'], ['--recover', '--agents', 'pi']]) assert.throws(() => parseOptions(args));
 });
 
+test('private MCP sources are an explicit opt-in option', () => {
+  assert.equal(parseOptions(['--include-private'])['include-private'], true);
+  assert.equal(parseOptions(['--no-include-private'])['no-include-private'], true);
+  assert.throws(() => parseOptions(['--include-private', '--no-include-private']), /Choose either/);
+  assert.throws(() => parseOptions(['--recover', '--include-private']), /only accepts/);
+});
+
 test('skill directory replacement is atomic and leaves no backup', async t => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-replace-'));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
