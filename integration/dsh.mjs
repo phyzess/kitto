@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { registerArchiveReview } from './dsh-archive-review.mjs';
 
 export const name = 'phyzess-kitto';
 export const inject = ['skills'];
 
 // Only one catalog entry at startup; the body is loaded on demand.
-export function apply(ctx) {
+export function apply(ctx, config) {
   const path = fileURLToPath(new URL('./skills/kitto/SKILL.md', import.meta.url));
   const candidate = {
     name: 'kitto', description: 'Inspect, synchronize and update personal agent configuration with Kitto.',
@@ -18,4 +19,5 @@ export function apply(ctx) {
     list: async () => [candidate],
     get: async () => ({ ...candidate, content: (await readFile(path, 'utf8')).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '') }),
   }));
+  registerArchiveReview(ctx, config?.archiveReview);
 }
