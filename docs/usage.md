@@ -191,7 +191,7 @@ npx --yes @phyzess/kitto@latest update --apply  # 拉取配置、刷新 runtime�
 
 `update` 默认只预览（`--check` 是同一预览的显式写法），不写任何文件；`--apply` 依次做三件事：
 
-1. **配置源**：只对干净的分支执行 `git fetch` + `git pull --ff-only`，先确认取回的提交能快进，远端分叉时拒绝且不合并。本地修改会中止且不会 stash 或 reset；detached 或 tag 固定的 checkout 会提示改用 `setup --ref TAG`。Kitto 创建的 checkout 会记录 `sourceUrl` 和 `sourceRef`（分支名或 tag 名），checkout 丢失时按记录的 ref 重新 clone；tag 固定、ref 无法确定或远端已无该分支时不会猜测，而是提示在原地重建 checkout 后重跑 `setup`，或换一个 `KITTO_HOME`。origin 变化时会同步更新 `sourceUrl`（日志中的凭据已脱敏）。旧版 `state.json` 没有这些字段也能运行，存在 bootstrap marker 时会自动回填。
+1. **配置源**：只对干净的分支执行 `git fetch` + `git pull --ff-only`；本地与远端只要有一方是另一方的祖先就继续（本地领先时等同于 Already up to date），只有真正分叉（互不为祖先）才拒绝且不合并。本地修改会中止且不会 stash 或 reset；detached 或 tag 固定的 checkout 会提示改用 `setup --ref TAG`。Kitto 创建的 checkout 会记录 `sourceUrl` 和 `sourceRef`（分支名或 tag 名），checkout 丢失时按记录的 ref 重新 clone；tag 固定、ref 无法确定或远端已无该分支时不会猜测，而是提示在原地重建 checkout 后重跑 `setup`，或换一个 `KITTO_HOME`。origin 变化时会同步更新 `sourceUrl`（日志中的凭据已脱敏）。旧版 `state.json` 没有这些字段也能运行，存在 bootstrap marker 时会自动回填。
 2. **已安装 runtime**：把正在执行的 Kitto 包（`bin`、`lib`、`integration`、`sync.sh`、`package.json`、`CHANGELOG.md`）替换到 `~/.local/share/kitto/runtime`。替换前把上一次验证过的版本保存为 `runtime.previous` 检查点。新 runtime 在本次部署成功前只是 `pendingRuntime`，不会成为检查点，也不会覆盖 `state.json` 里的已验证版本；部署失败时 `setup --recover` 仍回到上次成功部署的版本，重试也不会把未经验证的代码当成检查点。
 3. **部署**：规则/指令、skills、MCP 与 Pi 配置沿用原有 `sync` 逻辑；原生插件/扩展注册保持不变（仍指向 runtime 路径，无需重装）。预览不写文件。
 

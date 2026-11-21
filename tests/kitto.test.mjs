@@ -623,15 +623,19 @@ test('kitto update refuses to guess a lost checkout pinned to a tag', t => {
   assert.match(refused.stderr, /new KITTO_HOME/);
   assert.equal(existsSync(managed), false);
 
-  // Even without the recorded deployment, a tag ref is detected and not guessed.
+  // Without a recorded detached deployment, preview and apply must agree: both
+  // inspect the recorded ref and refuse to guess a tag.
   const state = readJson(statePath);
-  state.deployed.detached = false;
+  delete state.deployed;
   writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n');
-  const detected = f.cli('update', '--apply');
-  assert.notEqual(detected.status, 0);
-  assert.match(detected.stderr, /pinned to tag v1/);
-  assert.match(detected.stderr, /git -C .* checkout v1/);
-  assert.equal(existsSync(managed), false);
+  for (const args of [['update', '--check'], ['update', '--apply']]) {
+    const detected = f.cli(...args);
+    assert.notEqual(detected.status, 0);
+    assert.match(detected.stderr, /pinned to tag v1/);
+    assert.match(detected.stderr, /git -C '.*' checkout 'v1'/);
+    assert.doesNotMatch(detected.stdout, /Restore configuration checkout/);
+    assert.equal(existsSync(managed), false);
+  }
 });
 
 test('kitto update backfills a missing sourceUrl and sourceRef from the bootstrap marker', t => {
@@ -733,8 +737,30 @@ test('kitto update explains a missing upstream and refuses a diverged remote', t
   const head = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout;
   const diverged = f.cli('update', '--apply');
   assert.notEqual(diverged.status, 0);
-  assert.match(diverged.stderr, /has diverged/);
+  assert.match(diverged.stderr, /have diverged/);
+  assert.match(diverged.stderr, /neither is an ancestor/);
   assert.equal(command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout, head);
+});
+
+test('kitto update allows a clean local branch that is ahead of its remote', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'codex', '--source', f.source));
+  withRemote(f);
+  writeFileSync(join(f.source, 'local-note.txt'), 'local work');
+  commitAll(f, 'local ahead');
+  const head = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout.trim();
+  const statePath = join(f.env.KITTO_HOME, 'state.json');
+
+  // A local-only commit must not be mistaken for a diverged remote.
+  const preview = f.cli('update', '--check');
+  good(preview);
+  assert.doesNotMatch(preview.stdout + preview.stderr, /diverged/);
+  const applied = f.cli('update', '--apply');
+  good(applied);
+  assert.doesNotMatch(applied.stdout + applied.stderr, /diverged/);
+  assert.match(applied.stdout, /is already at/);
+  assert.equal(command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout.trim(), head);
+  assert.equal(readJson(statePath).deployed.commit, head);
 });
 
 test('kitto update preview writes neither the home, the source nor the deployment', t => {
