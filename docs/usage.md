@@ -102,7 +102,7 @@ MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 
 
 home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。Codex 的 MCP 由 Kitto 同步（见下），模型/settings 和凭据继续使用各自原生配置。
 
-MCP 的启用 server 会从 Pi 源（`config/pi/mcp.json` 加当前平台覆盖）同步到 Codex。同步只传递 stdio 的 command/args 或 HTTP 的 URL；env、headers、`env_http_headers` 和含 `${...}` 的凭据字段在 v1 不写入，相关 server 会跳过并给出原因。DSH 的 MCP 由 Kitto 同步白名单 server；模型/settings 和凭据继续使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
+Codex 的启用 server 同样从该 Pi 源派生。同步只传递 stdio 的 command/args 或 HTTP 的 URL；env、headers、`env_http_headers` 和含 `${...}` 的凭据字段在 v1 不写入，相关 server 会跳过并给出原因。模型/settings 和凭据继续使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
 
 Codex 的 MCP 归属记录在 `state.json` 的 `mcp.codex`：只有带有 Kitto 指纹且 live 配置未被改动的 server 才会被更新或删除。写入前，Kitto 先把目标指纹记为 pending；`codex mcp add` 成功并通过重新 list 校验后才转为正式归属。若进程在 live 写入后、state 保存前中断，下次 sync 会直接收养（`mcp adopt`），不会留下永久无归属的 server。verified list 确认 owned server 已从 live 消失时，Kitto 会清除旧指纹（`mcp forget`），避免之后误删同名同 transport 的用户 server。若中断的 add 只留下 pending、随后源条目被删除，pending 对应的 live server 会被移除；没有 live 或 transport 已被改动的 pending 会被清理（`mcp forget pending`）。同名但不是 Kitto 添加的 server、以及被本机修改过的 server（包括额外 env、headers、工具过滤或超时）都会保留，并在 `status`/`sync` 计划中标记为 `mcp conflict`。
 
