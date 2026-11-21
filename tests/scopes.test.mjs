@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, symlink, stat, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -296,4 +297,29 @@ test('writeScopeRegistry is atomic, mode 0600, and keeps unknown top-level field
   assert.equal(JSON.parse(await readFile(file, 'utf8')).global, false);
   await writeFile(file, '{ not json');
   await assert.rejects(readScopeRegistry(home), /Invalid Kitto scope registry/);
+});
+
+test('scoped setup refuses the app-managed DSH desktop profile and never writes its patch', async t => {
+  const { temp, data, env } = await scopeFixture(t);
+  const workspace = join(temp, 'work');
+  for (const target of [['--global'], ['--workspace', workspace], ['--workspace-parent', join(temp, 'workspaces')]]) {
+    const result = runScope(env, 'setup', ...target, '--agents', 'dsh', '--dsh-profile', 'desktop');
+    assert.notEqual(result.status, 0, target.join(' '));
+    assert.match(result.stderr, /desktop profile is managed/);
+  }
+  await assert.rejects(stat(join(data, 'scopes.json')), { code: 'ENOENT' });
+  await assert.rejects(stat(workspace), { code: 'ENOENT' });
+  assert.equal(existsSync(join(temp, '.dsh/profiles/desktop/cordis.patch.yml')), false);
+
+  const service = runScope(env, 'setup', '--workspace', workspace, '--dsh-service', 'dsh.service',
+    '--agents', 'dsh', '--dsh-profile', 'desktop');
+  assert.notEqual(service.status, 0);
+  assert.match(service.stderr, /cannot be configured for a system service/);
+
+  // Other hosts still get their scoped setup; only the app-managed profile is skipped.
+  const mixed = runScope(env, 'setup', '--global', '--agents', 'pi,dsh', '--dsh-profile', 'desktop');
+  assert.equal(mixed.status, 0, mixed.stderr);
+  assert.match(mixed.stderr, /skipping the DSH desktop profile/);
+  assert.equal(JSON.parse(await readFile(join(data, 'scopes.json'), 'utf8')).global, true);
+  assert.equal(existsSync(join(temp, '.dsh/profiles/desktop/cordis.patch.yml')), false);
 });

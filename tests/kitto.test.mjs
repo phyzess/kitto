@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, cpSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, cpSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { probeDesktopProfile } from '../lib/dsh-profile.mjs';
 import { parseOptions, replaceDirectory } from '../lib/kitto.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
 
@@ -40,6 +41,10 @@ function fixture(t) {
 }
 const good = result => assert.equal(result.status, 0, result.stdout + result.stderr);
 const readJson = file => JSON.parse(readFileSync(file, 'utf8'));
+function callsOf(f) {
+  if (!existsSync(f.log)) return [];
+  return readFileSync(f.log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+}
 function release(f, version) {
   const directory = join(f.temp, version);
   mkdirSync(directory);
@@ -112,6 +117,132 @@ test('missing DSH package manager is detected before writes and included in inst
   assert.equal(existsSync(f.env.KITTO_HOME), false);
   const preview = f.cli('setup', '--agents', 'dsh', '--source', f.source, '--install-agents', '--dry-run');
   good(preview); assert.match(preview.stdout, /Install missing DSH prerequisite: pnpm@12.21.0/);
+  assert.equal(existsSync(f.env.KITTO_HOME), false);
+});
+
+test('DSH desktop setup deploys global rules and skills without pnpm, bundle or profile patch', t => {
+  const f = fixture(t);
+  const hostSkill = join(f.source, 'config/dsh/skills/desktop-example');
+  mkdirSync(hostSkill, { recursive: true });
+  writeFileSync(join(hostSkill, 'SKILL.md'), 'Desktop host skill');
+  writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
+  // The app-managed Desktop profile must never need the npm plugin manager.
+  writeFileSync(join(f.temp, 'bin/pnpm'), `#!${process.execPath}\nprocess.exit(1);\n`, { mode: 0o755 });
+
+  const result = f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source);
+  good(result);
+  assert.match(result.stdout, /global-only; managed by the Desktop app/);
+  assert.match(result.stdout, /use --dsh-profile web/);
+  assert.doesNotMatch(result.stdout, /Connect native Kitto integrations/);
+  assert.match(result.stderr, /has not been initialized/);
+  assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
+  assert.equal(readFileSync(join(f.env.DSH_HOME, 'skills/desktop-example/SKILL.md'), 'utf8'), 'Desktop host skill');
+  assert.match(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), /Example body/);
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).dshProfile, 'desktop');
+  assert.equal(existsSync(join(f.env.DSH_HOME, 'profiles/desktop')), false);
+  let calls = callsOf(f);
+  assert(!calls.some(c => c.command === 'dsh'));
+  assert(!calls.some(c => c.command === 'pnpm'));
+  const versions = f.maintain('versions');
+  good(versions);
+  assert.match(versions.stdout, /app-managed/);
+
+  // Removal must not run a native plugin removal for a bundle Kitto never installed.
+  good(f.maintain('remove', '--apply'));
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).detached, true);
+  assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
+  calls = callsOf(f);
+  assert(!calls.some(c => c.command === 'dsh' && c.args.includes('remove')));
+});
+
+test('DSH desktop detection reports an uninitialized profile, the npm CLI and a working in-app CLI', t => {
+  const f = fixture(t);
+  const profile = join(f.env.DSH_HOME, 'profiles/desktop');
+  const args = ['setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source, '--dry-run'];
+  const probeCalls = () => callsOf(f).filter(c => c.command === 'dsh' && c.args.includes('version-exemptions'));
+
+  const uninitialized = f.cli(...args);
+  good(uninitialized);
+  assert.match(uninitialized.stderr, /has not been initialized/);
+  assert.match(uninitialized.stderr, /Start DeepSeek Harness Desktop once/);
+  assert.doesNotMatch(uninitialized.stdout, /Connect native Kitto integrations/);
+  assert.equal(probeCalls().length, 0);
+  assert.equal(existsSync(f.env.KITTO_HOME), false);
+
+  mkdirSync(profile, { recursive: true });
+  const manifest = { dependencies: {}, dsh: { profile: { bundles: [] } } };
+  writeFileSync(join(profile, 'package.json'), JSON.stringify(manifest));
+  f.env.FAKE_DSH_CLI = 'npm';
+  const npm = f.cli(...args);
+  good(npm);
+  assert.match(npm.stderr, /npm CLI and cannot manage the desktop profile/);
+  assert.doesNotMatch(npm.stderr, /Manage dsh Command/);
+  assert.equal(probeCalls().length, 1);
+
+  delete f.env.FAKE_DSH_CLI;
+  const ready = f.cli(...args);
+  good(ready);
+  assert.match(ready.stdout, /initialized profile detected \(probe ran against a temporary copy\)/);
+  assert.deepEqual(readJson(join(profile, 'package.json')), manifest);
+  assert.deepEqual(readdirSync(profile), ['package.json']);
+  assert.equal(probeCalls().length, 2);
+});
+
+test('DSH desktop setup skips CLI checks and never installs the npm dsh CLI', t => {
+  const f = fixture(t);
+  const bin = join(f.temp, 'bin');
+  const git = command('which', ['git'], f.env).stdout.trim();
+  rmSync(join(bin, 'dsh'));
+  symlinkSync(git, join(bin, 'git'));
+  f.env.PATH = bin;
+  const profile = join(f.env.DSH_HOME, 'profiles/desktop');
+  mkdirSync(profile, { recursive: true });
+  writeFileSync(join(profile, 'package.json'), JSON.stringify({ dependencies: {}, dsh: { profile: { bundles: [] } } }));
+  mkdirSync(join(f.source, 'config/dsh'), { recursive: true });
+  writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
+  const npm = join(bin, 'npm');
+  writeFileSync(npm, `#!${process.execPath}\nrequire('node:fs').appendFileSync(process.env.CALL_LOG, JSON.stringify({ command: 'npm', args: process.argv.slice(2) }) + '\\n');\n`, { mode: 0o755 });
+
+  const result = f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'Desktop', '--source', f.source, '--install-agents');
+  good(result);
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).dshProfile, 'desktop');
+  assert.match(result.stderr, /No dsh CLI was found on PATH/);
+  assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
+  assert.deepEqual(readdirSync(profile), ['package.json']);
+  const calls = callsOf(f);
+  assert(!calls.some(c => c.command === 'npm' || c.command === 'dsh'));
+});
+
+test('DSH desktop probe copies the profile, tolerates a read-only home and reports timeouts', t => {
+  const f = fixture(t);
+  const profile = join(f.env.DSH_HOME, 'profiles/desktop');
+  mkdirSync(profile, { recursive: true });
+  writeFileSync(join(profile, 'package.json'), JSON.stringify({ dependencies: {}, dsh: { profile: { bundles: [] } } }));
+
+  assert.equal(probeDesktopProfile({ dshHome: f.env.DSH_HOME, env: f.env }).kind, 'desktop-cli');
+  assert.deepEqual(readdirSync(profile), ['package.json']);
+
+  chmodSync(profile, 0o555);
+  try {
+    assert.equal(probeDesktopProfile({ dshHome: f.env.DSH_HOME, env: f.env }).kind, 'desktop-cli');
+    assert.deepEqual(readdirSync(profile), ['package.json']);
+  } finally { chmodSync(profile, 0o755); }
+
+  f.env.FAKE_DSH_PROBE_DELAY_MS = '1000';
+  assert.equal(probeDesktopProfile({ dshHome: f.env.DSH_HOME, env: f.env, timeoutMs: 150 }).kind, 'timeout');
+  delete f.env.FAKE_DSH_PROBE_DELAY_MS;
+  assert.deepEqual(readdirSync(profile), ['package.json']);
+});
+
+test('shared-rules-only setup is rejected for the DSH desktop profile', t => {
+  const f = fixture(t);
+  const result = command(process.execPath, ['--input-type=module', '-e',
+    `import { runEnvironmentSetup } from './lib/environment-setup.mjs';
+     await runEnvironmentSetup(${JSON.stringify({ agents: ['dsh'], source: false, installAgents: false,
+       deps: false, dshProfile: 'desktop', dryRun: true })});`,
+  ], f.env);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires a configuration source/);
   assert.equal(existsSync(f.env.KITTO_HOME), false);
 });
 
@@ -635,4 +766,28 @@ test('interactive CLI previews and applies bundled Pi and Codex setup for future
   assert.match(additionalContext, /Future workspace instructions/);
   assert.match(additionalContext, /future-workspace-skill/);
   assert.equal(command('git', ['status', '--porcelain'], f.env, project).stdout, '');
+});
+
+test('interactive DSH Desktop setup stays global-only and skips scoped adapters', t => {
+  const f = fixture(t);
+  mkdirSync(join(f.source, 'config/dsh/skills/desktop-example'), { recursive: true });
+  writeFileSync(join(f.source, 'config/dsh/skills/desktop-example/SKILL.md'), 'Desktop host skill');
+  writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
+  writeFileSync(join(f.temp, 'bin/pnpm'), `#!${process.execPath}\nprocess.exit(1);\n`, { mode: 0o755 });
+  const result = spawnSync(process.execPath, [join(root, 'bin/kitto.mjs'), 'setup', '--interactive'], {
+    env: f.env, cwd: root, encoding: 'utf8', timeout: 60_000,
+    input: ['dsh', 'desktop', '2', f.source, 'n', '', '2'].join('\n'),
+  });
+  good(result);
+  assert.match(result.stdout, /DSH Desktop 由 App 管理/);
+  assert.match(result.stdout, /环境配置已完成/);
+  assert.doesNotMatch(result.stdout, /Connect native Kitto integrations/);
+  assert.doesNotMatch(result.stdout, /DSH scope registration will run/);
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).dshProfile, 'desktop');
+  assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
+  assert.equal(existsSync(join(f.env.KITTO_HOME, 'scopes.json')), false);
+  assert.equal(existsSync(join(f.env.DSH_HOME, 'profiles/desktop')), false);
+  const calls = readFileSync(f.log, 'utf8').trim().split('\n').map(JSON.parse);
+  assert(!calls.some(c => c.command === 'dsh' && c.args.includes('add')));
+  assert(!calls.some(c => c.command === 'pnpm'));
 });

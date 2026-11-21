@@ -24,8 +24,12 @@ Scoped setup shares AGENTS.md and .agents/skills. Plain setup uses the phyzess/k
 After scoped setup, edit the shared files and start a new native agent session.
 Plain setup installs the Kitto maintenance skill for configuration synchronization.
 Kitto needs Node >=22 and Git. Pi sync also needs Bash and Python >=3.10.
-DSH needs pnpm and uses the web profile by default. Host CLIs have their own Node requirements.
+DSH web/headless needs pnpm and uses the web profile by default. The Desktop app owns the desktop
+profile: Kitto deploys only its global AGENTS.md and skills, never checks or installs a dsh CLI, and
+adds no bundle, profile patch or scope.
+Host CLIs have their own Node requirements.
 Scope removal only changes the scope registry; AGENTS.md, skills, host adapters and user files stay in place.
+The DSH desktop profile is app-managed and cannot be configured as a scope or system service.
 `;
 
 const scopeHelp = `Kitto scope registry
@@ -40,6 +44,8 @@ kitto scope remove only changes the scope registry. It keeps AGENTS.md, .agents/
 host adapters, hooks, symlinks and profile patches. Choose exactly one removal target.
 A relative PATH is resolved from the current directory; existing paths are canonicalized
 with realpath, matching how setup registers workspaces and workspace parents.
+The DSH desktop profile is managed by the Desktop app; Kitto v1 installs no scoped DSH
+configuration for it.
 `;
 
 async function scopePathCandidates(value) {

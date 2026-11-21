@@ -43,7 +43,7 @@ description: 审查当前仓库的代码修改。
 读当前 Git diff，按影响列出需要修正的问题，并指出缺少的回归测试。
 ```
 
-打开新会话并说「使用 review 审查这个修改」。Pi 和 DSH 使用原生 skill 发现。Codex 通过 SessionStart hook 把工作区 skill 的说明和路径交给模型，原生 `/skills` 菜单仅列出 Codex 自己发现的条目。首次在 Codex 用 `/hooks` 信任 Kitto 的 hook；DSH 在重启对应 profile 后加载适配器。
+打开新会话并说「使用 review 审查这个修改」。Pi 和 DSH 使用原生 skill 发现。Codex 通过 SessionStart hook 把工作区 skill 的说明和路径交给模型，原生 `/skills` 菜单仅列出 Codex 自己发现的条目。首次在 Codex 用 `/hooks` 信任 Kitto 的 hook；DSH 在重启对应 profile 后加载适配器（`desktop` 配置档由 App 管理，没有 scope adapter）。
 
 `setup --global` 的文件位于 Kitto 数据目录的 `global/AGENTS.md` 和 `global/.agents/skills/`。默认数据目录为 `~/.local/share/kitto`。全局与工作区可以叠加，已登记的多层工作区按从外到内的顺序加载规则。同名 skill 的选择沿用各宿主的发现机制，给不同流程使用不同名称即可跨宿主一致引用。个人宿主扩展、模型和项目本身的设置继续使用各自的配置。
 
@@ -56,6 +56,37 @@ npx --yes @phyzess/kitto setup --workspace /home/dsh/workspace --dsh-service dsh
 ```
 
 这会把同一工作区登记到两个账号。服务账号需要能访问工作区，命令从正在运行的服务取得宿主环境。正式应用后，在合适的时候重启该服务，再在 Web 中选 repo。每个项目继续使用同一套工作区文件。
+
+### DSH Desktop 配置档（v1：仅全局规则与 skills）
+
+DeepSeek Harness Desktop 独占 `desktop` 配置档：npm 版 `dsh` CLI 会拒绝管理它，只有 Desktop 内置的 `dsh` 命令可以。Kitto v1 对 `desktop` 采用 **global-only** 模式，只部署全局规则和 skills：
+
+1. 启动一次 DeepSeek Harness Desktop，让 App 初始化 `$DSH_HOME/profiles/desktop`。Kitto **不要求**本机安装 `dsh` CLI，也不会用 npm 补装它（`--install-agents` 不会为 desktop 安装 npm 版 dsh）；没有 CLI 时只是跳过对 profile 的探测。若希望启用探测，可在 Desktop 菜单「Manage dsh Command…」安装内置命令，但装不装都不影响全局规则/skills 部署。
+2. **完全退出** Desktop（不是最小化），避免 App 持有 profile 锁。
+3. 运行（向导里输入配置档时直接填 `desktop` 也可以）：
+
+   ```bash
+   npx --yes @phyzess/kitto setup --agents dsh --dsh-profile desktop
+   ```
+
+4. 重新打开 Desktop，加载 `$DSH_HOME/AGENTS.md`、`$DSH_HOME/skills` 和共享的 `~/.agents/skills`。
+
+Kitto v1 对 `desktop` 能做：
+
+- 部署全局 `AGENTS.md`、DSH 专属 skills 和共享 skills；
+- 用临时 `DSH_HOME` 副本做 best-effort 探测（不写真实 profile）：manifest 不存在时直接跳过，有 manifest 时区分 npm CLI、Desktop 内置 CLI 和超时/不可用，并给出提示；
+- 不要求 pnpm 或本机 dsh CLI；移除集成时不调用 `dsh plugin remove`（因为从未安装 bundle）。
+
+Kitto v1 对 `desktop` 不做：
+
+- 不安装 Kitto bundle，不写 `profiles/desktop/cordis.patch.yml`，不注册 scope adapter，也不同步 DSH MCP home patch；
+- 不改 Desktop 应用的 `package.json`、lockfile 或 profile 依赖；
+- 不把 `desktop` 用于 `--global` / `--workspace` / `--workspace-parent` 的 scoped 配置或 `--dsh-service`：只选 dsh 时会明确报错，与其他宿主混选时跳过 dsh 并配置其余宿主；
+- 向导里的「仅配置共享规则与 skills」不能用于 desktop（没有配置来源就无全局规则可部署）。
+
+Desktop 内置的 `dsh` 命令只管理 App 自己的 profile，**不能**让 Kitto 获得 bundle、scoped 规则或 MCP 同步。需要这些能力时只能改用 `--dsh-profile web`（或 headless 等 Kitto 管理的 profile）。Desktop 更新可能改变其读取全局规则/skills 的方式，升级后请重新验证。
+
+从 `desktop` 切到 `web`（或反向）时，Kitto 要求先解除当前集成：通过维护 skill 运行 `maintain remove --apply`，再用新的 `--dsh-profile` 执行 setup；未解除时 setup 会拒绝切换 profile。
 
 ## 查看与移除 scope 登记
 
@@ -81,26 +112,28 @@ npx --yes @phyzess/kitto scope remove --workspace-parent /path/to/workspaces
 |---|---|---|
 | Pi | settings、MCP、扩展、规则和 skills | Bash、Python 3.10+。通过 Kitto 安装 Pi CLI 需要 Node 22.19+ |
 | Codex | 全局规则、skills、Kitto 插件，以及 Pi 源中启用 MCP 的白名单同步 | 登录 Codex，按需配置自己的模型和权限 |
-| DSH | 全局规则、skills、指定 profile 的 Kitto bundle、白名单 MCP 同步，以及 CodeGraph 索引提醒/初始化 | pnpm。通过 Kitto 安装 DSH CLI 需要 Node 24.9+；`--install-agents` 可补装 pnpm |
+| DSH | 全局规则、skills、指定 profile 的 Kitto bundle、白名单 MCP 同步，以及 CodeGraph 索引提醒/初始化（`desktop` 仅全局规则与 skills） | pnpm（web/headless）。通过 Kitto 安装 DSH CLI 需要 Node 24.9+；`--install-agents` 可补装 pnpm。Desktop 配置档由 App 管理，不需要 pnpm |
 
-DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-profile <name>`，以后按该 profile 的原生方式启动。
+DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-profile <name>`，以后按该 profile 的原生方式启动。`desktop` 由 Desktop 应用管理，只支持全局规则与 skills，见上文「DSH Desktop 配置档」。
 
 ### 当前能力矩阵
 
 | 能力 | Pi（macOS/Linux） | Codex | DSH（Linux；macOS 同一套规则） |
 |---|---|---|---|
 | 全局规则 | Kitto 覆盖整份 `~/.pi/agent/AGENTS.md` | Kitto 标记块 | Kitto 标记块 |
-| 共享 skills | `~/.agents/skills` | `~/.agents/skills` + SessionStart hook | `~/.agents/skills` + scope provider |
+| 共享 skills | `~/.agents/skills` | `~/.agents/skills` + SessionStart hook | `~/.agents/skills`（`desktop` 无 scope provider） |
 | 宿主专属 skills | Pi 上游包 | `config/codex/skills` 副本 | `config/dsh/skills` 副本 |
-| 插件/扩展 | Pi 包、Pi 扩展 | Kitto Codex 插件 | Kitto DSH bundle |
-| MCP | 共享 + 平台 + private + 项目级 | Kitto 同步白名单 server（无 env/headers） | Kitto 同步白名单 server（无 env/headers） |
+| 插件/扩展 | Pi 包、Pi 扩展 | Kitto Codex 插件 | Kitto DSH bundle（web/headless；`desktop` 无） |
+| MCP | 共享 + 平台 + private + 项目级 | Kitto 同步白名单 server（无 env/headers） | Kitto 同步白名单 server（无 env/headers；`desktop` 不同步） |
 | 模型/settings | Kitto 管理 | 宿主自管 | 宿主自管 |
 | 凭据/env | `~/.pi-agent-env` | 宿主自管 | 宿主 env/service env |
-| workspace scope | scoped-pi | scoped-codex | scoped-dsh |
+| workspace scope | scoped-pi | scoped-codex | scoped-dsh（web/headless；`desktop` 无） |
+
+`desktop` 是唯一的例外：它由 Desktop 应用独占，Kitto v1 只部署全局规则和 skills，不安装 bundle、不写 profile patch、不注册 scope adapter，也不同步 MCP home patch。
 
 MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 `setup` 和 `sync` 时由 Kitto 把 `config/pi/mcp.json`（叠加当前平台的 `config/pi/platform/<macos|linux>/mcp.json`，跳过 `enabled: false`）中没有 `env`/`headers` 的 server 同步为 `$DSH_HOME/cordis.patch.yml` 里的 `kitto-mcp-*` 条目；home patch 对所有 profile 生效，同步只增删这些条目，保留其它 YAML 行、注释和 `!!js`，Kitto 自己的条目按源顺序追加到末尾。`env`/`headers` server 会跳过并警告；`mcp.private.json` 和 `local/mcp.json` 根本不读取，仍需在 DSH 原生配置或环境中手动准备。
 
-home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。Codex 的 MCP 由 Kitto 同步（见下），模型/settings 和凭据继续使用各自原生配置。
+home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。`desktop` 配置档不参与 MCP 同步（也不写 home patch）。Codex 的 MCP 由 Kitto 同步（见下），模型/settings 和凭据继续使用各自原生配置。
 
 Codex 的启用 server 同样从该 Pi 源派生。同步只传递 stdio 的 command/args 或 HTTP 的 URL；env、headers、`env_http_headers` 和含 `${...}` 的凭据字段在 v1 不写入，相关 server 会跳过并给出原因。模型/settings 和凭据继续使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
 
@@ -115,7 +148,7 @@ Codex MCP 的已知边界：
 5. TOML 重写：`codex mcp add/remove` 会重写配置，可能丢失注释（尤其是被操作的 `mcp_servers` 表及其邻近注释，更新已有 server 时文件顶部注释也可能消失）并调整 mcp 表顺序；Kitto 不直接写 TOML，只在 transport 有差异时调用原生命令。
 6. `kitto remove` 预览与 `versions` 仍调用真实 Codex 读取插件/版本清单；Codex 可能在 `CODEX_HOME/tmp` 下创建 arg0 辅助文件，但不会修改 `config.toml`。`status`、`sync` 和 `setup --dry-run` 的 MCP 探测已使用临时 home。
 
-`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。读取 Codex MCP 时使用临时 `CODEX_HOME` 副本，不会在真实 Codex 目录下产生辅助文件。
+`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。`desktop` 配置档显示为 `mcp dsh: (global-only; MCP sync disabled)`，不参与缺失比较。读取 Codex MCP 时使用临时 `CODEX_HOME` 副本，不会在真实 Codex 目录下产生辅助文件。
 
 ### 一键迁移仍需要手动做的事
 
@@ -124,7 +157,7 @@ Codex MCP 的已知边界：
 1. 安装并登录各宿主 CLI（或用 `--install-agents` 只补装 CLI）。
 2. Pi：复制 `config/pi/mcp.private.json` 并填写 host/token；把 `~/.pi-agent-env` 放进 shell 启动文件。
 3. Codex：首次在 `/hooks` 信任 Kitto 的 SessionStart hook。
-4. DSH：重启对应 profile/服务；带 `env`/`headers` 的 MCP 和私有 MCP 仍需在 DSH 原生配置中手动添加。
+4. DSH：重启对应 profile/服务；Desktop 用户完全退出并重新打开 App（Kitto 只部署其全局规则/skills）；带 `env`/`headers` 的 MCP 和私有 MCP 仍需在 DSH 原生配置中手动添加。
 5. 需要 CodeGraph 的仓库：在仓库根目录执行一次 `codegraph init`（Kitto 会提醒）。
 
 

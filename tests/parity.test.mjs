@@ -49,3 +49,22 @@ test('printMcpParity prints one line per host and missing list', async t => {
   assert(lines.some(line => line === 'mcp codex: (none)'));
   assert(lines.some(line => line === 'mcp missing on codex: alpha'));
 });
+
+test('mcpParity marks the app-managed DSH desktop profile global-only', async t => {
+  const directory = temp(t);
+  const state = {
+    agents: ['pi', 'dsh'], source: directory, piHome: join(directory, 'pi'),
+    dshHome: join(directory, 'dsh'), dshProfile: 'desktop',
+  };
+  mkdirSync(state.piHome, { recursive: true });
+  writeFileSync(join(state.piHome, 'mcp.json'), JSON.stringify({ mcpServers: { alpha: { command: 'a' } } }));
+  const parity = await mcpParity(state);
+  assert.deepEqual(parity.hosts.pi, ['alpha']);
+  assert.equal(parity.hosts.dsh, undefined);
+  assert.equal(parity.missing.dsh, undefined);
+  assert.deepEqual(parity.globalOnly, ['dsh']);
+  const lines = [];
+  await printMcpParity(state, line => lines.push(line));
+  assert(lines.includes('mcp dsh: (global-only; MCP sync disabled)'));
+  assert(!lines.some(line => line.startsWith('mcp missing on dsh')));
+});

@@ -24,7 +24,17 @@ npx --yes @phyzess/kitto@latest setup
 
 全局和工作区的 skills 放在同层的 `.agents/skills/<名称>/SKILL.md`。没有额外约定时，工作区可以保持空白。父目录之外的项目也能使用账号的全局配置。
 
-Codex 首次需要在 `/hooks` 中信任 Kitto 的 SessionStart hook。正在运行的 DSH 服务需要重启对应 profile。宿主登录和私有 MCP 凭据由各账号配置。
+Codex 首次需要在 `/hooks` 中信任 Kitto 的 SessionStart hook。正在运行的 DSH 非 Desktop profile/服务需要重启对应 profile。宿主登录和私有 MCP 凭据由各账号配置。
+
+### DSH Desktop
+
+DSH Desktop 独占 `desktop` 配置档。Kitto v1 可以为它部署全局 `AGENTS.md`、DSH 专属 skills 和共享 `~/.agents/skills`，但不会安装 Kitto bundle、写 `profiles/desktop/cordis.patch.yml` 或注册 workspace scope。Kitto 不要求本机 `dsh` CLI，也不会用 npm 补装它，也不需要 pnpm。启动一次 Desktop 初始化 profile，然后完全退出 App，运行：
+
+```bash
+npx --yes @phyzess/kitto setup --agents dsh --dsh-profile desktop
+```
+
+重新打开 Desktop 后生效。需要 Kitto bundle、scoped 规则或 MCP 同步时，改用 `--dsh-profile web`；Desktop 内置 CLI 不能为 Kitto 提供这些能力。切换 profile 前先运行维护 skill 的 `maintain remove --apply` 解除当前集成。细节见[使用指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#dsh-desktop-配置档v1仅全局规则与-skills)。
 
 ## 把改动带到下一台机器
 

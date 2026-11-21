@@ -1,5 +1,5 @@
-import { deepStrictEqual, doesNotMatch, equal, match, rejects } from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { deepStrictEqual, doesNotMatch, equal, match, notEqual, rejects } from 'node:assert/strict';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
@@ -147,4 +147,15 @@ export async function apply(ctx) {
   match(results[2].instructions, /global guidance/);
   doesNotMatch(results[2].instructions, /workspace guidance/);
   deepStrictEqual(results[2].skills, ['kitto-global-fixture', 'kitto-workspace-fixture']);
+});
+
+test('DSH scoped setup rejects the app-managed desktop profile without writing a patch', async t => {
+  const { home, env } = await fixture(t);
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { installDshScope } from './lib/scope-dsh.mjs';
+     await installDshScope(${JSON.stringify({ home, dshProfile: 'desktop' })});`,
+  ], { env, cwd: root, encoding: 'utf8', timeout: 30_000 });
+  notEqual(result.status, 0);
+  match(result.stderr, /desktop profile is managed/);
+  await rejects(readFile(join(env.DSH_HOME, 'profiles/desktop/cordis.patch.yml'), 'utf8'), { code: 'ENOENT' });
 });
