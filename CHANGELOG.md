@@ -3,6 +3,10 @@
 ## Unreleased
 
 - DSH: report missing CodeGraph indexes in `status`, and initialize registered scoped workspaces during `setup` when the CodeGraph CLI is available. General `sync`/`deps`/`export` never write indexes; set `KITTO_NO_CODEGRAPH_INIT=1` to keep setup report-only.
+- DSH/Codex: make the Codex `i-have-adhd` skill model-invocable (`allow_implicit_invocation: true`), align its startup instruction with DSH, and support a custom `DSH_HOME` in the fallback path.
+- Skills: replace deployed skill directories with a temp directory and rename, so an interrupted sync cannot leave a half-copied tree that is permanently reported as a conflict.
+- Pi export: stage newly added managed extensions and skills with `git add -A` so a new file is committed, not silently left untracked.
+- Docs: add a Pi/Codex/DSH capability matrix and the manual steps that remain in a one-command migration.
 - DSH: warn when a registered workspace is not writable by the current user, so agents do not fail later on `.codegraph`, `.pi` or file edits.
 - Config: make the DSH `i-have-adhd` skill model-invocable and make the session-start instruction explicit.
 - Config: correct CodeGraph MCP tool names, add the DSH `mcp__codegraph__*` and `projectPath` guidance, and mark `codegraph affected` as CLI-only.

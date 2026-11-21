@@ -300,7 +300,7 @@ cmd_push() {
            [ -z "$(git -C "$ROOT" status --porcelain)" ]; then
             ok "没有变化，无需提交"
         else
-            git -C "$ROOT" add -u -- config/pi/settings.json config/pi/mcp.json config/pi/AGENTS.md config/pi/extensions skills
+            git -C "$ROOT" add -A -- config/pi/settings.json config/pi/mcp.json config/pi/AGENTS.md config/pi/extensions skills
             if git -C "$ROOT" diff --cached --quiet; then
                 ok "托管配置没有变化，无需提交"
             else
