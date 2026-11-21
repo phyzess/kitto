@@ -8,6 +8,7 @@ Each responsibility is a small subcommand so sync.sh can stay in bash:
   merge-mcp        repo + platform + machine local + machine -> machine mcp.json
   compose-agents   shared rules + host addendum -> deployed AGENTS.md
   extract-agents   deployed AGENTS.md -> host addendum only (never shared rules)
+  legacy-agents    deployed AGENTS.md -> whole-file export for sources without common.md
 
 Shared definitions are updated while machine overrides and runtime switches
 stay local. Preview helpers write only their explicit output path.
@@ -491,6 +492,29 @@ def cmd_extract_agents(argv: list[str]) -> int:
     return 0
 
 
+def cmd_legacy_agents(argv: list[str]) -> int:
+    """Stage the historical whole-file export for sources without common.md.
+
+    A file composed with the shared layer (it carries the boundary) must not be
+    copied wholesale into a legacy addendum: the boundary and shared rules
+    would leak into the source and duplicate on the next shared-layer pull.
+    """
+    machine_path, out_path = argv
+    machine = read_text(machine_path)
+    if machine is None:
+        print(f"missing deployed instructions: {machine_path}", file=sys.stderr)
+        return 1
+    if AGENTS_BOUNDARY in normalize_instructions(machine):
+        print(f"{machine_path} is composed with a shared layer ({AGENTS_BOUNDARY}), but the "
+              "configuration source has no config/instructions/common.md; refusing the whole-file "
+              "export. Sync from the source that contains the shared layer, or start from a "
+              "legacy-only AGENTS.md.", file=sys.stderr)
+        return 1
+    write_text(out_path, machine)
+    print("AGENTS.md: legacy whole-file export (source has no shared layer)")
+    return 0
+
+
 COMMANDS = {
     "list-shared-packages": cmd_list_shared_packages,
     "record-settings": cmd_record_settings,
@@ -500,13 +524,14 @@ COMMANDS = {
     "export-mcp": cmd_export_mcp,
     "compose-agents": cmd_compose_agents,
     "extract-agents": cmd_extract_agents,
+    "legacy-agents": cmd_legacy_agents,
 }
 
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[1] not in COMMANDS:
         sys.exit("usage: pi_config.py "
-                 "{merge-settings|sanitize-settings|merge-mcp|export-mcp|compose-agents|extract-agents} ...")
+                 "{merge-settings|sanitize-settings|merge-mcp|export-mcp|compose-agents|extract-agents|legacy-agents} ...")
     return COMMANDS[argv[1]](argv[2:])
 
 

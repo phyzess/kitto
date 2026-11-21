@@ -59,6 +59,6 @@ bash sync.sh deps --dry-run
 KITTO_ALLOW_LEGACY_SKILL_SYNC=1 bash sync.sh pull
 ```
 
-共享 skills 默认由 Kitto JS 管理（按 hash 记录所有权，并与 setup/sync 共用锁）。直接 `sync.sh` 绕过这层所有权会留下 hash 冲突，所以只有 `KITTO_ALLOW_LEGACY_SKILL_SYNC=1` 时才按旧逻辑复制 `~/.agents/skills`。settings、MCP、`AGENTS.md`、extensions 和 Pi 包等其他 Pi 功能仍然可用，便于兼容。直接运行时 `status` 也不会再把共享 skills 报成 missing/differs；只有显式 opt-in 后才按旧方式比较。`AGENTS.md` 的规则见上文「全局规则如何组合」：pull 组合 common + addendum，push 只导出 addendum。
+共享 skills 默认由 Kitto JS 管理（按 hash 记录所有权，并与 setup/sync 共用锁）。直接 `sync.sh` 绕过这层所有权会留下 hash 冲突，所以只有 `KITTO_ALLOW_LEGACY_SKILL_SYNC=1` 时才按旧逻辑复制 `~/.agents/skills`。settings、MCP、`AGENTS.md`、extensions 和 Pi 包等其他 Pi 功能仍然可用，便于兼容。直接运行时 `status` 也不会再把共享 skills 报成 missing/differs；只有显式 opt-in 后才按旧方式比较。`AGENTS.md` 的规则见上文「全局规则如何组合」：pull 组合 common + addendum，push 只导出 addendum；配置源没有 `common.md` 时沿用整文件旧行为，但本机文件含共享层哨兵时 push 会拒绝。
 
 这里的 `push` 指把 Pi 配置导出到本地仓库。检查 Git 差异后，才执行 Git 的提交和推送。导出只写入仓库已经声明的 settings 键、MCP server、skills 和扩展；本机新增但未声明的项会在预览中点名并跳过，避免把临时 token 或实验配置带进仓库。凭据用 `${VAR}` 引用，写出字面 secret 时导出会拒绝。要在所有机器上移除扩展包，直接修改仓库的 `settings.json`。

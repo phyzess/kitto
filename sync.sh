@@ -146,8 +146,10 @@ deploy_pi_agents() {
 prepare_pi_agents_export() { # validate and stage the addendum before any repo write
     if [ ! -f "$COMMON_AGENTS" ]; then
         # Older configuration checkouts predate the shared layer: keep the
-        # historical whole-file export.
-        cp -f "$DOT_PI/AGENTS.md" "$TMP/AGENTS.md" || { fail "读取 $DOT_PI/AGENTS.md 失败"; return 1; }
+        # historical whole-file export, but never copy a shared-layer
+        # composition (with its boundary) back into a legacy addendum.
+        python3 "$PY" legacy-agents "$DOT_PI/AGENTS.md" "$TMP/AGENTS.md" \
+            || { fail "配置源没有共享层，但本机 AGENTS.md 已含共享段；拒绝整文件导出"; return 1; }
         return 0
     fi
     info "AGENTS.md（只导出 Pi 专属段）"

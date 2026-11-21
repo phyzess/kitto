@@ -177,7 +177,7 @@ Kitto 部署时直接按文件拼接组合，不使用模板。共享段与宿�
 
 Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖，旧版遗留的全文件会被新组合替换一次，不会重复共享规则。`sync.sh push` 只把 `$PI_CODING_AGENT_DIR/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件缺少分隔哨兵、共享段与当前 `common.md` 不完全一致，或组合结果不规范（例如整段删除共享规则但本机尚未 pull）时，push 会在写仓库前拒绝导出。
 
-只改这台机器的规则写在 Codex/DSH 标记块外，或使用工作区/仓库自己的 `AGENTS.md`；不要直接编辑 Pi 的全局 `AGENTS.md`，它会在下次 pull 时被整份重写。配置源还没有 `config/instructions/common.md` 时（旧的配置 checkout），Pi 回退到旧的整文件部署，Codex/DSH 则把旧的宿主文件内容作为 addendum 写入标记块，先同步配置源即可恢复共享层。
+只改这台机器的规则写在 Codex/DSH 标记块外，或使用工作区/仓库自己的 `AGENTS.md`；不要直接编辑 Pi 的全局 `AGENTS.md`，它会在下次 pull 时被整份重写。配置源还没有 `config/instructions/common.md` 时（旧的配置 checkout），Pi 回退到旧的整文件部署，Codex/DSH 则把旧的宿主文件内容作为 addendum 写入标记块，先同步配置源即可恢复共享层。这种 legacy 配置源的 Pi push 仍按整文件导出，但本机文件已含共享层哨兵时会拒绝，避免把哨兵和共享段写进旧 addendum。
 
 ## i-have-adhd 回复风格
 

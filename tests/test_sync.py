@@ -204,6 +204,19 @@ class SyncTests(unittest.TestCase):
         self.assertNotIn('\r', exported)
         self.assertTrue(exported.startswith('## Pi 专属补充'))
 
+    def test_legacy_source_push_refuses_a_shared_layer_composition(self):
+        (self.repo / 'config/instructions/common.md').unlink()
+        self.put(self.machine, {'packages': [], 'theme': 'light'})
+        machine = self.home / '.pi/agent/AGENTS.md'
+        machine.write_text('# Shared\n\n<!-- kitto:host-addendum -->\n\n## Pi 专属补充\n- local\n')
+        repo_addendum = (self.repo / 'config/pi/AGENTS.md').read_text()
+        repo_settings = (self.repo / 'config/pi/settings.json').read_text()
+        result = self.run_sync('push', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('shared layer', result.stderr)
+        self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), repo_addendum)
+        self.assertEqual((self.repo / 'config/pi/settings.json').read_text(), repo_settings)
+
     def test_pull_upgrades_a_pre_boundary_composition(self):
         self.run_sync('pull')
         machine = self.home / '.pi/agent/AGENTS.md'
@@ -275,6 +288,14 @@ class SyncTests(unittest.TestCase):
         out.write_text('# Shared\n\n- one\n\n## Host\n\n- two\n')
         self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
+        # A legacy source may copy a whole file, but never one that carries the
+        # shared-layer boundary.
+        out.write_text('# Legacy\n')
+        self.assertEqual(helper.cmd_legacy_agents([str(out), str(extracted)]), 0)
+        self.assertEqual(extracted.read_text(), '# Legacy\n')
+        out.write_text('# Shared\n\n<!-- kitto:host-addendum -->\n\n## Host\n- h\n')
+        self.assertEqual(helper.cmd_legacy_agents([str(out), str(extracted)]), 1)
+        self.assertEqual(extracted.read_text(), '# Legacy\n')
 
     def test_legacy_skill_sync_requires_explicit_opt_in(self):
         env = {**self.env, 'KITTO_ALLOW_LEGACY_SKILL_SYNC': '1'}
