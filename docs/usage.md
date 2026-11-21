@@ -44,6 +44,23 @@ kitto worktree audit --workspace '/path/to/workspace' --json
 
 本机锁只串行 Kitto 写操作，不能冻结宿主、Git 或外部文件系统。必须让目标树从确认到移除始终静止；绕过 Kitto 的并发写入与最后一次检查之间无法提供原子保证。不要将此流程用于 DSH 原生托管树或无法核实占用的远程/共享树。`audit` 仍是只读 Git 清单，不据此推断归属或占用。
 
+### 宿主触发与双机验收
+
+每次显式 `start` 预览同时给出本仓库、此设备私有台账中的 `handoffHints`：其他任务有登记、无登记、流程中断三类计数。`incomplete` 表示计数可能不全；无登记不等于空闲，中断不等于可重试，不扫描其他 checkout，也不暴露其任务或会话 ID。提示不进入执行决策，不修改占用。已知任务可从树外显式 `finish`，要只交接、保留树则预览 `--release` 并按上文确认；不认识的树只做 `audit`。
+
+| 宿主 | 已知事件边界 | 本版 Kitto 行为 |
+|---|---|---|
+| Pi CLI | `session_start` / `session_shutdown` 会用于会话切换等流程；退出、reload、fork 都不是归档证明。 | 不安装监听；显式开工时提醒，显式交接时预览。 |
+| Codex CLI | `SessionStart` / `SessionEnd` 不是 archive；app-server 的 thread archive/unarchive 不是 `hooks.json` 事件。 | 不安装 hook，不承诺从 SessionStart 切换 cwd。 |
+| DSH CLI/Web | `workspace/session-archived` 是持久化后通知，`unarchiving` 发生在解除归档前；这些事件不是 Kitto 占用证明。原生 worktree 有自己的清理者。 | 不接收事件、不改 `retainOnArchive`、不收养原生树。归档或解除归档至多是人工复核的信号。 |
+| Codex Desktop（本期范围） | 全局技能、手动调用；不承诺按工作区下发或内嵌事件。 | 使用现有 CLI 做显式预览；若宿主无法调用 CLI，报告限制，不安装。 |
+
+1. 在两台机器各用独立的测试 clone、私有本机状态目录和一次性测试 scope；核对测试代码 SHA 相同。不要同步 Kitto 台账，不对日常工作树做清理测试。
+2. 设备 A 为测试任务预览并确认开工；新会话使用不同 ID。退出、reload、fork，在可用的真实 UI 归档、解除归档，再次归档；在下一次显式 `start` 预览中，其他任务的登记不会因此减少。用相同任务的 `start` 预览核对 ID 仍在，同仓库另一个任务的预览只返回汇总计数。若有 DSH 原生树，仅观察它自身的行为，不对它调用 Kitto 的执行命令。
+3. 设备 B 对相同任务 ID 预览；不能复用 A 的 checkout 或看到 A 的提示。只有显式确认才会建立 B 自己的树。两台设备分别从树外核实会话和进程后，预览 `--release`；不确认时既不释放也不删。需要测试最终移除时，仅在一次性树确认后执行并核对分支仍在。
+
+事件边界基于 Pi 1.5.2、Codex 0.170.0 与 DSH Web 0.2.2-rc.5 的文档或代码核验，不是实机 UI 验收。自动测试仅在隔离 Git 仓库操作 CLI 和模拟事件输入；Desktop 和第二设备的真实操作按以上步骤待验。
+
 ## 共享工作区
 
 如果只需登记一个已有工作区，运行 `npx --yes @phyzess/kitto setup --workspace /path/to/workspace`。目录可以已经有多个独立 Git 仓库。Kitto 会保留已有的规则与 skill，创建缺少的目录和规则文件，并为当前账号能运行的宿主安装适配器。加 `--dry-run` 可以预览，`--agents pi,codex` 可选定宿主。
