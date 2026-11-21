@@ -163,6 +163,18 @@ class SyncTests(unittest.TestCase):
         out = self.base / 'export.json'
         self.assertEqual(helper.cmd_export_mcp([str(repo), str(repo), '', '', '', str(out)]), 1)
 
+    def test_commit_includes_new_managed_files(self):
+        git = self.init_git()
+        self.run_sync('pull')
+        (self.repo / 'config/pi/extensions/new.ts').write_text('export const value = 1;\n')
+        (self.repo / 'skills/new').mkdir(parents=True)
+        (self.repo / 'skills/new/SKILL.md').write_text(
+            '---\nname: new\ndescription: New skill.\n---\n')
+        self.run_sync('push', '--commit')
+        paths = git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').stdout
+        self.assertIn('config/pi/extensions/new.ts', paths)
+        self.assertIn('skills/new/SKILL.md', paths)
+
     def test_env_preserved_and_pull_idempotent(self):
         token = self.home / '.pi-agent-env'
         token.write_text('SYNTHETIC_TOKEN=keep-me\n')

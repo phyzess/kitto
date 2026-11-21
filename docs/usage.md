@@ -69,6 +69,32 @@ npx --yes @phyzess/kitto setup --workspace /home/dsh/workspace --dsh-service dsh
 
 DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-profile <name>`，以后按该 profile 的原生方式启动。
 
+### 当前能力矩阵
+
+| 能力 | Pi（macOS/Linux） | Codex | DSH（Linux；macOS 同一套规则） |
+|---|---|---|---|
+| 全局规则 | Kitto 覆盖整份 `~/.pi/agent/AGENTS.md` | Kitto 标记块 | Kitto 标记块 |
+| 共享 skills | `~/.agents/skills` | `~/.agents/skills` + SessionStart hook | `~/.agents/skills` + scope provider |
+| 宿主专属 skills | Pi 上游包 | `config/codex/skills` 副本 | `config/dsh/skills` 副本 |
+| 插件/扩展 | Pi 包、Pi 扩展 | Kitto Codex 插件 | Kitto DSH bundle |
+| MCP | 共享 + 平台 + private + 项目级 | 宿主自管 | 宿主自管 |
+| 模型/settings | Kitto 管理 | 宿主自管 | 宿主自管 |
+| 凭据/env | `~/.pi-agent-env` | 宿主自管 | 宿主 env/service env |
+| workspace scope | scoped-pi | scoped-codex | scoped-dsh |
+
+MCP、模型/settings、凭据目前**只在 Pi 上由 Kitto 管理**；Codex/DSH 使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
+
+### 一键迁移仍需要手动做的事
+
+`setup` 会部署规则、skills、宿主注册和依赖检查，但以下项目按宿主/账号不同，必须手动完成：
+
+1. 安装并登录各宿主 CLI（或用 `--install-agents` 只补装 CLI）。
+2. Pi：复制 `config/pi/mcp.private.json` 并填写 host/token；把 `~/.pi-agent-env` 放进 shell 启动文件。
+3. Codex：首次在 `/hooks` 信任 Kitto 的 SessionStart hook。
+4. DSH：重启对应 profile/服务；私有 MCP 由 DSH 自己的配置提供。
+5. 需要 CodeGraph 的仓库：在仓库根目录执行一次 `codegraph init`（Kitto 会提醒）。
+
+
 ## i-have-adhd 回复风格
 
 使用本仓库的完整配置后，Pi、Codex 和 DSH 默认采用行动优先、分步呈现的回复风格。Pi 通过上游扩展启用常开模式；Codex 和 DSH 通过各自的全局工作约定加载同一版本的 skill。DSH 的 `i-have-adhd` 副本可由模型加载，AGENTS.md 会在会话开始要求加载它。向导的「仅配置共享规则与 skills」选项会跳过配置仓库里的这些内容。
