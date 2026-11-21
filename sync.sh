@@ -9,7 +9,8 @@
 # 兼容保留的命令（settings/mcp/AGENTS.md/extensions/packages 仍可用）：
 #   bash sync.sh status           看仓库与本机差异（只读）
 #   bash sync.sh pull             仓库 -> 本机（内容不同才覆盖；settings/mcp 走结构化合并）
-#   bash sync.sh push             本机 -> 仓库（脱敏导出，运行时键与私钥不落盘）
+#   bash sync.sh push             本机 -> 仓库（脱敏导出，运行时键与私钥不落盘；
+#                                 AGENTS.md 只导出 Pi 专属段，共享规则不回写）
 #   bash sync.sh push --commit    导出并提交
 #   bash sync.sh deps             按平台装 CLI 依赖（brew / mise / npm / pip）
 #
@@ -30,6 +31,8 @@ ROOT="${KITTO_CONFIG_ROOT:-$SCRIPT_ROOT}"
 DOT_PI="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 DOT_AGENTS="${PI_AGENTS_DIR:-$HOME/.agents}"
 LOCAL="$ROOT/config/pi/local"
+COMMON_AGENTS="$ROOT/config/instructions/common.md"
+PI_AGENTS="$ROOT/config/pi/AGENTS.md"
 PY="$SCRIPT_ROOT/lib/pi_config.py"
 HOST="$(hostname -s 2>/dev/null || hostname)"
 
@@ -120,6 +123,42 @@ deploy_file() { # <src> <dst> <label>
     if [ -f "$dst" ]; then info "update $label"; else info "create $label"; fi
     run mkdir -p "$(dirname "$dst")"
     run cp -f "$src" "$dst"
+}
+
+pi_agents_source() { # <out> -> path to deploy; compose common + Pi addendum
+    local out="$1"
+    python3 "$PY" compose-agents "$COMMON_AGENTS" "$PI_AGENTS" "$out" || return 1
+    printf '%s\n' "$out"
+}
+
+deploy_pi_agents() {
+    local src
+    if [ -f "$COMMON_AGENTS" ]; then
+        src="$(pi_agents_source "$TMP/AGENTS.md")" || { fail "组合 $COMMON_AGENTS 与 $PI_AGENTS 失败"; return 1; }
+    else
+        # Older configuration checkouts predate the shared layer: keep the
+        # historical whole-file behavior instead of breaking deployment.
+        src="$PI_AGENTS"
+    fi
+    deploy_file "$src" "$DOT_PI/AGENTS.md" "~/.pi/agent/AGENTS.md"
+}
+
+prepare_pi_agents_export() { # validate and stage the addendum before any repo write
+    if [ ! -f "$COMMON_AGENTS" ]; then
+        # Older configuration checkouts predate the shared layer: keep the
+        # historical whole-file export, but never copy a shared-layer
+        # composition (with its boundary) back into a legacy addendum.
+        python3 "$PY" legacy-agents "$DOT_PI/AGENTS.md" "$TMP/AGENTS.md" \
+            || { fail "配置源没有共享层，但本机 AGENTS.md 已含共享段；拒绝整文件导出"; return 1; }
+        return 0
+    fi
+    info "AGENTS.md（只导出 Pi 专属段）"
+    python3 "$PY" extract-agents "$DOT_PI/AGENTS.md" "$COMMON_AGENTS" "$TMP/AGENTS.md" \
+        || { fail "AGENTS.md 未按共享层组合，拒绝把 common 写回 config/pi/AGENTS.md"; return 1; }
+}
+
+deploy_pi_agents_export() {
+    deploy_file "$TMP/AGENTS.md" "$PI_AGENTS" "config/pi/AGENTS.md"
 }
 
 deploy_dir() { # <src dir> <dst dir> <label>
@@ -261,7 +300,7 @@ cmd_pull() {
     step_packages
     step_settings
     step_mcp
-    deploy_file "$ROOT/config/pi/AGENTS.md" "$DOT_PI/AGENTS.md" "~/.pi/agent/AGENTS.md"
+    deploy_pi_agents
     deploy_file "$ROOT/config/pi/i-have-adhd-always" "$DOT_PI/.i-have-adhd-always" "~/.pi/agent/.i-have-adhd-always"
     step_extensions
     step_skills
@@ -282,6 +321,7 @@ cmd_push() {
         fail "暂存区已有改动，请先处理后再使用 --commit"
         exit 1
     fi
+    prepare_pi_agents_export || exit 1
     info "settings.json（脱敏）"
     if [ "$DRY" = 1 ]; then
         python3 "$PY" sanitize-settings "$DOT_PI/settings.json" "$ROOT/config/pi/settings.json" "$LOCAL" "$TMP/settings.json"
@@ -289,7 +329,7 @@ cmd_push() {
     else
         python3 "$PY" sanitize-settings "$DOT_PI/settings.json" "$ROOT/config/pi/settings.json" "$LOCAL" "$ROOT/config/pi/settings.json"
     fi
-    deploy_file "$DOT_PI/AGENTS.md" "$ROOT/config/pi/AGENTS.md" "config/pi/AGENTS.md"
+    deploy_pi_agents_export
     [ -f "$DOT_PI/mcp.json" ] && {
         info "mcp.json（去掉平台/本机/私有条目）"
         if [ "$DRY" = 1 ]; then
@@ -364,16 +404,16 @@ cmd_status() {
             printf '  %sdiffers%s  mcp.json（pull 会更新）\n' "$RED" "$NC"
         fi
     fi
-    local pair src dst label
-    for pair in \
-        "config/pi/AGENTS.md|$DOT_PI/AGENTS.md|AGENTS.md" \
-        "config/env.example|$HOME/.pi-agent-env|~/.pi-agent-env"; do
-        IFS='|' read -r src dst label <<<"$pair"
-        if [ ! -e "$dst" ]; then printf '  %smissing%s  %s\n' "$YELLOW" "$NC" "$label"
-        elif [ "$src" = config/env.example ]; then printf '  %slocal%s  %s（保留本机内容）\n' "$DIM" "$NC" "$label"
-        elif cmp -s "$ROOT/$src" "$dst"; then printf '  %s=%s  %s\n' "$DIM" "$NC" "$label"
-        else printf '  %sdiffers%s  %s\n' "$RED" "$NC" "$label"; fi
-    done
+    if [ ! -e "$DOT_PI/AGENTS.md" ]; then
+        printf '  %smissing%s  AGENTS.md\n' "$YELLOW" "$NC"
+    elif [ -f "$COMMON_AGENTS" ]; then
+        pi_agents_source "$TMP/AGENTS.md" >/dev/null || { fail "组合 $COMMON_AGENTS 与 $PI_AGENTS 失败"; return 1; }
+        if cmp -s "$TMP/AGENTS.md" "$DOT_PI/AGENTS.md"; then printf '  %s=%s  AGENTS.md\n' "$DIM" "$NC"
+        else printf '  %sdiffers%s  AGENTS.md（pull 会更新）\n' "$RED" "$NC"; fi
+    elif cmp -s "$PI_AGENTS" "$DOT_PI/AGENTS.md"; then printf '  %s=%s  AGENTS.md\n' "$DIM" "$NC"
+    else printf '  %sdiffers%s  AGENTS.md（pull 会更新）\n' "$RED" "$NC"; fi
+    if [ ! -e "$HOME/.pi-agent-env" ]; then printf '  %smissing%s  ~/.pi-agent-env\n' "$YELLOW" "$NC"
+    else printf '  %slocal%s  ~/.pi-agent-env（保留本机内容）\n' "$DIM" "$NC"; fi
     local ext name
     for ext in "$ROOT"/config/pi/extensions/*.ts; do
         name="$(basename "$ext")"

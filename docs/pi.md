@@ -7,10 +7,21 @@
 | 要做的事 | 配置来源 |
 |---|---|
 | 修改模型、主题、扩展包或固定版本 | [settings.json](../config/pi/settings.json) |
-| 修改 Pi 的全局工作规则 | [AGENTS.md](../config/pi/AGENTS.md) |
+| 修改 Pi 的全局工作规则 | [AGENTS.md](../config/pi/AGENTS.md)（Pi addendum；共享部分见 [common.md](../config/instructions/common.md)） |
 | 配置共享 MCP、平台差异 | [mcp.json](../config/pi/mcp.json)、[platform/](../config/pi/platform/) |
 | 编辑仓库自带的 Pi 扩展 | [extensions/](../config/pi/extensions/) |
 | 管理 MCP 所需命令和安装方式 | [dependencies.json](../config/dependencies.json) |
+
+## 全局规则如何组合
+
+Pi 的 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`）由 Kitto 在 pull 时生成：先是三个宿主共享的 [config/instructions/common.md](../config/instructions/common.md)，然后是一行固定的分隔哨兵 `<!-- kitto:host-addendum -->`，最后是 [config/pi/AGENTS.md](../config/pi/AGENTS.md)（Pi 专属 addendum）。因此：
+
+- 改三个宿主都适用的规则，编辑 `common.md`；
+- 改 Pi 的 MCP 工具表、浏览器或 Plannotator 约定，编辑 `config/pi/AGENTS.md`；
+- 不要直接编辑本机生成的 `AGENTS.md`：pull 会按组合结果整份覆盖，旧版遗留的全文件也会被替换一次；
+- `sync.sh push` 用分隔哨兵切分本机文件，只把 Pi 专属段写回 `config/pi/AGENTS.md`。缺少哨兵（旧组合）、共享段与当前 `common.md` 不完全一致（包括整段删除共享规则但本机尚未 pull），或组合结果不规范时，push 会在写仓库前拒绝并提示先同步，而不是把共享规则或已删除的规则写回 addendum。
+
+需要本机或项目专属规则时，使用该工作区/仓库自己的 `AGENTS.md`。`config/pi/local/` 仍只覆盖 settings、MCP 和包清单。
 
 ## 只改这台机器
 
@@ -48,6 +59,6 @@ bash sync.sh deps --dry-run
 KITTO_ALLOW_LEGACY_SKILL_SYNC=1 bash sync.sh pull
 ```
 
-共享 skills 默认由 Kitto JS 管理（按 hash 记录所有权，并与 setup/sync 共用锁）。直接 `sync.sh` 绕过这层所有权会留下 hash 冲突，所以只有 `KITTO_ALLOW_LEGACY_SKILL_SYNC=1` 时才按旧逻辑复制 `~/.agents/skills`。settings、MCP、`AGENTS.md`、extensions 和 Pi 包等其他 Pi 功能仍然可用，便于兼容。直接运行时 `status` 也不会再把共享 skills 报成 missing/differs；只有显式 opt-in 后才按旧方式比较。
+共享 skills 默认由 Kitto JS 管理（按 hash 记录所有权，并与 setup/sync 共用锁）。直接 `sync.sh` 绕过这层所有权会留下 hash 冲突，所以只有 `KITTO_ALLOW_LEGACY_SKILL_SYNC=1` 时才按旧逻辑复制 `~/.agents/skills`。settings、MCP、`AGENTS.md`、extensions 和 Pi 包等其他 Pi 功能仍然可用，便于兼容。直接运行时 `status` 也不会再把共享 skills 报成 missing/differs；只有显式 opt-in 后才按旧方式比较。`AGENTS.md` 的规则见上文「全局规则如何组合」：pull 组合 common + addendum，push 只导出 addendum；配置源没有 `common.md` 时沿用整文件旧行为，但本机文件含共享层哨兵时 push 会拒绝。
 
 这里的 `push` 指把 Pi 配置导出到本地仓库。检查 Git 差异后，才执行 Git 的提交和推送。导出只写入仓库已经声明的 settings 键、MCP server、skills 和扩展；本机新增但未声明的项会在预览中点名并跳过，避免把临时 token 或实验配置带进仓库。凭据用 `${VAR}` 引用，写出字面 secret 时导出会拒绝。要在所有机器上移除扩展包，直接修改仓库的 `settings.json`。

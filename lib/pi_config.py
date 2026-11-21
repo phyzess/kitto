@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Structural merge helpers for pi-config sync.
+"""Structural helpers for the Pi adapter.
 
-Three responsibilities, each exposed as a subcommand so sync.sh can stay in bash:
+Each responsibility is a small subcommand so sync.sh can stay in bash:
 
   merge-settings   repo settings + machine settings + machine-only packages -> machine settings
   sanitize-settings machine settings -> repo settings (drops volatile keys)
   merge-mcp        repo + platform + machine local + machine -> machine mcp.json
+  compose-agents   shared rules + host addendum -> deployed AGENTS.md
+  extract-agents   deployed AGENTS.md -> host addendum only (never shared rules)
+  legacy-agents    deployed AGENTS.md -> whole-file export for sources without common.md
 
 Shared definitions are updated while machine overrides and runtime switches
 stay local. Preview helpers write only their explicit output path.
@@ -20,6 +23,12 @@ import sys
 import tempfile
 
 VOLATILE_KEYS = ("lastChangelogVersion", "extensionChangelogVersions")
+
+# Explicit boundary between the shared layer and the host addendum. Without it,
+# a truncated common.md can look like an addendum prefix of an older deployed
+# file; the boundary (plus an exact shared-section comparison) makes the split
+# unambiguous. Keep in sync with lib/host-config.mjs.
+AGENTS_BOUNDARY = "<!-- kitto:host-addendum -->"
 
 # Export must never turn a local secret into a repository commit. These are the
 # key names and literal shapes that Kitto refuses to write into the source tree.
@@ -122,6 +131,52 @@ def dump_semantic(path: str, data) -> bool:
     if os.path.exists(path) and load(path) == data:
         return False
     return dump(path, data)
+
+
+def read_text(path: str) -> str | None:
+    if not path or not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def write_text(path: str, text: str) -> bool:
+    """Write UTF-8 text atomically. Returns True when the file changed."""
+    old = read_text(path)
+    if old == text:
+        return False
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".kitto-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return True
+
+
+def normalize_instructions(text: str) -> str:
+    """One canonical form for shared-layer files: no BOM, LF line endings."""
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def compose_agents(common: str | None, addendum: str | None) -> str:
+    """Shared rules first, a boundary line, then the host addendum.
+
+    Byte-identical to composeInstructions() in lib/host-config.mjs. Normalizing
+    and stripping each section keeps the result stable no matter how the files
+    end or which platform produced them. A single section (legacy sources with
+    no shared layer) keeps the historical output without a boundary.
+    """
+    sections = [normalize_instructions(text).strip() for text in (common, addendum) if text]
+    sections = [text for text in sections if text]
+    if not sections:
+        return ""
+    return ("\n\n" + AGENTS_BOUNDARY + "\n\n").join(sections) + "\n"
 
 
 def read_list(path: str) -> list[str]:
@@ -380,6 +435,86 @@ def cmd_export_mcp(argv: list[str]) -> int:
     return 0
 
 
+def cmd_compose_agents(argv: list[str]) -> int:
+    common_path, addendum_path, out_path = argv
+    common, addendum = read_text(common_path), read_text(addendum_path)
+    if common is None:
+        print(f"missing shared instructions: {common_path}", file=sys.stderr)
+        return 1
+    for path, text in ((common_path, common), (addendum_path, addendum)):
+        if text and AGENTS_BOUNDARY in text:
+            print(f"reserved shared/host boundary in {path}", file=sys.stderr)
+            return 1
+    write_text(out_path, compose_agents(common, addendum))
+    return 0
+
+
+def cmd_extract_agents(argv: list[str]) -> int:
+    """Export only the host addendum, so shared rules never travel upstream."""
+    machine_path, common_path, out_path = argv
+    machine, common = read_text(machine_path), read_text(common_path)
+    if machine is None:
+        print(f"missing deployed instructions: {machine_path}", file=sys.stderr)
+        return 1
+    if common is None:
+        print(f"missing shared instructions: {common_path}", file=sys.stderr)
+        return 1
+    prefix = normalize_instructions(common).strip()
+    body = normalize_instructions(machine).strip()
+    lines = body.split("\n")
+    boundaries = [index for index, line in enumerate(lines) if line.strip() == AGENTS_BOUNDARY]
+    if not boundaries:
+        print(f"{machine_path} has no {AGENTS_BOUNDARY} boundary; push only exports the host-specific "
+              "section of a file composed from the current shared layer. Run sync before exporting.",
+              file=sys.stderr)
+        return 1
+    if len(boundaries) > 1:
+        print(f"{machine_path} contains more than one {AGENTS_BOUNDARY} boundary; refusing to export.",
+              file=sys.stderr)
+        return 1
+    # Compare the whole shared section, not just a prefix: deleting the tail of
+    # common.md must not turn old shared rules into an addendum.
+    split = boundaries[0]
+    if "\n".join(lines[:split]).strip() != prefix:
+        print(f"{machine_path} shared rules differ from {common_path} (the deployed file may predate "
+              "the current shared layer); run sync before exporting.", file=sys.stderr)
+        return 1
+    addendum = "\n".join(lines[split + 1:]).strip()
+    if not addendum:
+        print(f"{machine_path} has no host-specific section; refusing to export an empty addendum.", file=sys.stderr)
+        return 1
+    if compose_agents(common, addendum) != body + "\n":
+        print(f"{machine_path} is not a canonical shared-layer composition; run sync before exporting. "
+              "Shared rules must be edited in the source, not in the deployed file.", file=sys.stderr)
+        return 1
+    changed = write_text(out_path, addendum + "\n")
+    print(f"AGENTS.md: {'exported' if changed else 'unchanged'} (host addendum only)")
+    return 0
+
+
+def cmd_legacy_agents(argv: list[str]) -> int:
+    """Stage the historical whole-file export for sources without common.md.
+
+    A file composed with the shared layer (it carries the boundary) must not be
+    copied wholesale into a legacy addendum: the boundary and shared rules
+    would leak into the source and duplicate on the next shared-layer pull.
+    """
+    machine_path, out_path = argv
+    machine = read_text(machine_path)
+    if machine is None:
+        print(f"missing deployed instructions: {machine_path}", file=sys.stderr)
+        return 1
+    if AGENTS_BOUNDARY in normalize_instructions(machine):
+        print(f"{machine_path} is composed with a shared layer ({AGENTS_BOUNDARY}), but the "
+              "configuration source has no config/instructions/common.md; refusing the whole-file "
+              "export. Sync from the source that contains the shared layer, or start from a "
+              "legacy-only AGENTS.md.", file=sys.stderr)
+        return 1
+    write_text(out_path, machine)
+    print("AGENTS.md: legacy whole-file export (source has no shared layer)")
+    return 0
+
+
 COMMANDS = {
     "list-shared-packages": cmd_list_shared_packages,
     "record-settings": cmd_record_settings,
@@ -387,12 +522,16 @@ COMMANDS = {
     "sanitize-settings": cmd_sanitize_settings,
     "merge-mcp": cmd_merge_mcp,
     "export-mcp": cmd_export_mcp,
+    "compose-agents": cmd_compose_agents,
+    "extract-agents": cmd_extract_agents,
+    "legacy-agents": cmd_legacy_agents,
 }
 
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[1] not in COMMANDS:
-        sys.exit("usage: pi_config.py {merge-settings|sanitize-settings|merge-mcp|export-mcp} ...")
+        sys.exit("usage: pi_config.py "
+                 "{merge-settings|sanitize-settings|merge-mcp|export-mcp|compose-agents|extract-agents|legacy-agents} ...")
     return COMMANDS[argv[1]](argv[2:])
 
 
