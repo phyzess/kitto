@@ -106,6 +106,21 @@ if (name === 'pi') {
     save(file, data);
   }
 } else if (name === 'dsh') {
+  if (args[0] === 'plugin' && args[1] === '--profile' && args[2] === 'desktop' && args[3] === 'version-exemptions') {
+    // Kitto's read-only Desktop probe: npm CLI rejects the reserved profile;
+    // Desktop's carrier reports exemptions once the app initialized it.
+    if (process.env.FAKE_DSH_CLI === 'npm') {
+      console.error('error: profile "desktop" is managed exclusively by the Electron application');
+      process.exit(1);
+    }
+    const manifest = path.join(process.env.DSH_HOME, 'profiles/desktop/package.json');
+    if (!fs.existsSync(manifest)) {
+      console.error('dsh: Error: Open DeepSeek Harness Desktop once to initialize its profile, then fully quit it before running dsh plugin --profile desktop.');
+      process.exit(1);
+    }
+    console.log('[]');
+    process.exit();
+  }
   const file = path.join(process.env.DSH_HOME, 'profiles', args[2], 'package.json');
   const data = load(file, { dependencies: {}, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } });
   if (args[3] === 'add') {

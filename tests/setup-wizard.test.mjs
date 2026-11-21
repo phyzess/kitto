@@ -32,7 +32,7 @@ test('wizard defaults to detected hosts and previews the default source', async 
 });
 
 test('wizard offers active DSH service without requiring a local CLI or workspace', async () => {
-  const result = await wizard('1，3\n\n3\n\noperations\n2\n', {
+  const result = await wizard('1，3\n\noperations\n3\n\n2\n', {
     available: ['pi'], serviceActive: true, canConfigureService: true,
   });
   assert.match(result.text, /正在运行的系统服务 dsh.service/);
@@ -75,14 +75,27 @@ test('wizard can apply the same plan after preview in one invocation', async () 
 
 test('wizard requests pnpm installation for full local DSH setup', async () => {
   const environment = { available: ['dsh'], serviceActive: false, pnpmAvailable: false };
-  const allowed = await wizard('\n1\ny\n\n\n\n1\n0\n', environment);
+  const allowed = await wizard('\n\n1\ny\n\n\n1\n0\n', environment);
   assert.match(allowed.text, /允许补装 pnpm/);
   assert.equal(allowed.plans[0].installAgents, true);
   assert.equal(allowed.plans[0].source, undefined);
 
-  const declined = await wizard('\n1\nn\n3\n\n\n1\n0\n', environment);
+  const declined = await wizard('\n\n1\nn\n3\n\n\n1\n0\n', environment);
   assert.equal(declined.plans[0].installAgents, false);
   assert.equal(declined.plans[0].source, false);
+});
+
+test('wizard accepts the app-managed DSH desktop profile without asking for pnpm', async () => {
+  const result = await wizard('\ndesktop\n1\n\n\n1\n0\n', {
+    available: ['dsh'], serviceActive: false, pnpmAvailable: false,
+  });
+  assert.match(result.text, /DSH Desktop 由 App 管理/);
+  assert.doesNotMatch(result.text, /允许补装 pnpm/);
+  assert.match(result.text, /配置档 desktop（由 App 管理，仅全局规则\/skills）/);
+  assert.deepEqual(result.plans, [{
+    agents: ['dsh'], source: undefined, installAgents: false, deps: false,
+    workspace: undefined, unit: undefined, dshProfile: 'desktop', dryRun: true,
+  }]);
 });
 
 test('wizard asks for separate permission to install pnpm in the DSH service account', async () => {
@@ -91,12 +104,12 @@ test('wizard asks for separate permission to install pnpm in the DSH service acc
     assert.equal(unit, 'dsh.service');
     return false;
   } };
-  const allowed = await wizard('pi,dsh\n\n1\ny\nn\n\n\n1\n0\n', environment, options);
+  const allowed = await wizard('pi,dsh\n\n\n1\ny\nn\n\n1\n0\n', environment, options);
   assert.match(allowed.text, /允许在服务账号中补装 pnpm/);
   assert.equal(allowed.plans[0].installAgents, false);
   assert.equal(allowed.plans[0].serviceInstallAgents, true);
 
-  const declined = await wizard('pi,dsh\n\n1\nn\n3\n\n\n1\n0\n', environment, options);
+  const declined = await wizard('pi,dsh\n\n\n1\nn\n3\n\n\n1\n0\n', environment, options);
   assert.equal(declined.plans[0].source, false);
   assert.equal(declined.plans[0].serviceInstallAgents, undefined);
 });
