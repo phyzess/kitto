@@ -61,7 +61,7 @@ npx --yes @phyzess/kitto setup --workspace /home/dsh/workspace --dsh-service dsh
 
 DeepSeek Harness Desktop 独占 `desktop` 配置档：npm 版 `dsh` CLI 会拒绝管理它，只有 Desktop 内置的 `dsh` 命令可以。Kitto v1 对 `desktop` 采用 **global-only** 模式，只部署全局规则和 skills：
 
-1. 启动一次 DeepSeek Harness Desktop，让 App 初始化 `$DSH_HOME/profiles/desktop`，并在菜单选择「Manage dsh Command…」安装内置 `dsh` 命令（可在终端用 `dsh --version` 确认）。这一步用于让 Kitto 只读探测 profile；跳过也能部署全局文件，但检测会提示无法验证。
+1. 启动一次 DeepSeek Harness Desktop，让 App 初始化 `$DSH_HOME/profiles/desktop`。Kitto **不要求**本机安装 `dsh` CLI，也不会用 npm 补装它（`--install-agents` 不会为 desktop 安装 npm 版 dsh）；没有 CLI 时只是跳过对 profile 的探测。若希望启用探测，可在 Desktop 菜单「Manage dsh Command…」安装内置命令，但装不装都不影响全局规则/skills 部署。
 2. **完全退出** Desktop（不是最小化），避免 App 持有 profile 锁。
 3. 运行（向导里输入配置档时直接填 `desktop` 也可以）：
 
@@ -74,16 +74,19 @@ DeepSeek Harness Desktop 独占 `desktop` 配置档：npm 版 `dsh` CLI 会拒�
 Kitto v1 对 `desktop` 能做：
 
 - 部署全局 `AGENTS.md`、DSH 专属 skills 和共享 skills；
-- 用只读探针 `dsh plugin --profile desktop version-exemptions` 区分 npm CLI、未初始化的 profile 和 Desktop 内置 CLI，并给出下一步提示；
-- 不要求 pnpm；移除集成时不调用 `dsh plugin remove`（因为从未安装 bundle）。
+- 用临时 `DSH_HOME` 副本做 best-effort 探测（不写真实 profile）：manifest 不存在时直接跳过，有 manifest 时区分 npm CLI、Desktop 内置 CLI 和超时/不可用，并给出提示；
+- 不要求 pnpm 或本机 dsh CLI；移除集成时不调用 `dsh plugin remove`（因为从未安装 bundle）。
 
 Kitto v1 对 `desktop` 不做：
 
 - 不安装 Kitto bundle，不写 `profiles/desktop/cordis.patch.yml`，不注册 scope adapter，也不同步 DSH MCP home patch；
 - 不改 Desktop 应用的 `package.json`、lockfile 或 profile 依赖；
-- 不把 `desktop` 用于 `--global` / `--workspace` / `--workspace-parent` 的 scoped 配置：只选 dsh 时会明确报错，与其他宿主混选时跳过 dsh 并配置其余宿主。
+- 不把 `desktop` 用于 `--global` / `--workspace` / `--workspace-parent` 的 scoped 配置或 `--dsh-service`：只选 dsh 时会明确报错，与其他宿主混选时跳过 dsh 并配置其余宿主；
+- 向导里的「仅配置共享规则与 skills」不能用于 desktop（没有配置来源就无全局规则可部署）。
 
-需要 Kitto bundle、workspace scoped 规则或 MCP 同步时，用 `--dsh-profile web`（或 headless 等 profile）；要在 Desktop 中安装其他插件，请使用 Desktop 内置 CLI 自行管理。Desktop 更新可能改变其读取全局规则/skills 的方式，升级后请重新验证。
+Desktop 内置的 `dsh` 命令只管理 App 自己的 profile，**不能**让 Kitto 获得 bundle、scoped 规则或 MCP 同步。需要这些能力时只能改用 `--dsh-profile web`（或 headless 等 Kitto 管理的 profile）。Desktop 更新可能改变其读取全局规则/skills 的方式，升级后请重新验证。
+
+从 `desktop` 切到 `web`（或反向）时，Kitto 要求先解除当前集成：通过维护 skill 运行 `maintain remove --apply`，再用新的 `--dsh-profile` 执行 setup；未解除时 setup 会拒绝切换 profile。
 
 ## 查看与移除 scope 登记
 
@@ -145,7 +148,7 @@ Codex MCP 的已知边界：
 5. TOML 重写：`codex mcp add/remove` 会重写配置，可能丢失注释（尤其是被操作的 `mcp_servers` 表及其邻近注释，更新已有 server 时文件顶部注释也可能消失）并调整 mcp 表顺序；Kitto 不直接写 TOML，只在 transport 有差异时调用原生命令。
 6. `kitto remove` 预览与 `versions` 仍调用真实 Codex 读取插件/版本清单；Codex 可能在 `CODEX_HOME/tmp` 下创建 arg0 辅助文件，但不会修改 `config.toml`。`status`、`sync` 和 `setup --dry-run` 的 MCP 探测已使用临时 home。
 
-`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。读取 Codex MCP 时使用临时 `CODEX_HOME` 副本，不会在真实 Codex 目录下产生辅助文件。
+`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。`desktop` 配置档显示为 `mcp dsh: (global-only; MCP sync disabled)`，不参与缺失比较。读取 Codex MCP 时使用临时 `CODEX_HOME` 副本，不会在真实 Codex 目录下产生辅助文件。
 
 ### 一键迁移仍需要手动做的事
 

@@ -107,8 +107,13 @@ if (name === 'pi') {
   }
 } else if (name === 'dsh') {
   if (args[0] === 'plugin' && args[1] === '--profile' && args[2] === 'desktop' && args[3] === 'version-exemptions') {
-    // Kitto's read-only Desktop probe: npm CLI rejects the reserved profile;
-    // Desktop's carrier reports exemptions once the app initialized it.
+    // Kitto's Desktop probe runs against a scratch DSH_HOME and must never
+    // touch the app-managed profile. npm CLI rejects the reserved profile.
+    const delay = Number(process.env.FAKE_DSH_PROBE_DELAY_MS || 0);
+    if (delay) {
+      const until = Date.now() + delay;
+      while (Date.now() < until) { /* Busy-wait so the parent timeout kills this child. */ }
+    }
     if (process.env.FAKE_DSH_CLI === 'npm') {
       console.error('error: profile "desktop" is managed exclusively by the Electron application');
       process.exit(1);

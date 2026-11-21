@@ -146,3 +146,26 @@ test('terminal wizard accepts arrows, Space, blank optional text, and Enter to p
   assert.equal(plans[0].dryRun, true);
   assert.equal(input.isRaw, false);
 });
+
+test('wizard accepts a DSH desktop profile without a local dsh CLI or install prompt', async () => {
+  const result = await wizard('dsh\ndesktop\n1\n\n\n1\n0\n', {
+    available: [], serviceActive: false, pnpmAvailable: false,
+  });
+  assert.match(result.text, /DSH Desktop 不要求本机 dsh CLI/);
+  assert.match(result.text, /补装缺少的宿主和必需工具  否/);
+  assert.doesNotMatch(result.text, /补装 DeepSeek/);
+  assert.deepEqual(result.plans, [{
+    agents: ['dsh'], source: undefined, installAgents: false, deps: false,
+    workspace: undefined, unit: undefined, dshProfile: 'desktop', dryRun: true,
+  }]);
+});
+
+test('wizard rejects shared-rules-only mode for the DSH desktop profile', async () => {
+  const result = await wizard('\ndesktop\n3\n1\n\n\n1\n0\n', {
+    available: ['dsh'], serviceActive: false, pnpmAvailable: false,
+  });
+  assert.match(result.text, /不能选择「仅配置共享规则与 skills」/);
+  assert.doesNotMatch(result.text, /配置来源  仅配置共享规则与 skills/);
+  assert.equal(result.plans[0].source, undefined);
+  assert.equal(result.plans[0].dshProfile, 'desktop');
+});

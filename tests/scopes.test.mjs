@@ -311,6 +311,11 @@ test('scoped setup refuses the app-managed DSH desktop profile and never writes 
   await assert.rejects(stat(workspace), { code: 'ENOENT' });
   assert.equal(existsSync(join(temp, '.dsh/profiles/desktop/cordis.patch.yml')), false);
 
+  const service = runScope(env, 'setup', '--workspace', workspace, '--dsh-service', 'dsh.service',
+    '--agents', 'dsh', '--dsh-profile', 'desktop');
+  assert.notEqual(service.status, 0);
+  assert.match(service.stderr, /cannot be configured for a system service/);
+
   // Other hosts still get their scoped setup; only the app-managed profile is skipped.
   const mixed = runScope(env, 'setup', '--global', '--agents', 'pi,dsh', '--dsh-profile', 'desktop');
   assert.equal(mixed.status, 0, mixed.stderr);
