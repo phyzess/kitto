@@ -63,6 +63,29 @@ function release(f, version, operation = 'setup') {
   }
   return (...args) => command(process.execPath, [join(directory, 'bin/kitto.mjs'), operation, ...args], f.env);
 }
+const bootstrapMarkerFor = source => join(source, '.git', 'kitto-bootstrap.json');
+// Give the fixture's own checkout an upstream branch so update may fast-forward it.
+function withRemote(f) {
+  const mirror = join(f.temp, 'remote.git');
+  good(command('git', ['clone', '--bare', f.source, mirror], f.env));
+  good(command('git', ['remote', 'add', 'origin', mirror], f.env, f.source));
+  good(command('git', ['push', '-u', 'origin', 'main'], f.env, f.source));
+  return mirror;
+}
+function commitAll(f, message = 'update') {
+  for (const args of [['add', '.'], ['commit', '-m', message]]) good(command('git', args, f.env, f.source));
+}
+// Clone the fixture source into a bare mirror and map the given URLs onto it.
+function mirrorOf(f, ...urls) {
+  if (!urls.length) urls = ['https://kitto.invalid/config.git'];
+  const mirror = join(f.temp, 'remote.git');
+  good(command('git', ['clone', '--bare', f.source, mirror], f.env));
+  const config = join(f.temp, 'gitconfig');
+  writeFileSync(config, '');
+  f.env.GIT_CONFIG_GLOBAL = config;
+  for (const url of urls) good(command('git', ['config', '--add', '--file', config, `url.${mirror}.insteadOf`, url], f.env));
+  return { mirror, config, url: urls[0] };
+}
 
 test('public options reject unknown hosts, flags and missing values', () => {
   assert.deepEqual(parseOptions(['--agents', 'pi,codex,pi']).agents, ['pi', 'codex']);
@@ -401,13 +424,10 @@ test('kitto update refreshes the runtime copy, deploys the new source and record
   const skill = join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md');
   assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
   assert.equal(readJson(statePath).version, '0.1.0-test.1');
-  // A user-owned checkout needs an upstream branch for the fast-forward rule.
-  const mirror = join(f.temp, 'remote.git');
-  good(command('git', ['clone', '--bare', f.source, mirror], f.env));
-  good(command('git', ['remote', 'add', 'origin', mirror], f.env, f.source));
-  good(command('git', ['push', '-u', 'origin', 'main'], f.env, f.source));
+  withRemote(f);
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'updated by kitto update');
-  for (const args of [['add', '.'], ['commit', '-m', 'release config'], ['push', 'origin', 'main']]) good(command('git', args, f.env, f.source));
+  commitAll(f, 'release config');
+  good(command('git', ['push', 'origin', 'main'], f.env, f.source));
   const revision = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout.trim();
   const deployed = readJson(statePath).deployed;
   const skillBefore = readFileSync(skill, 'utf8');
@@ -427,6 +447,7 @@ test('kitto update refreshes the runtime copy, deploys the new source and record
   assert.equal(state.version, '0.1.0-test.2');
   assert.equal(state.deployed.commit, revision);
   assert.equal(state.runtimeHash, await treeHash(runtime, true));
+  assert.equal(state.pendingRuntime, undefined);
   assert.notEqual(deployed.commit, state.deployed.commit);
   const checkpoint = readJson(join(home, 'runtime.previous.json'));
   assert.equal(checkpoint.version, '0.1.0-test.1');
@@ -439,48 +460,111 @@ test('kitto update refreshes the runtime copy, deploys the new source and record
   good(f.maintain('status'));
 });
 
-test('a failed deployment after the runtime swap keeps the old verified checkpoint recoverable', t => {
+test('a failed deployment after the runtime swap is not verified and stays recoverable', t => {
   const f = fixture(t), a = release(f, '0.1.0-test.1'), b = release(f, '0.1.0-test.2', 'update');
   good(a('--agents', 'codex', '--source', f.source));
-  const home = f.env.KITTO_HOME, statePath = join(home, 'state.json');
-  const mirror = join(f.temp, 'remote.git');
-  good(command('git', ['clone', '--bare', f.source, mirror], f.env));
-  good(command('git', ['remote', 'add', 'origin', mirror], f.env, f.source));
-  good(command('git', ['push', '-u', 'origin', 'main'], f.env, f.source));
+  const home = f.env.KITTO_HOME, statePath = join(home, 'state.json'), runtime = join(home, 'runtime');
+  const verifiedHash = readJson(statePath).runtimeHash;
+  withRemote(f);
   writeFileSync(join(f.source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: { debug: { command: 'debug-mcp' } } }));
-  for (const args of [['add', '.'], ['commit', '-m', 'add mcp server'], ['push', 'origin', 'main']]) good(command('git', args, f.env, f.source));
+  commitAll(f, 'add mcp server');
+  good(command('git', ['push', 'origin', 'main'], f.env, f.source));
   f.env.FAKE_MCP_FAIL_ADD = 'debug';
   const failed = b('--apply');
   assert.notEqual(failed.status, 0);
   assert.match(failed.stderr, /simulated MCP add failure/);
-  // The new runtime is active, but the previous verified one is still recoverable.
-  assert.equal(readJson(join(home, 'runtime/package.json')).version, '0.1.0-test.2');
-  assert.equal(readJson(statePath).version, '0.1.0-test.2');
+  // The new runtime is active but not verified: state still names the old one.
+  assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.2');
+  let state = readJson(statePath);
+  assert.equal(state.version, '0.1.0-test.1');
+  assert.equal(state.runtimeHash, verifiedHash);
+  assert.equal(state.pendingRuntime.version, '0.1.0-test.2');
   assert.equal(readJson(join(home, 'runtime.previous.json')).version, '0.1.0-test.1');
   good(f.cli('setup', '--recover', '--dry-run'));
   delete f.env.FAKE_MCP_FAIL_ADD;
   good(f.cli('setup', '--recover'));
+  state = readJson(join(statePath));
+  assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
+  assert.equal(state.version, '0.1.0-test.1');
+  assert.equal(state.pendingRuntime, undefined);
+  assert.equal(state.ready, true);
+});
+
+test('a failed update is never checkpointed and a later update keeps the real checkpoint', t => {
+  const f = fixture(t), a = release(f, '0.1.0-test.1'), b = release(f, '0.1.0-test.2', 'update'), c = release(f, '0.1.0-test.3', 'update');
+  good(a('--agents', 'codex', '--source', f.source));
+  const home = f.env.KITTO_HOME, statePath = join(home, 'state.json');
+  withRemote(f);
+  writeFileSync(join(f.source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: { debug: { command: 'debug-mcp' } } }));
+  commitAll(f, 'add mcp server');
+  good(command('git', ['push', 'origin', 'main'], f.env, f.source));
+  f.env.FAKE_MCP_FAIL_ADD = 'debug';
+  assert.notEqual(b('--apply').status, 0);
+  assert.equal(readJson(join(home, 'runtime.previous.json')).version, '0.1.0-test.1');
+  delete f.env.FAKE_MCP_FAIL_ADD;
+  // Without the pending marker, this would checkpoint the never-deployed B runtime.
+  good(c('--apply'));
+  const state = readJson(statePath);
+  assert.equal(state.version, '0.1.0-test.3');
+  assert.equal(state.pendingRuntime, undefined);
+  assert.equal(readJson(join(home, 'runtime.previous.json')).version, '0.1.0-test.1');
+  good(f.cli('setup', '--recover'));
   assert.equal(readJson(join(home, 'runtime/package.json')).version, '0.1.0-test.1');
   assert.equal(readJson(statePath).version, '0.1.0-test.1');
-  assert.equal(readJson(statePath).ready, true);
+});
+
+test('an installRuntime failure leaves the verified runtime and state intact', t => {
+  const f = fixture(t), a = release(f, '0.1.0-test.1'), b = release(f, '0.1.0-test.2', 'update');
+  good(a('--agents', 'codex', '--source', f.source));
+  const home = f.env.KITTO_HOME, runtime = join(home, 'runtime'), statePath = join(home, 'state.json');
+  withRemote(f);
+  const stateBefore = readFileSync(statePath, 'utf8');
+  // The copy stage fails after some files were staged; the live runtime is untouched.
+  rmSync(join(f.temp, '0.1.0-test.2/CHANGELOG.md'));
+  assert.notEqual(b('--apply').status, 0);
+  assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+  assert.equal(existsSync(join(home, 'runtime.previous.json')), false);
+  assert.equal(existsSync(join(home, '.lock')), false);
+  cpSync(join(root, 'CHANGELOG.md'), join(f.temp, '0.1.0-test.2/CHANGELOG.md'));
+  good(b('--apply'));
+  assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.2');
+  assert.equal(readJson(statePath).version, '0.1.0-test.2');
+});
+
+test('maintain update fast-forwards and redeploys without replacing its own runtime', t => {
+  const f = fixture(t), a = release(f, '0.1.0-test.1');
+  good(a('--agents', 'codex', '--source', f.source));
+  const home = f.env.KITTO_HOME, runtime = join(home, 'runtime');
+  withRemote(f);
+  writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'maintain update content');
+  commitAll(f, 'maintain config');
+  good(command('git', ['push', 'origin', 'main'], f.env, f.source));
+  const preview = f.maintain('update');
+  good(preview);
+  assert.match(preview.stdout, /runs from the installed copy|cannot replace itself/);
+  assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
+  good(f.maintain('update', '--apply'));
+  assert.match(readJson(join(home, 'state.json')).deployed.commit, /./);
+  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'maintain update content');
+  assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
+  assert.equal(readJson(join(home, 'state.json')).version, '0.1.0-test.1');
 });
 
 test('kitto update restores a lost managed checkout from the recorded source URL', t => {
-  const f = fixture(t), mirror = join(f.temp, 'remote.git');
-  good(command('git', ['clone', '--bare', f.source, mirror], f.env));
-  const config = join(f.temp, 'gitconfig'), url = 'https://kitto.invalid/config.git';
-  writeFileSync(config, ''); f.env.GIT_CONFIG_GLOBAL = config;
-  good(command('git', ['config', '--file', config, `url.${mirror}.insteadOf`, url], f.env));
+  const f = fixture(t), { url } = mirrorOf(f);
   good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'main'));
   const home = f.env.KITTO_HOME, managed = join(home, 'config');
   assert.equal(readJson(join(home, 'state.json')).sourceUrl, url);
+  assert.equal(readJson(join(home, 'state.json')).sourceRef, 'main');
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'restored from source URL');
-  for (const args of [['add', '.'], ['commit', '-m', 'remote update'], ['push', mirror, 'main']]) good(command('git', args, f.env, f.source));
+  commitAll(f, 'remote update');
+  good(command('git', ['push', join(f.temp, 'remote.git'), 'main'], f.env, f.source));
   rmSync(managed, { recursive: true });
 
   const preview = f.cli('update', '--check');
   good(preview);
-  assert(preview.stdout.includes(`Restore configuration checkout from ${url}: ${managed}`));
+  assert(preview.stdout.includes(`Restore configuration checkout from ${url} (main): ${managed}`));
   assert.equal(existsSync(managed), false);
 
   good(f.cli('update', '--apply'));
@@ -488,18 +572,178 @@ test('kitto update restores a lost managed checkout from the recorded source URL
   assert.equal(readJson(join(home, 'state.json')).sourceUrl, url);
   assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'restored from source URL');
   assert.equal(command('git', ['rev-parse', 'HEAD'], f.env, managed).stdout.trim(),
+    command('git', ['rev-parse', 'main'], f.env, join(f.temp, 'remote.git')).stdout.trim());
+});
+
+test('kitto update restores a lost checkout on its recorded non-default branch', t => {
+  const f = fixture(t);
+  const git = (...args) => command('git', args, f.env, f.source);
+  good(git('checkout', '-b', 'alt'));
+  writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'alt branch content');
+  commitAll(f, 'alt config');
+  good(git('checkout', 'main'));
+  const { mirror, url } = mirrorOf(f);
+  good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'alt'));
+  const home = f.env.KITTO_HOME, managed = join(home, 'config'), statePath = join(home, 'state.json');
+  assert.equal(readJson(statePath).sourceRef, 'alt');
+  assert.equal(command('git', ['symbolic-ref', '--short', 'HEAD'], f.env, managed).stdout.trim(), 'alt');
+  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'alt branch content');
+  rmSync(managed, { recursive: true });
+
+  const preview = f.cli('update', '--check');
+  good(preview);
+  assert(preview.stdout.includes(`Restore configuration checkout from ${url} (alt): ${managed}`));
+  assert.equal(existsSync(managed), false);
+  good(f.cli('update', '--apply'));
+  assert.equal(command('git', ['symbolic-ref', '--short', 'HEAD'], f.env, managed).stdout.trim(), 'alt');
+  assert.equal(command('git', ['rev-parse', 'HEAD'], f.env, managed).stdout.trim(),
+    command('git', ['rev-parse', 'alt'], f.env, mirror).stdout.trim());
+  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'alt branch content');
+  assert.equal(readJson(statePath).sourceRef, 'alt');
+});
+
+test('kitto update refuses to guess a lost checkout pinned to a tag', t => {
+  const f = fixture(t);
+  const git = (...args) => command('git', args, f.env, f.source);
+  good(git('tag', 'v1'));
+  const { url } = mirrorOf(f);
+  good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'v1'));
+  const home = f.env.KITTO_HOME, managed = join(home, 'config'), statePath = join(home, 'state.json');
+  assert.equal(readJson(statePath).sourceRef, 'v1');
+  assert.equal(readJson(statePath).deployed.detached, true);
+  writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'default branch moved on');
+  commitAll(f, 'main update');
+  good(command('git', ['push', join(f.temp, 'remote.git'), 'main'], f.env, f.source));
+  rmSync(managed, { recursive: true });
+
+  const refused = f.cli('update', '--apply');
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /pinned to a detached revision \(v1\)/);
+  assert.match(refused.stderr, /rerun kitto setup/);
+  assert.match(refused.stderr, /new KITTO_HOME/);
+  assert.equal(existsSync(managed), false);
+
+  // Even without the recorded deployment, a tag ref is detected and not guessed.
+  const state = readJson(statePath);
+  state.deployed.detached = false;
+  writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n');
+  const detected = f.cli('update', '--apply');
+  assert.notEqual(detected.status, 0);
+  assert.match(detected.stderr, /pinned to tag v1/);
+  assert.match(detected.stderr, /git -C .* checkout v1/);
+  assert.equal(existsSync(managed), false);
+});
+
+test('kitto update backfills a missing sourceUrl and sourceRef from the bootstrap marker', t => {
+  const f = fixture(t), { url } = mirrorOf(f);
+  good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'main'));
+  const home = f.env.KITTO_HOME, managed = join(home, 'config'), statePath = join(home, 'state.json');
+  const legacy = readJson(statePath);
+  delete legacy.sourceUrl;
+  delete legacy.sourceRef;
+  writeFileSync(statePath, JSON.stringify(legacy, null, 2) + '\n');
+
+  const preview = f.cli('update', '--check');
+  good(preview);
+  assert.match(preview.stdout, /Recovered the configuration source from the bootstrap marker/);
+  assert.equal(readJson(statePath).sourceUrl, undefined); // preview never writes
+  good(f.cli('update', '--apply'));
+  assert.equal(readJson(statePath).sourceUrl, url);
+  assert.equal(readJson(statePath).sourceRef, 'main');
+
+  // The backfilled values make a later lost-checkout recovery possible.
+  rmSync(managed, { recursive: true });
+  good(f.cli('update', '--apply'));
+  assert.equal(existsSync(join(managed, '.git')), true);
+  assert.equal(readJson(statePath).sourceUrl, url);
+});
+
+test('kitto update refuses a lost checkout whose recorded ref is unknown or not a Git URL', t => {
+  const f = fixture(t), { url } = mirrorOf(f);
+  good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'main'));
+  const home = f.env.KITTO_HOME, managed = join(home, 'config'), statePath = join(home, 'state.json');
+  const legacy = readJson(statePath);
+  delete legacy.sourceRef;
+  writeFileSync(statePath, JSON.stringify(legacy, null, 2) + '\n');
+  rmSync(managed, { recursive: true });
+
+  const unknown = f.cli('update', '--apply');
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /does not record its branch or tag/);
+  assert.match(unknown.stderr, /new KITTO_HOME/);
+  assert.equal(existsSync(managed), false);
+
+  const state = readJson(statePath);
+  state.sourceRef = 'main';
+  state.sourceUrl = '/tmp/local-config';
+  writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n');
+  const scheme = f.cli('update', '--apply');
+  assert.notEqual(scheme.status, 0);
+  assert.match(scheme.stderr, /not an HTTPS\/SSH Git URL/);
+  assert.equal(existsSync(managed), false);
+});
+
+test('kitto update follows a changed origin and redacts credentials in messages', t => {
+  const f = fixture(t), first = 'https://kitto.invalid/config.git', second = 'https://user:secret@kitto.invalid/config2.git';
+  const { mirror } = mirrorOf(f, first, second);
+  good(f.cli('setup', '--agents', 'codex', '--source', first, '--ref', 'main'));
+  const home = f.env.KITTO_HOME, managed = join(home, 'config'), statePath = join(home, 'state.json');
+  assert.equal(readJson(statePath).sourceUrl, first);
+  good(command('git', ['remote', 'set-url', 'origin', second], f.env, managed));
+
+  const preview = f.cli('update', '--check');
+  good(preview);
+  assert.match(preview.stdout, /source URL changed: https:\/\/kitto\.invalid\/config\.git -> https:\/\/\*\*\*@kitto\.invalid\/config2\.git/);
+  assert.doesNotMatch(preview.stdout, /secret/);
+  assert.equal(readJson(statePath).sourceUrl, first); // preview never writes
+
+  good(f.cli('update', '--apply'));
+  assert.equal(readJson(statePath).sourceUrl, second);
+  assert.equal(readJson(bootstrapMarkerFor(managed)).url, second);
+
+  // Recovery now clones through the updated URL, not the stale one.
+  rmSync(managed, { recursive: true });
+  good(f.cli('update', '--apply'));
+  assert.equal(existsSync(join(managed, '.git')), true);
+  assert.equal(readJson(statePath).sourceUrl, second);
+  assert.equal(command('git', ['rev-parse', 'HEAD'], f.env, managed).stdout.trim(),
     command('git', ['rev-parse', 'main'], f.env, mirror).stdout.trim());
+});
+
+test('kitto update explains a missing upstream and refuses a diverged remote', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'codex', '--source', f.source));
+  const statePath = join(f.env.KITTO_HOME, 'state.json'), stateBefore = readFileSync(statePath, 'utf8');
+  for (const args of [['update'], ['update', '--apply']]) {
+    const result = f.cli(...args);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /has no upstream/);
+    assert.match(result.stderr, /--set-upstream-to/);
+  }
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+
+  withRemote(f);
+  writeFileSync(join(f.source, 'local-only.txt'), 'local');
+  commitAll(f, 'local commit');
+  const other = join(f.temp, 'other');
+  good(command('git', ['clone', join(f.temp, 'remote.git'), other], f.env));
+  for (const args of [['config', 'user.email', 'test@example.invalid'], ['config', 'user.name', 'Test']]) good(command('git', args, f.env, other));
+  writeFileSync(join(other, 'remote-only.txt'), 'remote');
+  for (const args of [['add', '.'], ['commit', '-m', 'remote commit'], ['push', 'origin', 'main']]) good(command('git', args, f.env, other));
+  const head = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout;
+  const diverged = f.cli('update', '--apply');
+  assert.notEqual(diverged.status, 0);
+  assert.match(diverged.stderr, /has diverged/);
+  assert.equal(command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout, head);
 });
 
 test('kitto update preview writes neither the home, the source nor the deployment', t => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
-  const mirror = join(f.temp, 'remote.git');
-  good(command('git', ['clone', '--bare', f.source, mirror], f.env));
-  good(command('git', ['remote', 'add', 'origin', mirror], f.env, f.source));
-  good(command('git', ['push', '-u', 'origin', 'main'], f.env, f.source));
+  withRemote(f);
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'new remote skill');
-  for (const args of [['add', '.'], ['commit', '-m', 'remote update'], ['push', 'origin', 'main']]) good(command('git', args, f.env, f.source));
+  commitAll(f, 'remote update');
+  good(command('git', ['push', 'origin', 'main'], f.env, f.source));
   const home = f.env.KITTO_HOME, skill = join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md');
   const before = snapshot(home), skillBefore = readFileSync(skill, 'utf8');
   const head = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout;
@@ -514,18 +758,18 @@ test('kitto update preview writes neither the home, the source nor the deploymen
   assert.equal(existsSync(join(home, '.lock')), false);
 });
 
-test('kitto update tolerates state that predates sourceUrl and explains a missing local checkout', t => {
+test('kitto update tolerates state from an older version and explains a missing local checkout', t => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
   const statePath = join(f.env.KITTO_HOME, 'state.json');
   // A user-owned checkout has no recoverable URL, matching older state files.
   assert.equal(readJson(statePath).sourceUrl, undefined);
-  const mirror = join(f.temp, 'remote.git');
-  good(command('git', ['clone', '--bare', f.source, mirror], f.env));
-  good(command('git', ['remote', 'add', 'origin', mirror], f.env, f.source));
-  good(command('git', ['push', '-u', 'origin', 'main'], f.env, f.source));
+  assert.equal(readJson(statePath).sourceRef, null);
+  withRemote(f);
   const legacy = readJson(statePath);
   delete legacy.sourceUrl;
+  delete legacy.sourceRef;
+  delete legacy.pendingRuntime;
   writeFileSync(statePath, JSON.stringify(legacy, null, 2) + '\n');
   const preview = f.cli('update', '--check');
   good(preview);
@@ -534,7 +778,8 @@ test('kitto update tolerates state that predates sourceUrl and explains a missin
   rmSync(f.source, { recursive: true });
   const lost = f.cli('update', '--apply');
   assert.notEqual(lost.status, 0);
-  assert.match(lost.stderr, /No source URL was recorded/);
+  assert.match(lost.stderr, /no source URL was recorded/);
+  assert.match(lost.stderr, /or use a new KITTO_HOME/);
   assert.equal(existsSync(join(f.env.KITTO_HOME, 'config')), false);
 });
 

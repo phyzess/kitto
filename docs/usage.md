@@ -189,15 +189,11 @@ npx --yes @phyzess/kitto@latest update          # 预览：远端提交、runtim
 npx --yes @phyzess/kitto@latest update --apply  # 拉取配置、刷新 runtime、部署
 ```
 
-`update` 默认只预览。`--apply` 依次做三件事：
+`update` 默认只预览（`--check` 是同一预览的显式写法），不写任何文件；`--apply` 依次做三件事：
 
-1. **配置源**：只对干净的分支执行 `git fetch` + `git pull --ff-only`。本地修改会中止且不会 stash 或 reset；detached 或 tag 固定的 checkout 会提示改用 `setup --ref TAG`。Kitto 创建的 checkout 丢失时，用 `state.json` 里记录的 `sourceUrl` 重新 clone；自己提供的本地 checkout 没有可恢复 URL，需要重新 setup。旧版 `state.json` 不需要迁移。
-2. **已安装 runtime**：把正在执行的 Kitto 包（`bin`、`lib`、`integration`、`sync.sh`、`package.json`、`CHANGELOG.md`）替换到 `~/.local/share/kitto/runtime`。替换前把上一次验证过的版本保存为 `runtime.previous` 检查点；本次更新失败时旧程序仍可用 `setup --recover` 回退。
-3. **部署**：配置、skills、MCP 和原生宿主注册沿用原有 `sync` 逻辑。预览不写任何文件。
-
-边界：runtime 只是 Kitto 自己的程序副本。`update` **不会**升级 Pi、Codex、DSH 等宿主 CLI，也不会批量升级插件；它会打印各宿主当前版本和 Kitto 测试基线，需要升级时使用各宿主自己的包管理器，升级后重启对应宿主以加载新的插件代码。
-
-维护 skill 里的 `maintain update --apply` 运行在 runtime 内部，不能替换自己：它只拉取配置并重新部署。要刷新 runtime 程序，请用新的 npm 包运行 `update`（`npx --yes @phyzess/kitto@latest update --apply`）。runtime 被替换后，本次命令仍以启动时加载的程序完成部署，不会中途重新执行；后续 Kitto 调用和宿主下次启动才使用新的 runtime。
+1. **配置源**：只对干净的分支执行 `git fetch` + `git pull --ff-only`，先确认取回的提交能快进，远端分叉时拒绝且不合并。本地修改会中止且不会 stash 或 reset；detached 或 tag 固定的 checkout 会提示改用 `setup --ref TAG`。Kitto 创建的 checkout 会记录 `sourceUrl` 和 `sourceRef`（分支名或 tag 名），checkout 丢失时按记录的 ref 重新 clone；tag 固定、ref 无法确定或远端已无该分支时不会猜测，而是提示在原地重建 checkout 后重跑 `setup`，或换一个 `KITTO_HOME`。origin 变化时会同步更新 `sourceUrl`（日志中的凭据已脱敏）。旧版 `state.json` 没有这些字段也能运行，存在 bootstrap marker 时会自动回填。
+2. **已安装 runtime**：把正在执行的 Kitto 包（`bin`、`lib`、`integration`、`sync.sh`、`package.json`、`CHANGELOG.md`）替换到 `~/.local/share/kitto/runtime`。替换前把上一次验证过的版本保存为 `runtime.previous` 检查点。新 runtime 在本次部署成功前只是 `pendingRuntime`，不会成为检查点，也不会覆盖 `state.json` 里的已验证版本；部署失败时 `setup --recover` 仍回到上次成功部署的版本，重试也不会把未经验证的代码当成检查点。
+3. **部署**：规则/指令、skills、MCP 与 Pi 配置沿用原有 `sync` 逻辑；原生插件/扩展注册保持不变（仍指向 runtime 路径，无需重装）。预览不写文件。
 
 需要复现某次配置时，在 setup 命令末尾加 `--ref <已存在的-tag>`。Kitto 创建的配置仓库可以用同一参数切换到另一个 tag；自己提供的本地仓库用 Git 切换。状态中的 `deployed` 表示上次成功部署的提交，`checkout` 表示源目录当前的提交。检查上游工具版本时，可以直接说“用 Kitto 在线检查已启用工具的版本”。
 
