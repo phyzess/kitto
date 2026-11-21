@@ -29,7 +29,8 @@ function fixture(t) {
   }
   const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'), PATH: `${bin}:${process.env.PATH}`, CALL_LOG: log,
     PI_CODING_AGENT_DIR: join(home, 'pi'), PI_AGENTS_DIR: join(home, '.agents'), DSH_AGENTS_HOME: join(home, '.agents'),
-    DSH_HOME: join(home, 'dsh'), CODEX_HOME: join(home, 'codex'), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    DSH_HOME: join(home, 'dsh'), CODEX_HOME: join(home, 'codex'), FAKE_CODEX_STATE: join(home, 'codex/_fake-codex.json'),
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
   for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'], ['config', 'user.name', 'Test'], ['add', '.'], ['commit', '-m', 'fixture']]) {
     const result = command('git', args, env, source); assert.equal(result.status, 0, result.stderr);
   }
@@ -390,9 +391,12 @@ test('foreign native registration stops removal before detaching any host', t =>
 });
 
 for (const agent of ['codex', 'dsh']) {
-  test(`${agent}-only setup, sync and versions work without Pi files, Bash or Python`, t => {
+  test(`${agent}-only setup, sync and versions work without unneeded Pi files, Bash or Python`, t => {
     const f = fixture(t);
-    rmSync(join(f.source, 'config/pi'), { recursive: true });
+    if (agent === 'codex') {
+      // Codex MCP sync reads the Pi MCP source, but no Pi settings, rules or tools.
+      for (const name of ['settings.json', 'AGENTS.md', 'i-have-adhd-always']) rmSync(join(f.source, `config/pi/${name}`));
+    } else rmSync(join(f.source, 'config/pi'), { recursive: true });
     const bin = join(f.temp, 'bin');
     const git = command('which', ['git'], f.env).stdout.trim();
     symlinkSync(git, join(bin, 'git'));

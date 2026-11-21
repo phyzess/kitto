@@ -59,7 +59,7 @@ Source contracts: [Pi packages](https://github.com/earendil-works/pi/blob/main/p
 
 See the [maintainer release guide](usage.md#发布新版本) for the preview and publish commands.
 
-Native authenticated model execution, cross-host rule/MCP translation and automatic upgrade policy are not claimed. Installation and lifecycle tests do not certify every third-party personal skill or MCP dependency.
+Native authenticated model execution, credential-bearing MCP translation, full cross-host MCP parity and automatic upgrade policy are not claimed. Installation and lifecycle tests do not certify every third-party personal skill or MCP dependency.
 
 Preserve the existing personal configuration. Do not build a task scheduler, workflow engine or cross-agent session migration system.
 

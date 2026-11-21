@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, cpSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -23,10 +24,14 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   const state = () => json(join(env.KITTO_HOME, 'state.json'));
   const cli = (directory, ...args) => run(process.execPath, [join(directory, 'bin/kitto.mjs'), 'setup', ...args]);
   const maintain = (...args) => run(process.execPath, [join(env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args]);
+  const kittoMcp = {
+    'shared-fixture': { command: 'kitto-shared-mcp', args: ['serve', '--shared'] },
+    'kitto-fixture': { command: 'kitto-fixture-mcp', args: ['serve'] },
+  };
   const files = {
     '.gitignore': 'config/pi/local/\n',
     'config/pi/settings.json': '{"packages":[],"quietStartup":true}',
-    'config/pi/mcp.json': '{"mcpServers":{}}', 'config/pi/AGENTS.md': 'Personal configuration fixture.',
+    'config/pi/mcp.json': JSON.stringify({ mcpServers: kittoMcp }), 'config/pi/AGENTS.md': 'Personal configuration fixture.',
     'config/pi/i-have-adhd-always': '', 'config/env.example': '# no credentials\n',
     'skills/example/SKILL.md': '---\nname: example\ndescription: A personal example task.\n---\nPreserve this personal skill.\n',
   };
@@ -48,8 +53,35 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
     const value = typeof entry === 'string' ? entry : entry.source;
     return resolve(env.PI_CODING_AGENT_DIR, value) === join(env.KITTO_HOME, 'runtime');
   });
+  const codexConfig = join(env.CODEX_HOME, 'config.toml');
+  const codexConfigHash = () => createHash('sha256').update(readFileSync(codexConfig, 'utf8')).digest('hex');
+  const codexServers = () => JSON.parse(run('codex', ['mcp', 'list', '--json']));
+  const codexNames = () => codexServers().map(server => server.name).sort();
+  const codexServer = name => codexServers().find(server => server.name === name);
+  // Pre-seed a personal server with the same name as a Kitto source server.
+  mkdirSync(env.CODEX_HOME, { recursive: true });
+  run('codex', ['mcp', 'add', 'shared-fixture', '--', 'user-shared-mcp']);
+  assert.deepEqual(codexNames(), ['shared-fixture']);
   cli(previous, '--agents', 'pi,codex,dsh', '--source', source, '--dsh-profile', profile);
   assert.equal(pluginVersion(), '0.0.0-native.1');
+  assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
+  assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
+  assert.equal(codexServer('kitto-fixture').transport.command, 'kitto-fixture-mcp');
+  assert.equal(state().mcp.codex['shared-fixture'], undefined);
+  assert.match(state().mcp.codex['kitto-fixture'], /^[0-9a-f]{64}$/);
+  const configHashAfterSetup = codexConfigHash();
+  maintain('sync', '--apply');
+  assert.equal(codexConfigHash(), configHashAfterSetup);
+  assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
+  assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
+  // A source transport change is an update, not a second add.
+  writeFileSync(join(source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: {
+    ...kittoMcp,
+    'kitto-fixture': { command: 'kitto-fixture-mcp', args: ['serve', '--updated'] },
+  } }));
+  maintain('sync', '--apply');
+  assert.deepEqual(codexServer('kitto-fixture').transport.args, ['serve', '--updated']);
+  assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
   const patch = join(env.DSH_HOME, 'profiles', profile, 'cordis.patch.yml');
   const originalPatch = existsSync(patch) ? readFileSync(patch, 'utf8') : '[]\n';
   writeFileSync(patch, originalPatch + '\n# personal override marker\n');
@@ -69,11 +101,17 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.equal(state().version, '0.0.0-native.1');
   assert.equal(ownedPi().length, 1);
   cli(root);
+  const configHashBeforeRemove = codexConfigHash();
   const preview = maintain('remove');
   assert.match(preview, /Keep configuration/);
+  assert.match(preview, /mcp remove: kitto-fixture \(codex\)/);
+  assert.equal(codexConfigHash(), configHashBeforeRemove);
   assert.equal(pluginVersion(), nativeVersion);
   maintain('remove', '--apply'); maintain('remove', '--apply');
   assert.equal(state().detached, true);
+  assert.deepEqual(codexNames(), ['shared-fixture']);
+  assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
+  assert.deepEqual(state().mcp.codex, {});
   assert.equal(ownedPi().length, 0);
   assert.equal(pluginVersion(), undefined);
   assert(!JSON.parse(run('codex', ['plugin', 'marketplace', 'list', '--json'])).marketplaces.some(x => x.name === 'phyzess-kitto'));
@@ -87,5 +125,9 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.equal(pluginVersion(), nativeVersion);
   assert.equal(state().ready, true);
   assert.equal(ownedPi().length, 1);
+  assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
+  assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
+  assert.deepEqual(codexServer('kitto-fixture').transport.args, ['serve', '--updated']);
+  assert.match(state().mcp.codex['kitto-fixture'], /^[0-9a-f]{64}$/);
   assert(dshProfile().dsh.profile.bundles.includes('@phyzess/kitto'));
 });

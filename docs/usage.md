@@ -80,7 +80,7 @@ npx --yes @phyzess/kitto scope remove --workspace-parent /path/to/workspaces
 | 宿主 | Kitto 管理的内容 | 使用前准备 |
 |---|---|---|
 | Pi | settings、MCP、扩展、规则和 skills | Bash、Python 3.10+。通过 Kitto 安装 Pi CLI 需要 Node 22.19+ |
-| Codex | 全局规则、skills 和 Kitto 插件 | 登录 Codex，按需配置自己的模型、权限和 MCP |
+| Codex | 全局规则、skills、Kitto 插件，以及 Pi 源中启用 MCP 的白名单同步 | 登录 Codex，按需配置自己的模型和权限 |
 | DSH | 全局规则、skills、指定 profile 的 Kitto bundle、白名单 MCP 同步，以及 CodeGraph 索引提醒/初始化 | pnpm。通过 Kitto 安装 DSH CLI 需要 Node 24.9+；`--install-agents` 可补装 pnpm |
 
 DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-profile <name>`，以后按该 profile 的原生方式启动。
@@ -93,16 +93,29 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 | 共享 skills | `~/.agents/skills` | `~/.agents/skills` + SessionStart hook | `~/.agents/skills` + scope provider |
 | 宿主专属 skills | Pi 上游包 | `config/codex/skills` 副本 | `config/dsh/skills` 副本 |
 | 插件/扩展 | Pi 包、Pi 扩展 | Kitto Codex 插件 | Kitto DSH bundle |
-| MCP | 共享 + 平台 + private + 项目级 | 宿主自管 | Kitto 同步白名单 server（无 env/headers） |
+| MCP | 共享 + 平台 + private + 项目级 | Kitto 同步白名单 server（无 env/headers） | Kitto 同步白名单 server（无 env/headers） |
 | 模型/settings | Kitto 管理 | 宿主自管 | 宿主自管 |
 | 凭据/env | `~/.pi-agent-env` | 宿主自管 | 宿主 env/service env |
 | workspace scope | scoped-pi | scoped-codex | scoped-dsh |
 
 MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 `setup` 和 `sync` 时由 Kitto 把 `config/pi/mcp.json`（叠加当前平台的 `config/pi/platform/<macos|linux>/mcp.json`，跳过 `enabled: false`）中没有 `env`/`headers` 的 server 同步为 `$DSH_HOME/cordis.patch.yml` 里的 `kitto-mcp-*` 条目；home patch 对所有 profile 生效，同步只增删这些条目，保留其它 YAML 行、注释和 `!!js`，Kitto 自己的条目按源顺序追加到末尾。`env`/`headers` server 会跳过并警告；`mcp.private.json` 和 `local/mcp.json` 根本不读取，仍需在 DSH 原生配置或环境中手动准备。
 
-home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。Codex 的 MCP、模型/settings 和凭据继续使用各自原生配置。
+home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。Codex 的 MCP 由 Kitto 同步（见下），模型/settings 和凭据继续使用各自原生配置。
 
-`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。
+Codex 的启用 server 同样从该 Pi 源派生。同步只传递 stdio 的 command/args 或 HTTP 的 URL；env、headers、`env_http_headers` 和含 `${...}` 的凭据字段在 v1 不写入，相关 server 会跳过并给出原因。模型/settings 和凭据继续使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
+
+Codex 的 MCP 归属记录在 `state.json` 的 `mcp.codex`：只有带有 Kitto 指纹且 live 配置未被改动的 server 才会被更新或删除。写入前，Kitto 先把目标指纹记为 pending；`codex mcp add` 成功并通过重新 list 校验后才转为正式归属。若进程在 live 写入后、state 保存前中断，下次 sync 会直接收养（`mcp adopt`），不会留下永久无归属的 server。verified list 确认 owned server 已从 live 消失时，Kitto 会清除旧指纹（`mcp forget`），避免之后误删同名同 transport 的用户 server。若中断的 add 只留下 pending、随后源条目被删除，pending 对应的 live server 会被移除；没有 live 或 transport 已被改动的 pending 会被清理（`mcp forget pending`）。同名但不是 Kitto 添加的 server、以及被本机修改过的 server（包括额外 env、headers、工具过滤或超时）都会保留，并在 `status`/`sync` 计划中标记为 `mcp conflict`。
+
+Codex MCP 的已知边界：
+
+1. 源文件必需：Kitto 从 `config/pi/mcp.json` 加当前平台覆盖生成计划；即使只选 Codex，缺少这个文件也会让 setup 明确失败。
+2. 凭据和语义字段不映射：`env`、`headers`、`env_http_headers`、含 `${...}` 的字段，以及 Pi 源中的 `oauth`、`scopes`、`tools`/`toolFilter`、`timeout` 等字段不会写入 Codex。包含这些字段的 server 会整条跳过并打印原因，相关能力继续在 Codex 原生配置中维护。Pi 专用的 `lifecycle`、`directTools` 等展示/生命周期字段会被忽略。
+3. `--url` 与 OAuth：Codex 0.170 的 `mcp add --url` 会先写 `config.toml`，再做认证发现；对需要 OAuth 的 URL，首次 add 可能等待约 30 秒后超时。Kitto 在写前已记录 pending；若超时/失败后 list 能看到 transport 完全一致且没有额外设置的 server，会立即 `mcp adopt` 并打印警告（提示 `codex mcp login <NAME>`），不会把 transport 不同的用户 server 误判为 Kitto 的；否则保留 pending，下次 sync 重试。认证本身仍需在 Codex 中完成。
+4. Codex 原生字段不由 Kitto 写入：`startup_timeout_sec`、`tool_timeout_sec`、`enabled_tools`/`disabled_tools` 等如果出现在 live 中，会视为本机修改并保留，不会被覆盖。
+5. TOML 重写：`codex mcp add/remove` 会重写配置，可能丢失注释（尤其是被操作的 `mcp_servers` 表及其邻近注释，更新已有 server 时文件顶部注释也可能消失）并调整 mcp 表顺序；Kitto 不直接写 TOML，只在 transport 有差异时调用原生命令。
+6. `kitto remove` 预览与 `versions` 仍调用真实 Codex 读取插件/版本清单；Codex 可能在 `CODEX_HOME/tmp` 下创建 arg0 辅助文件，但不会修改 `config.toml`。`status`、`sync` 和 `setup --dry-run` 的 MCP 探测已使用临时 home。
+
+`kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。读取 Codex MCP 时使用临时 `CODEX_HOME` 副本，不会在真实 Codex 目录下产生辅助文件。
 
 ### 一键迁移仍需要手动做的事
 
