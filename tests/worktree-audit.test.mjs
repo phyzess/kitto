@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -134,6 +134,64 @@ test('masked index entries and configured filters cannot become evidence of clea
   await writeFile(join(repo, '.gitattributes'), '* filter=local\n');
   const before = await snapshot(root);
   const [row] = audit(repo); assert.equal(row.changes, null); assert.ok(row.blockers.includes('changes-unknown'));
+  assert.deepEqual(await snapshot(root), before);
+});
+
+test('an unreadable directory makes status unknown even when Git exits successfully', async t => {
+  if (!process.getuid || process.getuid() === 0) return t.skip('Requires an unprivileged POSIX user');
+  const { root, repo, run, audit } = await fixture(t);
+  const hidden = join(repo, 'unreadable');
+  await mkdir(hidden, { mode: 0o700 });
+  await writeFile(join(hidden, 'local'), 'untracked');
+  await writeFile(join(hidden, 'local.ignored'), 'ignored');
+  const [visible] = audit(repo);
+  assert.deepEqual(visible.changes, { tracked: false, untracked: true, ignored: true });
+  const before = await snapshot(root);
+
+  await chmod(hidden, 0);
+  try {
+    await assert.rejects(readdir(hidden), { code: 'EACCES' });
+    const result = run('git', ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--no-renames',
+      '--ignored=matching', '--untracked-files=normal', '--ignore-submodules=all']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.notEqual(result.stderr, '');
+    assert.equal(result.stdout, '');
+
+    const [row] = audit(repo);
+    assert.equal(row.gitDir, visible.gitDir);
+    assert.equal(row.changes, null);
+    assert.ok(row.blockers.includes('changes-unknown'));
+  } finally {
+    await chmod(hidden, 0o700);
+  }
+  assert.deepEqual(await snapshot(root), before);
+});
+
+test('other probe diagnostics cannot become evidence just because the exit code matches', async t => {
+  const { root, repo, audit } = await fixture(t);
+  const bin = join(root, 'bin');
+  await mkdir(bin);
+  await writeFile(join(bin, 'git'), `#!/bin/sh
+PATH=\${PATH#*:}
+export PATH
+for arg do
+  case "$arg" in
+    config) printf 'incomplete\\n' >&2; exit 1 ;;
+    ls-files|merge-base|for-each-ref) printf 'incomplete\\n' >&2; break ;;
+  esac
+done
+exec git "$@"
+`, { mode: 0o700 });
+  await writeFile(join(bin, 'du'), `#!/bin/sh
+printf '1\\t%s\\n' "$2"
+printf 'incomplete\\n' >&2
+`, { mode: 0o700 });
+  const before = await snapshot(root);
+  const [row] = audit(repo, [], { PATH: `${bin}:${process.env.PATH}` });
+  for (const key of ['changes', 'estimatedBytes', 'upstream', 'mergedIntoLocalBase']) assert.equal(row[key], null, key);
+  for (const blocker of ['changes-unknown', 'size-unknown', 'upstream-unknown', 'ancestry-unknown', 'index-flags-unknown']) {
+    assert.ok(row.blockers.includes(blocker), blocker);
+  }
   assert.deepEqual(await snapshot(root), before);
 });
 
