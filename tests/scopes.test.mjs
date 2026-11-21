@@ -106,7 +106,12 @@ test('a workspace parent opts future child workspaces in independently', async t
 test('scope list reports an empty registry without creating files', async t => {
   const { data, env } = await scopeFixture(t);
   assert.match(scopeOk(env, '--help').stdout, /kitto scope list/);
-  assert.match(scopeOk(env, 'scope').stdout, /Kitto scope registry/);
+  for (const args of [
+    ['scope'], ['scope', '--help'], ['scope', '-h'], ['scope', 'list', '--help'],
+    ['scope', 'list', '-h'], ['scope', 'remove', '--help'], ['scope', 'remove', '-h'],
+  ]) {
+    assert.match(scopeOk(env, ...args).stdout, /Kitto scope registry/);
+  }
   const human = scopeOk(env, 'scope', 'list').stdout;
   assert.match(human, /Global: disabled/);
   assert.match(human, /Workspaces:\n {2}\(none\)/);
@@ -224,26 +229,44 @@ test('scope remove --workspace-parent unregisters one parent and rejects unknown
   assert.deepEqual((await readScopeRegistry(data)).workspaceParents, []);
 });
 
-test('scope list and remove work with registrations written by setup', async t => {
+test('scope list and remove work with registrations written by setup, including symlinked workspaces', async t => {
   const { temp, data, env } = await scopeFixture(t);
-  const workspace = join(temp, 'work');
+  const workspace = join(temp, 'work'), alias = join(temp, 'alias');
+  await mkdir(workspace);
+  await symlink(workspace, alias, 'dir');
   const setup = (...args) => execFileSync(process.execPath, [cli, 'setup', ...args, '--agents', 'pi'], {
     env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   });
   setup('--global');
-  setup('--workspace', workspace);
+  setup('--workspace', alias);
   const rules = join(workspace, 'AGENTS.md'), skills = join(workspace, '.agents/skills');
   assert.equal((await stat(rules)).isFile(), true);
   let listed = JSON.parse(scopeOk(env, 'scope', 'list', '--json').stdout);
   assert.equal(listed.global, true);
   assert.deepEqual(listed.workspaces, [workspace]);
-  assert.match(scopeOk(env, 'scope', 'remove', '--workspace', workspace).stdout, /Removed workspace scope registration/);
+  assert.match(scopeOk(env, 'scope', 'remove', '--workspace', alias).stdout, /Removed workspace scope registration/);
   scopeOk(env, 'scope', 'remove', '--global');
   listed = JSON.parse(scopeOk(env, 'scope', 'list', '--json').stdout);
   assert.deepEqual(listed, { version: 1, global: false, workspaces: [], workspaceParents: [] });
   assert.equal((await stat(rules)).isFile(), true);
   assert.equal((await stat(skills)).isDirectory(), true);
   assert.equal(JSON.parse(await readFile(join(data, 'scopes.json'), 'utf8')).global, false);
+});
+
+test('scope remove respects the scope setup lock', async t => {
+  const { temp, data, env } = await scopeFixture(t);
+  const workspace = join(temp, 'work'), file = join(data, 'scopes.json');
+  await mkdir(data, { recursive: true });
+  await writeFile(file, JSON.stringify({ version: 1, global: true, workspaces: [workspace] }, null, 2) + '\n');
+  const before = await readFile(file, 'utf8');
+  await mkdir(join(data, '.scope-setup.lock'));
+  const locked = runScope(env, 'scope', 'remove', '--workspace', workspace);
+  assert.notEqual(locked.status, 0);
+  assert.match(locked.stderr, /locked by setup/);
+  assert.equal(await readFile(file, 'utf8'), before);
+  await rm(join(data, '.scope-setup.lock'), { recursive: true });
+  assert.equal(scopeOk(env, 'scope', 'remove', '--workspace', workspace).status, 0);
+  assert.deepEqual((await readScopeRegistry(data)).workspaces, []);
 });
 
 test('writeScopeRegistry is atomic, mode 0600, and keeps unknown top-level fields', async t => {

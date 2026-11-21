@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { mkdir, realpath, rm } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { setup, parseOptions } from '../lib/kitto.mjs';
 import { readScopeRegistry, scopeHome, writeScopeRegistry } from '../lib/scopes.mjs';
 
@@ -36,8 +38,18 @@ const scopeHelp = `Kitto scope registry
 
 kitto scope remove only changes the scope registry. It keeps AGENTS.md, .agents/skills,
 host adapters, hooks, symlinks and profile patches. Choose exactly one removal target.
-A relative PATH is resolved from the current directory and compared with the registered path.
+A relative PATH is resolved from the current directory; existing paths are canonicalized
+with realpath, matching how setup registers workspaces and workspace parents.
 `;
+
+async function scopePathCandidates(value) {
+  const path = resolve(value);
+  try { return [...new Set([await realpath(path), path])]; }
+  catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return [path];
+    throw error;
+  }
+}
 
 function formatScopeList(registry) {
   const section = paths => paths.length ? paths.map(path => `  ${path}`) : ['  (none)'];
@@ -65,22 +77,36 @@ function parseScopeRemove(args) {
 async function removeScope(args) {
   const target = parseScopeRemove(args);
   const home = scopeHome();
-  const registry = await readScopeRegistry(home);
-  if (target.global) {
-    if (!registry.global) throw new Error('Global scope is not registered.');
-    await writeScopeRegistry(home, { ...registry, global: false });
-    console.log('Removed global scope registration. Instructions, skills and host adapters were left in place.');
-    return;
-  }
   const workspace = target.kind === 'workspace';
   const key = workspace ? 'workspaces' : 'workspaceParents';
-  const path = resolve(target.value);
-  const registered = registry[key] ?? [];
-  if (!registered.includes(path)) {
-    throw new Error(`No ${target.kind} scope registered at ${path}. Run kitto scope list to see registered paths.`);
+  const candidates = target.global ? [] : await scopePathCandidates(target.value);
+  const lock = join(home, '.scope-setup.lock');
+  let locked = false;
+  if (existsSync(home)) {
+    try { await mkdir(lock); locked = true; }
+    catch (error) {
+      if (error.code === 'EEXIST') throw new Error('Scope registry is locked by setup: ' + lock);
+      throw error;
+    }
   }
-  await writeScopeRegistry(home, { ...registry, [key]: registered.filter(entry => entry !== path) });
-  console.log(`Removed ${target.kind} scope registration: ${path}. Instructions, skills and host adapters were left in place.`);
+  try {
+    const registry = await readScopeRegistry(home);
+    if (target.global) {
+      if (!registry.global) throw new Error('Global scope is not registered.');
+      await writeScopeRegistry(home, { ...registry, global: false });
+      console.log('Removed global scope registration. Instructions, skills and host adapters were left in place.');
+      return;
+    }
+    const registered = registry[key] ?? [];
+    const matched = registered.filter(entry => candidates.includes(entry));
+    if (!matched.length) {
+      throw new Error(`No ${target.kind} scope registered at ${candidates[0]}. Run kitto scope list to see registered paths.`);
+    }
+    await writeScopeRegistry(home, { ...registry, [key]: registered.filter(entry => !candidates.includes(entry)) });
+    console.log(`Removed ${target.kind} scope registration: ${matched[0]}. Instructions, skills and host adapters were left in place.`);
+  } finally {
+    if (locked) await rm(lock, { recursive: true, force: true });
+  }
 }
 
 async function scopeCommand(args) {
@@ -90,6 +116,10 @@ async function scopeCommand(args) {
     return;
   }
   if (operation === 'list') {
+    if (rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+      console.log(scopeHelp);
+      return;
+    }
     if (rest.length && (rest.length !== 1 || rest[0] !== '--json')) throw new Error('scope list accepts only --json.');
     const registry = await readScopeRegistry(scopeHome());
     const normalized = {
@@ -100,7 +130,13 @@ async function scopeCommand(args) {
     console.log(rest.length ? JSON.stringify(normalized, null, 2) : formatScopeList(normalized));
     return;
   }
-  if (operation === 'remove') return removeScope(rest);
+  if (operation === 'remove') {
+    if (rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+      console.log(scopeHelp);
+      return;
+    }
+    return removeScope(rest);
+  }
   throw new Error(`Unknown scope command: ${operation}. Use kitto scope --help.`);
 }
 

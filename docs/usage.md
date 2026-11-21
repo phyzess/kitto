@@ -62,16 +62,16 @@ npx --yes @phyzess/kitto setup --workspace /home/dsh/workspace --dsh-service dsh
 `setup` 只会把 global、工作区和父目录登记到 Kitto 数据目录的 `scopes.json`（默认 `~/.local/share/kitto/scopes.json`）。下面的命令只读写这份登记，不安装或修改宿主：
 
 ```bash
-kitto scope list
-kitto scope list --json
-kitto scope remove --global
-kitto scope remove --workspace /path/to/workspace
-kitto scope remove --workspace-parent /path/to/workspaces
+npx --yes @phyzess/kitto scope list
+npx --yes @phyzess/kitto scope list --json
+npx --yes @phyzess/kitto scope remove --global
+npx --yes @phyzess/kitto scope remove --workspace /path/to/workspace
+npx --yes @phyzess/kitto scope remove --workspace-parent /path/to/workspaces
 ```
 
 `scope list` 只读；文件不存在时按空登记处理，不会创建文件。`--json` 输出 `version`、`global`、`workspaces`、`workspaceParents`，并保留文件中的未知顶层字段，方便脚本读取。
 
-`scope remove` 只移除登记，**不删除**任何 `AGENTS.md`、`.agents/skills`、宿主 hook/symlink/profile patch 或用户文件。要解除宿主集成，仍使用「用 Kitto 预览解除集成」。路径按登记时的绝对路径精确匹配；传入相对路径时从当前目录解析。要移除的项不存在时命令以退出码 1 失败且不写文件；`--global` 在全局未登记时同样失败。写回使用临时文件加 rename，文件权限为 0600。
+`scope remove` 只移除登记，**不删除**任何 `AGENTS.md`、`.agents/skills`、宿主 hook/symlink/profile patch 或用户文件。要解除宿主集成，仍使用「用 Kitto 预览解除集成」。路径先按当前目录解析为绝对路径，并像 setup 一样优先尝试 realpath（路径不存在时保留解析结果），因此也可以用符号链接路径移除。要移除的项不存在时命令以退出码 1 失败且不写文件；`--global` 在全局未登记时同样失败。移除与 setup 共用数据目录下的 `.scope-setup.lock`，setup 正在运行时命令会报错退出，避免并发覆盖登记。写回使用临时文件加 rename，文件权限为 0600。
 
 ## 选择 agent
 
