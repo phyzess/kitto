@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseOptions } from '../lib/kitto.mjs';
+import { parseOptions, replaceDirectory } from '../lib/kitto.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -54,6 +54,30 @@ function release(f, version) {
 test('public options reject unknown hosts, flags and missing values', () => {
   assert.deepEqual(parseOptions(['--agents', 'pi,codex,pi']).agents, ['pi', 'codex']);
   for (const args of [['--agents', 'other'], ['--source'], ['--run'], ['--agents', 'pi,'], ['--recover', '--agents', 'pi']]) assert.throws(() => parseOptions(args));
+});
+
+test('skill directory replacement is atomic and leaves no backup', async t => {
+  const temp = mkdtempSync(join(tmpdir(), 'kitto-replace-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const source = join(temp, 'source'), target = join(temp, 'target');
+  mkdirSync(source);
+  writeFileSync(join(source, 'SKILL.md'), 'new');
+  mkdirSync(target);
+  writeFileSync(join(target, 'SKILL.md'), 'old');
+  await replaceDirectory(source, target);
+  assert.equal(readFileSync(join(target, 'SKILL.md'), 'utf8'), 'new');
+  assert.deepEqual(readdirSync(temp).sort(), ['source', 'target']);
+});
+
+test('Codex and DSH i-have-adhd skills are model-invocable and loaded at startup', () => {
+  for (const host of ['codex', 'dsh']) {
+    const skill = readFileSync(join(root, `config/${host}/skills/i-have-adhd/SKILL.md`), 'utf8');
+    assert.doesNotMatch(skill, /disable-model-invocation/);
+    const agents = readFileSync(join(root, `config/${host}/AGENTS.md`), 'utf8');
+    assert.match(agents, /每次会话开始先加载 `i-have-adhd` skill/);
+  }
+  const policy = readFileSync(join(root, 'config/codex/skills/i-have-adhd/agents/openai.yaml'), 'utf8');
+  assert.match(policy, /allow_implicit_invocation: true/);
 });
 
 test('self-update notice is rate-limited, ignores prereleases, and tolerates offline', async t => {
