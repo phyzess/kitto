@@ -72,6 +72,57 @@ test('inventory is ordered, lossless for unusual paths, read-only, and never a d
   }
 });
 
+test('a linked checkout cannot borrow another registration’s Git directory at the same HEAD', async t => {
+  const { root, repo, git, audit } = await fixture(t);
+  const first = join(root, 'first'), second = join(root, 'second');
+  git('worktree', 'add', '-b', 'first', first);
+  git('worktree', 'add', '-b', 'second', second);
+  const original = audit(repo);
+  const firstOriginal = original.find(row => row.path === first);
+  const secondOriginal = original.find(row => row.path === second);
+  assert.equal(firstOriginal.head, secondOriginal.head);
+  assert.notEqual(firstOriginal.gitDir, secondOriginal.gitDir);
+  assert.ok(firstOriginal.changes);
+  git('branch', '--set-upstream-to=main', 'first');
+  await writeFile(join(first, '.git'), await readFile(join(second, '.git')));
+  await writeFile(join(secondOriginal.gitDir, 'MERGE_HEAD'), `${secondOriginal.head}\n`);
+
+  const before = await snapshot(root);
+  const rows = audit(repo);
+  assert.deepEqual(audit(first), rows);
+  const broken = rows.find(row => row.path === first);
+  const intact = rows.find(row => row.path === second);
+  assert.equal(broken.branch, 'refs/heads/first');
+  assert.equal(broken.head, secondOriginal.head);
+  assert.deepEqual(broken.blockers, ['unmanaged', 'occupancy-unknown', 'identity-unknown']);
+  for (const key of ['gitDir', 'estimatedBytes', 'changes', 'upstream', 'mergedIntoLocalBase']) {
+    assert.equal(broken[key], null, key);
+  }
+  assert.equal(intact.gitDir, secondOriginal.gitDir);
+  assert.ok(intact.changes);
+  assert.ok(intact.blockers.includes('git-operation:MERGE_HEAD'));
+  assert.deepEqual(await snapshot(root), before);
+});
+
+test('duplicate registrations cannot supply checkout identity even when one backlink matches', async t => {
+  const { root, repo, git, audit } = await fixture(t);
+  const first = join(root, 'first'), second = join(root, 'second');
+  git('worktree', 'add', '-b', 'first', first);
+  git('worktree', 'add', '-b', 'second', second);
+  const { gitDir } = audit(repo).find(row => row.path === second);
+  await writeFile(join(gitDir, 'gitdir'), `${join(first, '.git')}\n`);
+
+  const before = await snapshot(root);
+  const duplicates = audit(repo).filter(row => row.path === first);
+  assert.deepEqual(duplicates.map(row => row.branch).sort(), ['refs/heads/first', 'refs/heads/second']);
+  for (const row of duplicates) {
+    assert.ok(row.blockers.includes('identity-unknown'));
+    assert.equal(row.gitDir, null);
+    assert.equal(row.changes, null);
+  }
+  assert.deepEqual(await snapshot(root), before);
+});
+
 test('masked index entries and configured filters cannot become evidence of clean status', async t => {
   const { root, repo, git, audit } = await fixture(t);
   git('update-index', '--assume-unchanged', 'tracked');
