@@ -20,6 +20,7 @@ Keep normal work in the current native agent. Do not introduce a launcher or mod
 | `sync --apply` | Deploy configuration and reconnect native integrations |
 | `update` / `update --check` | Preview the source branch's remote head, the runtime copy and the deployment plan without fetching or writing |
 | `update --apply` | Fast-forward a clean tracked source branch, refresh the installed runtime copy when run from an external Kitto package, then deploy |
+| `hosts` / `hosts --apply` | Preview / install selected hosts' pinned tested baseline through npm; exact `--version` and one `--host` only, never automatic |
 | `export` | Preview sanitized Pi machine-to-repository export |
 | `export --apply` | Write that export to the local source checkout; never commit or push |
 | `deps` / `deps --apply` | Preview / install CLI dependencies needed by the selected hosts and enabled capabilities, only when requested |

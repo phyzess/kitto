@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { probeDesktopProfile } from '../lib/dsh-profile.mjs';
+import { compareVersions } from '../lib/hosts.mjs';
 import { parseOptions, replaceDirectory, treeHash } from '../lib/kitto.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
 
@@ -1468,4 +1469,141 @@ test('kitto hosts leaves the app-managed DSH Desktop CLI to the Desktop app', t 
   const pinned = tools.run('hosts', '--host', 'dsh', '--version', '0.2.2-rc.1', '--apply');
   assert.notEqual(pinned.status, 0);
   assert.match(pinned.stderr, /app-managed/);
+});
+
+test('host version comparison keeps hyphenated prereleases intact', () => {
+  // The old split('-', 2) truncated both to "alpha" and reported equality.
+  assert.equal(compareVersions('1.0.0-alpha-2', '1.0.0-alpha-10'), 1);
+  assert.equal(compareVersions('1.0.0-alpha-10', '1.0.0-alpha-2'), -1);
+  assert.equal(compareVersions('1.0.0-rc.1', '1.0.0-rc.2'), -1);
+  assert.equal(compareVersions('0.2.2-rc.3', '0.2.2-rc.1'), 1);
+  assert.equal(compareVersions('1.0.0', '1.0.0-rc.9'), 1);
+});
+
+test('kitto hosts treats a mixed-case Desktop profile as app-managed', t => {
+  const f = fixture(t);
+  mkdirSync(join(f.source, 'config/dsh'), { recursive: true });
+  writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
+  commitAll(f, 'desktop rules');
+  good(f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source));
+  const statePath = join(f.env.KITTO_HOME, 'state.json');
+  const state = readJson(statePath);
+  writeFileSync(statePath, JSON.stringify({ ...state, dshProfile: 'Desktop' }, null, 2) + '\n');
+  const tools = hostsTools(f, { versions: { dsh: '0.2.2-rc.0' } });
+  const home = f.env.KITTO_HOME, before = snapshot(home);
+
+  const check = tools.run('hosts');
+  good(check);
+  assert.match(check.stdout, /dsh: app-managed by DeepSeek Harness Desktop/);
+  const applied = tools.run('hosts', '--apply');
+  good(applied);
+  assert.match(applied.stdout, /app-managed by DeepSeek Harness Desktop; skipped/);
+  assert.equal(tools.calls().some(call => call.command === 'npm'), false);
+  assert.deepEqual(snapshot(home), before);
+});
+
+test('kitto hosts --apply fails clearly when npm is unavailable', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.4.0' }, missing: ['npm'] });
+  const statePath = join(f.env.KITTO_HOME, 'state.json'), stateBefore = readFileSync(statePath, 'utf8');
+
+  const failed = tools.run('hosts', '--apply');
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /npm was not found on PATH/);
+  assert.equal(tools.installs().length, 0);
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+});
+
+test('kitto hosts --apply fails when the installed CLI still reports the old version', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.4.0' } });
+  tools.env.HOSTS_NPM_NOOP = '1';
+  const home = f.env.KITTO_HOME, before = snapshot(home);
+  const statePath = join(home, 'state.json'), stateBefore = readFileSync(statePath, 'utf8');
+
+  const failed = tools.run('hosts', '--apply');
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /reports 1\.4\.0 instead of 1\.5\.2/);
+  assert.match(failed.stderr, /Kitto wrote no state/);
+  assert.deepEqual(snapshot(home), before);
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+});
+
+test('a multi-host failure reports which hosts changed and which did not', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.4.0', codex: '0.169.0' } });
+  tools.env.HOSTS_NPM_FAIL_PACKAGE = '@openai/codex';
+  const home = f.env.KITTO_HOME, statePath = join(home, 'state.json');
+  const stateBefore = readFileSync(statePath, 'utf8');
+
+  const failed = tools.run('hosts', '--apply');
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stdout, /verified pi 1\.5\.2/);
+  assert.match(failed.stdout, /Summary: updated pi; not updated codex/);
+  assert.match(failed.stderr, /simulated npm failure for @openai\/codex/);
+  assert.deepEqual(tools.installs().map(call => call.args[2]),
+    ['@earendil-works/pi-coding-agent@1.5.2', '@openai/codex@0.170.0']);
+  assert.equal(tools.versions().installed['@earendil-works/pi-coding-agent'], '1.5.2');
+  assert.equal(tools.versions().installed['@openai/codex'], undefined);
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+});
+
+test('a permission failure explains the npm global prefix', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.4.0' } });
+  tools.env.HOSTS_NPM_PERMISSION = '1';
+  const statePath = join(f.env.KITTO_HOME, 'state.json'), stateBefore = readFileSync(statePath, 'utf8');
+
+  const failed = tools.run('hosts', '--apply');
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /EACCES|permission/i);
+  assert.match(failed.stderr, /npm config set prefix|administrator/);
+  assert.match(failed.stdout, /Summary: updated none; not updated pi/);
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+});
+
+test('kitto hosts leaves a newer host alone and does not suggest an apply', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '9.9.9' } });
+
+  const check = tools.run('hosts');
+  good(check);
+  assert.match(check.stdout, /newer than the baseline; Kitto does not downgrade/);
+  assert.match(check.stdout, /Nothing for Kitto to change/);
+  assert.doesNotMatch(check.stdout, /run `kitto hosts --apply`/);
+
+  const applied = tools.run('hosts', '--apply');
+  good(applied);
+  assert.match(applied.stdout, /Summary: updated none; unchanged pi/);
+  assert.match(applied.stdout, /Nothing to change/);
+  assert.equal(tools.installs().length, 0);
+  assert.equal(tools.calls().some(call => call.command === 'npm'), false);
+});
+
+test('kitto hosts warns in check mode when --version is not the validated baseline', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.5.2', codex: '0.170.0' } });
+
+  const check = tools.run('hosts', '--host', 'codex', '--version', '0.169.5');
+  good(check);
+  assert.match(check.stdout, /WARNING: 0\.169\.5 is an explicit --version pin, not the Kitto-validated baseline 0\.170\.0/);
+  assert.match(check.stdout, /Preview only/);
+  assert.equal(tools.installs().length, 0);
+});
+
+test('the maintenance runner exposes the same explicit host policy', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'codex', '--source', f.source));
+  const tools = hostsTools(f, { versions: { codex: '0.169.0' } });
+  const result = command(process.execPath,
+    [join(f.env.KITTO_HOME, 'runtime/bin/maintain.mjs'), 'hosts'], tools.env);
+  good(result);
+  assert.match(result.stdout, /codex: current 0\.169\.0; Kitto baseline 0\.170\.0/);
+  assert.match(result.stdout, /check only; no writes/);
 });

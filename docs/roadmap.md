@@ -8,7 +8,11 @@
 
 DeepSeek Harness Desktop 独占 `desktop` 配置档。npm 版 `dsh` CLI 会拒绝管理它，只有 Desktop 内置的 `dsh` 命令可以。Desktop 的应用更新还可能改变 profile 布局、patch 语义和全局规则/skills 的加载方式。Kitto v1 因此选择最小、可验证的边界：只碰全局文件和共享 skills，绝不写 App 独占的 profile。
 
-这个边界让 Kitto 能安全地支持 Desktop 用户，但换不来 bundle、scoped 规则和 MCP 同步。下面两项是解除该限制前必须补齐的设计与验证。
+这个边界让 Kitto 能安全地支持 Desktop 用户，但换不来 bundle、scoped 规则和 MCP 同步。B、C 两项是解除该限制前必须补齐的设计与验证。
+
+## A. 当前基线：v1 global-only（已实现）
+
+这是后续工作的安全基线，本 roadmap 不改变它：只部署全局 `AGENTS.md`、DSH 专属 skills 和共享 `~/.agents/skills`；不安装 bundle、不写 `profiles/desktop/cordis.patch.yml`、不注册 scope、不同步 MCP、不要求或安装 npm 版 dsh CLI，也不碰 Desktop 的 `package.json`、lockfile 或 profile 依赖。B、C 只有在不破坏这些边界并通过下文验收时才可能进入实现。
 
 ## B. 受控写入 `profiles/desktop/cordis.patch.yml` 的 Kitto scope/MCP 行
 

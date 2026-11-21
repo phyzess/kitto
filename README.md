@@ -47,7 +47,7 @@ npx --yes @phyzess/kitto@latest update          # 预览，不写入
 npx --yes @phyzess/kitto@latest update --apply  # 拉取配置、刷新 runtime、部署
 ```
 
-`update` 先按 checkout 记录的分支/tag 更新配置源，再刷新 Kitto 自己的 runtime 副本，最后重新部署规则、skills 与 MCP（原生插件注册仍指向 runtime 路径，无需重装）。它不会升级 Pi、Codex、DSH 宿主 CLI（用各自的包管理器升级）；升级后重启宿主以加载新的插件代码。checkout 丢失时按记录的 `sourceUrl`/`sourceRef` 恢复；tag 固定、ref 未知或远端分支已删除时不会猜测，会提示原地重建 checkout 后重跑 setup，或换一个 `KITTO_HOME`。在 agent 会话里也可以说「用 Kitto 检查并同步配置」。直接编辑全局或工作区文件会在对应目录生效，想跨机器复用时需将它们纳入自己的版本管理。
+`update` 先按 checkout 记录的分支/tag 更新配置源，再刷新 Kitto 自己的 runtime 副本，最后重新部署规则、skills 与 MCP（原生插件注册仍指向 runtime 路径，无需重装）。它不会升级 Pi、Codex、DSH 宿主 CLI；宿主升级用独立的 `kitto hosts`（只升到基线）或各自的原生包管理器，升级后重启宿主以加载新的插件代码。checkout 丢失时按记录的 `sourceUrl`/`sourceRef` 恢复；tag 固定、ref 未知或远端分支已删除时不会猜测，会提示原地重建 checkout 后重跑 setup，或换一个 `KITTO_HOME`。在 agent 会话里也可以说「用 Kitto 检查并同步配置」。直接编辑全局或工作区文件会在对应目录生效，想跨机器复用时需将它们纳入自己的版本管理。
 
 宿主 CLI 的升级同样是显式操作，并且只升到 Kitto 已验证的基线，不追最新版，也不会自动发生：
 
@@ -56,6 +56,6 @@ npx --yes @phyzess/kitto@latest hosts          # 只读：当前版本、Kitto �
 npx --yes @phyzess/kitto@latest hosts --apply  # 只把低于基线的已选宿主升到基线
 ```
 
-`--host NAME` 限定一个宿主，`--version X.Y.Z` 明确固定精确版本（不是已验证基线时会提示）。未选宿主不动，`desktop` DSH 由 Desktop App 管理。细节见[使用指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#宿主-cli只升到已验证基线不自动更新)。
+`--host NAME` 限定一个宿主；`--version X.Y.Z` 是显式覆盖（默认仍用已验证基线），固定非基线版本时 `--check` 和 `--apply` 都会提示该版本未经 Kitto 验证。未选宿主不动，`desktop` DSH 由 Desktop App 管理。细节见[使用指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#宿主-cli只升到已验证基线不自动更新)。
 
 [配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md) · [Pi 配置参考](https://github.com/phyzess/kitto/blob/main/docs/pi.md) · [DSH Desktop roadmap](https://github.com/phyzess/kitto/blob/main/docs/roadmap.md) · [版本记录](CHANGELOG.md)

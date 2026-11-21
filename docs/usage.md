@@ -213,7 +213,7 @@ npx --yes @phyzess/kitto@latest hosts --host codex --version 0.170.0 --apply
 - 版本低于基线或尚未安装：`--apply` 安装基线。
 - 已等于基线：不做任何事。
 - 高于基线：默认不降级；确实需要时用 `--version` 明确固定，并会提示该版本不是已验证基线。
-- `--version` 只接受精确版本号（拒绝 `latest` 等 dist-tag 和版本范围），且只能作用于一个宿主：多选宿主时配合 `--host NAME`。
+- `--version` 只接受精确版本号（拒绝 `latest` 等 dist-tag 和版本范围），且只能作用于一个宿主：多选宿主时配合 `--host NAME`。它是显式覆盖，不是已验证基线；`--check` 和 `--apply` 都会警告该版本未经 Kitto 验证。
 - 未选中的宿主不会被探测或升级；`desktop` 配置档的 DSH 由 Desktop App 管理，Kitto 不安装或固定其 CLI，请使用 App 升级。
 - 若 npm 不可用、宿主版本无法读取，或安装后的版本与目标不一致，命令会明确失败；失败不会写 `state.json`。
 - 升级完成后重启对应宿主，让新 CLI 生效。

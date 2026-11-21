@@ -20,6 +20,16 @@ if (name === 'npm') {
   if (!spec) { console.error(`fake npm: unsupported ${args.join(' ')}`); process.exit(2); }
   const split = spec.lastIndexOf('@');
   const pkg = spec.slice(0, split), version = spec.slice(split + 1);
+  if (process.env.HOSTS_NPM_PERMISSION === '1') {
+    console.error('npm ERR! code EACCES');
+    console.error('npm ERR! syscall mkdir');
+    console.error('npm ERR! path /usr/local/lib/node_modules');
+    process.exit(243);
+  }
+  if (process.env.HOSTS_NPM_FAIL_PACKAGE === pkg) {
+    console.error(`simulated npm failure for ${pkg}`);
+    process.exit(9);
+  }
   const data = read();
   if (process.env.HOSTS_NPM_NOOP !== '1') save({ ...data, installed: { ...(data.installed || {}), [pkg]: version } });
   process.exit(0);
