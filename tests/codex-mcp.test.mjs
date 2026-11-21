@@ -251,6 +251,116 @@ test('a verification failure after the native write is adopted on retry', async 
   assert.equal(retry.mcp.codexPending, undefined);
 });
 
+test('pending-only servers are reconciled when the source disappears', async t => {
+  const f = fixture(t);
+  f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
+  const state = f.state(), statePath = join(f.temp, 'state.json');
+  let saves = 0;
+  const save = async () => {
+    saves++;
+    if (saves === 2) throw new Error('simulated state write failure');
+    writeFileSync(statePath, JSON.stringify(state));
+  };
+  await assert.rejects(applyCodexMcp(state, {
+    run: f.run, env: f.env, home: f.codexHome, platform: 'linux', save, warn: () => {},
+  }), /simulated state write failure/);
+  const interrupted = JSON.parse(readFileSync(statePath, 'utf8'));
+  assert(interrupted.mcp.codexPending.alpha);
+  f.writeSource({});
+  const plan = await f.plan(interrupted);
+  assert(plan.operations.some(operation => operation.action === 'remove' && operation.name === 'alpha'));
+  await f.apply(interrupted);
+  assert.equal(f.codexState().mcpServers.alpha, undefined);
+  assert.equal(interrupted.mcp.codexPending, undefined);
+  assert.deepEqual(interrupted.mcp.codex, {});
+  // A pending record with no live server is cleared without touching Codex.
+  const orphan = f.state();
+  orphan.mcp.codexPending = { beta: transportHash({ type: 'stdio', command: 'beta-mcp', args: [] }) };
+  f.saveCodex({ mcpServers: {} });
+  const orphanPlan = await f.plan(orphan);
+  assert.equal(orphanPlan.operations[0].action, 'forgetPending');
+  await f.apply(orphan);
+  assert.equal(orphan.mcp.codexPending, undefined);
+  // A pending record whose live transport changed is cleared, but the server is kept.
+  const changed = f.state();
+  changed.mcp.codexPending = { gamma: transportHash({ type: 'stdio', command: 'gamma-mcp', args: [] }) };
+  f.saveCodex({ mcpServers: { gamma: { transport: { type: 'stdio', command: 'user-gamma', args: [] } } } });
+  const changedPlan = await f.plan(changed);
+  assert.equal(changedPlan.operations[0].action, 'forgetPending');
+  await f.apply(changed);
+  assert.equal(f.codexState().mcpServers.gamma.transport.command, 'user-gamma');
+  assert.equal(changed.mcp.codexPending, undefined);
+});
+
+test('a native add timeout after writing the server is adopted with a warning', async t => {
+  const f = fixture(t);
+  f.writeSource({ remote: { url: 'https://example.invalid/mcp' } });
+  const state = f.state(), statePath = join(f.temp, 'state.json');
+  const warnings = [];
+  const run = (args, options = {}) => {
+    if (args[0] === 'mcp' && args[1] === 'add') {
+      f.run(args, options);
+      throw new Error(`codex mcp add ${args[2]} timed out after 30000ms`);
+    }
+    return f.run(args, options);
+  };
+  await applyCodexMcp(state, {
+    run, env: f.env, home: f.codexHome, platform: 'linux',
+    save: async () => writeFileSync(statePath, JSON.stringify(state)),
+    warn: line => warnings.push(line),
+  });
+  assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://example.invalid/mcp');
+  assert.equal(state.mcp.codex.remote, transportHash({ type: 'http', url: 'https://example.invalid/mcp' }));
+  assert.equal(state.mcp.codexPending, undefined);
+  assert.match(warnings.join('\n'), /adopted/);
+  assert.match(warnings.join('\n'), /codex mcp login remote/);
+  assert.equal(f.mcpCalls('add').length, 1);
+});
+
+test('a native add timeout without a live server is retried, not adopted', async t => {
+  const f = fixture(t);
+  f.writeSource({ remote: { url: 'https://example.invalid/mcp' } });
+  const state = f.state(), statePath = join(f.temp, 'state.json');
+  const run = (args, options = {}) => {
+    if (args[0] === 'mcp' && args[1] === 'add') throw new Error('codex mcp add timed out');
+    return f.run(args, options);
+  };
+  await assert.rejects(applyCodexMcp(state, {
+    run, env: f.env, home: f.codexHome, platform: 'linux',
+    save: async () => writeFileSync(statePath, JSON.stringify(state)), warn: () => {},
+  }), /timed out/);
+  assert.equal(f.codexState().mcpServers.remote, undefined);
+  assert.equal(state.mcp.codex.remote, undefined);
+  assert(state.mcp.codexPending.remote);
+});
+
+test('a post-write timeout does not adopt a different live transport', async t => {
+  const f = fixture(t);
+  f.writeSource({ remote: { url: 'https://target.example/mcp' } });
+  const state = f.state(), statePath = join(f.temp, 'state.json');
+  const run = (args, options = {}) => {
+    if (args[0] === 'mcp' && args[1] === 'add') {
+      const altered = [...args];
+      altered[altered.length - 1] = 'https://user.example/mcp';
+      f.run(altered, options);
+      throw new Error('simulated timeout after writing a different server');
+    }
+    return f.run(args, options);
+  };
+  await assert.rejects(applyCodexMcp(state, {
+    run, env: f.env, home: f.codexHome, platform: 'linux',
+    save: async () => writeFileSync(statePath, JSON.stringify(state)), warn: () => {},
+  }), /simulated timeout/);
+  assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://user.example/mcp');
+  assert.equal(state.mcp.codex.remote, undefined);
+  assert(state.mcp.codexPending.remote, 'the pending record stays for a safe retry');
+  const plan = await f.plan(state);
+  assert.equal(plan.operations[0].action, 'conflict');
+  await f.apply(state);
+  assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://user.example/mcp');
+  assert.equal(state.mcp.codexPending, undefined);
+});
+
 test('a failed pre-write save never touches live Codex', async t => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
