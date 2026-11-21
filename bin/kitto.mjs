@@ -173,7 +173,16 @@ async function scopeCommand(args) {
 try {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === '--help' || command === '-h') console.log(help);
-  else if (command === 'worktree') await worktreeCommand(args);
+  else if (command === 'worktree') {
+    if (['start', 'finish', 'apply'].includes(args[0])) {
+      const { lifecycleCommand } = await import('../lib/worktree-lifecycle.mjs');
+      await lifecycleCommand(args[0], args.slice(1));
+    } else if (!args.length || ['--help', '-h'].includes(args[0])) {
+      const { lifecycleUsage } = await import('../lib/worktree-lifecycle.mjs');
+      await worktreeCommand(args);
+      console.log(lifecycleUsage);
+    } else await worktreeCommand(args);
+  }
   else if (command === 'scope') await scopeCommand(args);
   else if (command === 'update') {
     if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) console.log(help);

@@ -31,6 +31,17 @@ kitto worktree audit --workspace '/path/to/workspace' --json
 
 无所有权登记的树一律 `unmanaged`，占用为 `unknown`；目录名、时间、归档或干净状态都不能证明可清理。命令不获取远端、不刷新索引、不登记、不删除；没有 `--apply`。
 
+## 手动开工与安全收尾 Git worktree
+
+1. **开工预览**：`kitto worktree start --repo PATH --task ID --session ID`。`PATH` 必须是主 checkout，且已登记为 workspace 或直接位于登记的 workspace-parent 下；仅有 global scope 不够。使用稳定的任务 ID 和每个会话独立的 ID（字母、数字、点、下划线或连字符，最长 80 字符，首字符为字母或数字）。命令输出将创建或复用的分支、路径、主分支提交及确认令牌，不写 Git 或台账。核对后由用户重跑同一命令并加 `--confirm TOKEN`。同一仓库同一任务复用原树并登记该会话，不继承别的 clone 或设备的树。命令不会切换调用者的 cwd；自行在返回路径打开新终端或会话，也不要假定宿主会自动套用主树的 Kitto scope。
+2. **退出子任务**：所有会在树中工作的会话（含子任务）使用独立 `--session`，先确认开工。确实关闭该会话的编辑器、进程及子任务后，从树外运行 `kitto worktree finish --repo PATH --task ID --session ID --quiescent --release`。需要释放登记时，由用户把同一参数用于 `kitto worktree apply` 并加 `--confirm TOKEN`。这不会删除树；仍用最后一个登记做实际收尾。没有活跃登记时必须重新 `start`，不猜测占用。
+3. **收尾预览**：从树外运行 `kitto worktree finish --repo PATH --task ID --session ID --quiescent --delivered SHA`。`SHA` 是用户已独立核实交付后提供的完整本地主树 HEAD；还要求任务 HEAD 是其祖先。不联网验证交付，squash/rebase 后无祖先证明时不会删除。`--quiescent` 是操作者对宿主、其他会话、子任务、终端、外部写入进程和挂载均已退出的人工确认，不得由 agent 从归档、空闲、Git 状态或超时推断。若无法核实、存在其他登记或宿主也是清理者，停止。
+4. **显式执行**：只有当前预览无阻塞且用户授权后，运行 `kitto worktree apply --repo PATH --task ID --session ID --quiescent --delivered SHA --confirm TOKEN`。该命令重新持锁，核对 scope、台账代次、双向 Git 绑定、HEAD 与文件状态；旧令牌或未知状态不执行。跟踪修改、未跟踪/忽略文件、额外空目录、Git 锁与操作状态、子模块、部分检查等都阻塞。使用不带 `--force` 的 `git worktree remove`；不删分支，不 prune/unlock，不自动接管历史树。
+
+台账和工作树位于 `${XDG_STATE_HOME:-$HOME/.local/state}/kitto-worktrees`，按本机仓库标识分目录；这里不是同步目录，不支持跨机复制或多宿主共管。进程中断后，创建意图若未留下目录、登记或分支，可重新预览确认；有任何残留则人工核查，Kitto 不认领。清理意图若目录与登记均已消失且分支仍与记录一致，可重新预览并确认补记，不再调用 Git 删除。进程被终止后锁可能残留；先人工确认没有写者，不自动解锁。
+
+本机锁只串行 Kitto 写操作，不能冻结宿主、Git 或外部文件系统。必须让目标树从确认到移除始终静止；绕过 Kitto 的并发写入与最后一次检查之间无法提供原子保证。不要将此流程用于 DSH 原生托管树或无法核实占用的远程/共享树。`audit` 仍是只读 Git 清单，不据此推断归属或占用。
+
 ## 共享工作区
 
 如果只需登记一个已有工作区，运行 `npx --yes @phyzess/kitto setup --workspace /path/to/workspace`。目录可以已经有多个独立 Git 仓库。Kitto 会保留已有的规则与 skill，创建缺少的目录和规则文件，并为当前账号能运行的宿主安装适配器。加 `--dry-run` 可以预览，`--agents pi,codex` 可选定宿主。
