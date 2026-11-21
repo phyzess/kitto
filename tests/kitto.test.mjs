@@ -1597,6 +1597,19 @@ test('kitto hosts warns in check mode when --version is not the validated baseli
   assert.equal(tools.installs().length, 0);
 });
 
+test('kitto hosts warns in apply mode even when the pinned version needs no change', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '9.9.9' } });
+
+  const applied = tools.run('hosts', '--version', '9.9.9', '--apply');
+  good(applied);
+  assert.match(applied.stdout, /WARNING: 9\.9\.9 is an explicit --version pin, not the Kitto-validated baseline 1\.5\.2/);
+  assert.match(applied.stdout, /Summary: updated none; unchanged pi/);
+  assert.equal(tools.installs().length, 0);
+  assert.equal(tools.calls().some(call => call.command === 'npm'), false);
+});
+
 test('the maintenance runner exposes the same explicit host policy', t => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
