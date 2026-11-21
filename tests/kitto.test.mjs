@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { probeDesktopProfile } from '../lib/dsh-profile.mjs';
+import { composeInstructions } from '../lib/host-config.mjs';
 import { compareVersions } from '../lib/hosts.mjs';
 import { parseOptions, replaceDirectory, treeHash } from '../lib/kitto.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
@@ -115,8 +116,42 @@ test('Codex and DSH i-have-adhd skills are model-invocable and loaded at startup
   const common = readFileSync(join(root, 'config/instructions/common.md'), 'utf8');
   assert.match(common, /每次会话开始先加载 `i-have-adhd` skill/);
   assert.match(common, /每次会话开始先加载 `hindsight` skill/);
+  assert.match(common, /发布、外部消息、不可逆或破坏性操作在最终执行前确认/);
+  const codex = readFileSync(join(root, 'config/codex/AGENTS.md'), 'utf8');
+  assert.match(codex, /\$CODEX_HOME/);
+  const dsh = readFileSync(join(root, 'config/dsh/AGENTS.md'), 'utf8');
+  assert.match(dsh, /\$DSH_HOME/);
   const policy = readFileSync(join(root, 'config/codex/skills/i-have-adhd/agents/openai.yaml'), 'utf8');
   assert.match(policy, /allow_implicit_invocation: true/);
+});
+
+test('JS and Python compose the shared layer byte-identically after BOM/CRLF normalization', t => {
+  const temp = mkdtempSync(join(tmpdir(), 'kitto-compose-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const common = join(temp, 'common.md'), addendum = join(temp, 'addendum.md'), out = join(temp, 'out.md');
+  writeFileSync(common, '\uFEFF# 共享\r\n\r\n- 规则一\r\n\r\n- 规则二\r\n');
+  writeFileSync(addendum, '## Host\r\n\r\n- 宿主规则\r\n');
+  const result = command('python3', [join(root, 'lib/pi_config.py'), 'compose-agents', common, addendum, out], process.env);
+  assert.equal(result.status, 0, result.stderr);
+  const expected = '# 共享\n\n- 规则一\n\n- 规则二\n\n## Host\n\n- 宿主规则\n';
+  assert.equal(readFileSync(out, 'utf8'), expected);
+  assert.equal(composeInstructions(readFileSync(common, 'utf8'), readFileSync(addendum, 'utf8')), expected);
+});
+
+test('hosts without the shared layer keep their legacy addendum block', t => {
+  const f = fixture(t);
+  rmSync(join(f.source, 'config/instructions'), { recursive: true });
+  for (const [host, text] of [['codex', 'Legacy codex rules'], ['dsh', 'Legacy dsh rules']]) {
+    mkdirSync(join(f.source, 'config', host), { recursive: true });
+    writeFileSync(join(f.source, 'config', host, 'AGENTS.md'), text);
+  }
+  good(f.cli('setup', '--agents', 'codex,dsh', '--source', f.source));
+  const codex = readFileSync(join(f.env.CODEX_HOME, 'AGENTS.md'), 'utf8');
+  const dsh = readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8');
+  assert.match(codex, /<!-- kitto:begin -->\nLegacy codex rules\n<!-- kitto:end -->/);
+  assert.match(dsh, /<!-- kitto:begin -->\nLegacy dsh rules\n<!-- kitto:end -->/);
+  assert.doesNotMatch(codex, /shared-marker/);
+  assert.doesNotMatch(dsh, /shared-marker/);
 });
 
 test('shared rules compose into all three hosts with addenda kept host-specific', t => {

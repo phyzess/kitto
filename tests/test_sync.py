@@ -140,6 +140,39 @@ class SyncTests(unittest.TestCase):
         self.assertIn('host-specific section', result.stderr)
         self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), before)
 
+    def test_pi_push_refuses_a_truncated_shared_layer(self):
+        self.run_sync('pull')
+        common = self.repo / 'config/instructions/common.md'
+        lines = common.read_text().rstrip('\n').splitlines()
+        common.write_text('\n'.join(lines[:-1]) + '\n')
+        before = (self.repo / 'config/pi/AGENTS.md').read_text()
+        result = self.run_sync('push', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('does not match the current shared rules composition', result.stderr)
+        self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), before)
+
+    def test_pi_push_validates_agents_before_writing_the_repository(self):
+        self.run_sync('pull')
+        common = self.repo / 'config/instructions/common.md'
+        lines = common.read_text().rstrip('\n').splitlines()
+        common.write_text('\n'.join(lines[:-1]) + '\n')
+        settings = self.get(self.machine)
+        settings['theme'] = 'light'
+        self.put(self.machine, settings)
+        repo_settings_before = (self.repo / 'config/pi/settings.json').read_text()
+        result = self.run_sync('push', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.repo / 'config/pi/settings.json').read_text(), repo_settings_before)
+
+    def test_pi_push_accepts_a_bom_crlf_deployed_file(self):
+        self.run_sync('pull')
+        machine = self.home / '.pi/agent/AGENTS.md'
+        machine.write_text('\ufeff' + machine.read_text().replace('\n', '\r\n'))
+        self.run_sync('push')
+        exported = (self.repo / 'config/pi/AGENTS.md').read_text()
+        self.assertNotIn('\r', exported)
+        self.assertTrue(exported.startswith('## Pi 专属补充'))
+
     def test_legacy_whole_file_pi_agents_is_replaced_without_duplication(self):
         path = self.home / '.pi/agent/AGENTS.md'
         path.parent.mkdir(parents=True)
@@ -171,8 +204,8 @@ class SyncTests(unittest.TestCase):
         common = self.base / 'common.md'
         addendum = self.base / 'addendum.md'
         out = self.base / 'out.md'
-        common.write_text('# Shared\n\n- one\n')
-        addendum.write_text('## Host\n\n- two\n')
+        common.write_text('\ufeff# Shared\r\n\r\n- one\r\n')
+        addendum.write_text('## Host\r\n\r\n- two\r\n')
         self.assertEqual(helper.cmd_compose_agents([str(common), str(addendum), str(out)]), 0)
         self.assertEqual(out.read_text(), '# Shared\n\n- one\n\n## Host\n\n- two\n')
         extracted = self.base / 'extracted.md'
@@ -183,6 +216,13 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
         out.write_text('# Shared\n')
         self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
+        # A truncated common prefix still matches the old deployed file; the
+        # re-composition check must refuse it instead of exporting shared rules.
+        truncated = self.base / 'common-truncated.md'
+        truncated.write_text('# Shared\n\n- one\n')
+        out.write_text(helper.compose_agents('# Shared\n\n- one\n- two\n', '## Host\n\n- two\n'))
+        self.assertEqual(helper.cmd_extract_agents([str(out), str(truncated), str(extracted)]), 1)
+        self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
 
     def test_legacy_skill_sync_requires_explicit_opt_in(self):
         env = {**self.env, 'KITTO_ALLOW_LEGACY_SKILL_SYNC': '1'}

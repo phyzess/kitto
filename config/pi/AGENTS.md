@@ -1,10 +1,10 @@
 ## Pi 专属补充
 
-Pi 的 `i-have-adhd` 扩展默认常开（`~/.pi/agent/.i-have-adhd-always`）；扩展不可用时按共享规则的会话开始说明手动加载。
+Pi 的 `i-have-adhd` 扩展默认常开（`$PI_CODING_AGENT_DIR/.i-have-adhd-always`，配置目录默认 `~/.pi/agent`）；扩展不可用时按共享规则的会话开始说明手动加载。
 
 ### Pi 能力适配
 
-配置在 `~/.pi/agent/mcp.json`；涉及 wiki/Confluence/Jira/GitLab 时先检查 `/mcp` 的实际连接状态，再决定是否使用，不要仅按配置文件推断可用。
+配置在 `$PI_CODING_AGENT_DIR/mcp.json`（默认 `~/.pi/agent/mcp.json`）；涉及 wiki/Confluence/Jira/GitLab 时先检查 `/mcp` 的实际连接状态，再决定是否使用，不要仅按配置文件推断可用。
 
 | Server | Tools | 用途 |
 |---|---|---|

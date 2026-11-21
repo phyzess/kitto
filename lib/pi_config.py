@@ -150,13 +150,22 @@ def write_text(path: str, text: str) -> bool:
     return True
 
 
+def normalize_instructions(text: str) -> str:
+    """One canonical form for shared-layer files: no BOM, LF line endings."""
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def compose_agents(common: str | None, addendum: str | None) -> str:
     """Shared rules first, then the host addendum.
 
-    Byte-identical to composeInstructions() in lib/host-config.mjs. Stripping
-    each section keeps the result stable no matter how the files end.
+    Byte-identical to composeInstructions() in lib/host-config.mjs. Normalizing
+    and stripping each section keeps the result stable no matter how the files
+    end or which platform produced them.
     """
-    sections = [text.strip() for text in (common, addendum) if text and text.strip()]
+    sections = [normalize_instructions(text).strip() for text in (common, addendum) if text]
+    sections = [text for text in sections if text]
     return "\n\n".join(sections) + "\n" if sections else ""
 
 
@@ -436,7 +445,8 @@ def cmd_extract_agents(argv: list[str]) -> int:
     if common is None:
         print(f"missing shared instructions: {common_path}", file=sys.stderr)
         return 1
-    prefix, body = common.strip(), machine.strip()
+    prefix = normalize_instructions(common).strip()
+    body = normalize_instructions(machine).strip()
     if not prefix or not body.startswith(prefix):
         print(f"{machine_path} does not start with {common_path}; push only exports the host-specific "
               "section. Edit shared rules in the source and run sync again before exporting.", file=sys.stderr)
@@ -444,6 +454,13 @@ def cmd_extract_agents(argv: list[str]) -> int:
     addendum = body[len(prefix):].strip()
     if not addendum:
         print(f"{machine_path} has no host-specific section; refusing to export an empty addendum.", file=sys.stderr)
+        return 1
+    # A truncated/edited shared layer can leave an old deployed file whose
+    # prefix still matches. Re-composing must reproduce the file byte-for-byte,
+    # otherwise deleted shared rules would be exported as host-specific rules.
+    if compose_agents(common, addendum) != body + "\n":
+        print(f"{machine_path} does not match the current shared rules composition; run sync before "
+              "exporting. Shared rules must be edited in the source, not in the deployed file.", file=sys.stderr)
         return 1
     changed = write_text(out_path, addendum + "\n")
     print(f"AGENTS.md: {'exported' if changed else 'unchanged'} (host addendum only)")

@@ -143,14 +143,19 @@ deploy_pi_agents() {
     deploy_file "$src" "$DOT_PI/AGENTS.md" "~/.pi/agent/AGENTS.md"
 }
 
-export_pi_agents() {
+prepare_pi_agents_export() { # validate and stage the addendum before any repo write
     if [ ! -f "$COMMON_AGENTS" ]; then
-        deploy_file "$DOT_PI/AGENTS.md" "$PI_AGENTS" "config/pi/AGENTS.md"
+        # Older configuration checkouts predate the shared layer: keep the
+        # historical whole-file export.
+        cp -f "$DOT_PI/AGENTS.md" "$TMP/AGENTS.md" || { fail "读取 $DOT_PI/AGENTS.md 失败"; return 1; }
         return 0
     fi
     info "AGENTS.md（只导出 Pi 专属段）"
     python3 "$PY" extract-agents "$DOT_PI/AGENTS.md" "$COMMON_AGENTS" "$TMP/AGENTS.md" \
         || { fail "AGENTS.md 未按共享层组合，拒绝把 common 写回 config/pi/AGENTS.md"; return 1; }
+}
+
+deploy_pi_agents_export() {
     deploy_file "$TMP/AGENTS.md" "$PI_AGENTS" "config/pi/AGENTS.md"
 }
 
@@ -314,6 +319,7 @@ cmd_push() {
         fail "暂存区已有改动，请先处理后再使用 --commit"
         exit 1
     fi
+    prepare_pi_agents_export || exit 1
     info "settings.json（脱敏）"
     if [ "$DRY" = 1 ]; then
         python3 "$PY" sanitize-settings "$DOT_PI/settings.json" "$ROOT/config/pi/settings.json" "$LOCAL" "$TMP/settings.json"
@@ -321,7 +327,7 @@ cmd_push() {
     else
         python3 "$PY" sanitize-settings "$DOT_PI/settings.json" "$ROOT/config/pi/settings.json" "$LOCAL" "$ROOT/config/pi/settings.json"
     fi
-    export_pi_agents
+    deploy_pi_agents_export
     [ -f "$DOT_PI/mcp.json" ] && {
         info "mcp.json（去掉平台/本机/私有条目）"
         if [ "$DRY" = 1 ]; then

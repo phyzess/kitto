@@ -40,7 +40,7 @@ npx --yes @phyzess/kitto setup --agents dsh --dsh-profile desktop
 
 ## 规则共享层
 
-三个宿主的共同工作规则集中在 [config/instructions/common.md](config/instructions/common.md)，各宿主的 `config/<宿主>/AGENTS.md` 只保留自己的 addendum（Pi 的 MCP 工具表、浏览器与评审约定；Codex/DSH 的 skill 回退路径等）。Kitto 部署时直接拼接两者，不使用模板：Pi 组合后整份写入 `~/.pi/agent/AGENTS.md`；Codex 和 DSH 写入各自全局 `AGENTS.md` 的 Kitto 标记块，块外内容保持本机所有。改共享规则只改 `common.md`；Pi 的 `sync.sh push` 只导出 Pi 专属段，不会把共享规则写回 addendum。细节见[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#规则共享层与宿主-addendum)。
+三个宿主的共同工作规则集中在 [config/instructions/common.md](config/instructions/common.md)，各宿主的 `config/<宿主>/AGENTS.md` 只保留自己的 addendum（Pi 的 MCP 工具表、浏览器与评审约定；Codex/DSH 的 skill 回退路径等）。Kitto 部署时直接拼接两者，不使用模板：Pi 组合后整份写入 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`）；Codex 和 DSH 写入各自全局 `AGENTS.md` 的 Kitto 标记块，块外内容保持本机所有。改共享规则只改 `common.md`；Pi 的 `sync.sh push` 只导出 Pi 专属段，不会把共享规则写回 addendum。细节见[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#规则共享层与宿主-addendum)。
 
 ## 把改动带到下一台机器
 

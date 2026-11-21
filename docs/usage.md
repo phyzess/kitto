@@ -122,7 +122,7 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 
 | 能力 | Pi（macOS/Linux） | Codex | DSH（Linux；macOS 同一套规则） |
 |---|---|---|---|
-| 全局规则 | `common.md` + Pi addendum 组合后整份写入 `~/.pi/agent/AGENTS.md` | `common.md` + Codex addendum（Kitto 标记块） | `common.md` + DSH addendum（Kitto 标记块） |
+| 全局规则 | `common.md` + Pi addendum 组合后整份写入 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`） | `common.md` + Codex addendum（Kitto 标记块） | `common.md` + DSH addendum（Kitto 标记块） |
 | 共享 skills | `~/.agents/skills` | `~/.agents/skills` + SessionStart hook | `~/.agents/skills`（`desktop` 无 scope provider） |
 | 宿主专属 skills | Pi 上游包 | `config/codex/skills` 副本 | `config/dsh/skills` 副本 |
 | 插件/扩展 | Pi 包、Pi 扩展 | Kitto Codex 插件 | Kitto DSH bundle（web/headless；`desktop` 无） |
@@ -165,17 +165,17 @@ Codex MCP 的已知边界：
 
 ## 规则共享层与宿主 addendum
 
-三个宿主的共同工作规则在 [config/instructions/common.md](../config/instructions/common.md)：语言、只读审查、保留改动、验证、工具可用性/CodeGraph、会话开始加载 `i-have-adhd` 和 `hindsight` 等。`config/<宿主>/AGENTS.md` 只放该宿主的 addendum，例如 Pi 的 MCP 工具表、浏览器和 Plannotator 约定，Codex/DSH 的 skill 回退路径。
+三个宿主的共同工作规则在 [config/instructions/common.md](../config/instructions/common.md)：语言、只读审查、保留改动、发布/外部消息/不可逆操作确认、验证、工具可用性/CodeGraph、会话开始加载 `i-have-adhd` 和 `hindsight` 等。`config/<宿主>/AGENTS.md` 只放该宿主的 addendum，例如 Pi 的 MCP 工具表、浏览器和 Plannotator 约定，Codex/DSH 的 skill 回退路径。Pi 配置目录默认 `~/.pi/agent`，可由 `PI_CODING_AGENT_DIR` 覆盖；Codex/DSH 路径分别由 `CODEX_HOME`、`DSH_HOME` 控制。
 
 Kitto 部署时直接按文件拼接组合，不使用模板：
 
 | 宿主 | 部署结果 |
 |---|---|
-| Pi | `common.md` + `config/pi/AGENTS.md` 整份写入 `~/.pi/agent/AGENTS.md`，该文件仍由 Kitto 整份管理 |
+| Pi | `common.md` + `config/pi/AGENTS.md` 整份写入 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`），该文件仍由 Kitto 整份管理 |
 | Codex | `common.md` + `config/codex/AGENTS.md` 写入 `$CODEX_HOME/AGENTS.md` 的 Kitto 标记块 |
 | DSH | `common.md` + `config/dsh/AGENTS.md` 写入 `$DSH_HOME/AGENTS.md` 的 Kitto 标记块 |
 
-Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖，旧版遗留的全文件会被新组合替换一次，不会重复共享规则。`sync.sh push` 只把 `~/.pi/agent/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件不以当前共享规则开头时会拒绝导出。
+Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖，旧版遗留的全文件会被新组合替换一次，不会重复共享规则。`sync.sh push` 只把 `$PI_CODING_AGENT_DIR/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件不以当前共享规则开头，或与当前共享层的组合结果不一致（例如 common 被截短但本机尚未 pull）时，push 会在写仓库前拒绝导出。
 
 只改这台机器的规则写在 Codex/DSH 标记块外，或使用工作区/仓库自己的 `AGENTS.md`；不要直接编辑 Pi 的全局 `AGENTS.md`，它会在下次 pull 时被整份重写。配置源还没有 `config/instructions/common.md` 时（旧的配置 checkout），Pi 回退到旧的整文件部署，Codex/DSH 则把旧的宿主文件内容作为 addendum 写入标记块，先同步配置源即可恢复共享层。
 
