@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, realpath, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { setup, parseOptions } from '../lib/kitto.mjs';
+import { setup, parseOptions, update } from '../lib/kitto.mjs';
 import { readScopeRegistry, scopeHome, writeScopeRegistry } from '../lib/scopes.mjs';
 
 const help = `Kitto — portable personal agent configuration
@@ -15,6 +15,9 @@ const help = `Kitto — portable personal agent configuration
   kitto setup [--agents pi,codex,dsh] [--source PATH_OR_GIT_URL] [--ref BRANCH_OR_TAG]
               [--dsh-profile PROFILE] [--install-agents] [--dry-run]
   kitto setup --recover [--dry-run]   Restore the last working Kitto code
+  kitto update [--check|--apply]      Preview / apply a Kitto update: fetch and fast-forward the
+                                      configuration source, refresh the installed runtime copy,
+                                      then deploy configuration, skills and MCP
   kitto scope list [--json]   Show global, workspace and workspace-parent scope registrations
   kitto scope remove --global
   kitto scope remove --workspace PATH
@@ -23,6 +26,8 @@ const help = `Kitto — portable personal agent configuration
 Scoped setup shares AGENTS.md and .agents/skills. Plain setup uses the phyzess/kitto configuration repository.
 After scoped setup, edit the shared files and start a new native agent session.
 Plain setup installs the Kitto maintenance skill for configuration synchronization.
+kitto update is a preview unless --apply (or its explicit --check alias) is used; it updates
+Kitto's code copy and configuration, never a host CLI or the Kitto package itself.
 Kitto needs Node >=22 and Git. Pi sync also needs Bash and Python >=3.10.
 DSH web/headless needs pnpm and uses the web profile by default. The Desktop app owns the desktop
 profile: Kitto deploys only its global AGENTS.md and skills, never checks or installs a dsh CLI, and
@@ -150,6 +155,10 @@ try {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === '--help' || command === '-h') console.log(help);
   else if (command === 'scope') await scopeCommand(args);
+  else if (command === 'update') {
+    if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) console.log(help);
+    else await update(args);
+  }
   else if (command === 'setup') {
     if ((args.length === 0 && process.stdin.isTTY && process.stdout.isTTY) ||
         (args.length === 1 && args[0] === '--interactive')) {
