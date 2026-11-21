@@ -44,4 +44,4 @@
 | `bash sync.sh push --dry-run` | 预览本机 → 仓库，去掉 `--dry-run` 后写入本地 checkout |
 | `bash sync.sh deps --dry-run` | 查看已启用能力需要安装的工具 |
 
-这里的 `push` 指把 Pi 配置导出到本地仓库。检查 Git 差异后，才执行 Git 的提交和推送。导出会过滤私有 MCP、本机覆盖和运行时字段；skills 与扩展只导出仓库已声明的目录或文件。要在所有机器上移除扩展包，直接修改仓库的 `settings.json`。
+这里的 `push` 指把 Pi 配置导出到本地仓库。检查 Git 差异后，才执行 Git 的提交和推送。导出只写入仓库已经声明的 settings 键、MCP server、skills 和扩展；本机新增但未声明的项会在预览中点名并跳过，避免把临时 token 或实验配置带进仓库。凭据用 `${VAR}` 引用，写出字面 secret 时导出会拒绝。要在所有机器上移除扩展包，直接修改仓库的 `settings.json`。

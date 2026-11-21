@@ -47,6 +47,16 @@ test('codegraphTargets falls back to the current workspace and excludes Kitto so
   assert.deepEqual(targets, [first]);
 });
 
+test('registeredOnly ignores the current workspace fallback', async t => {
+  const directory = temp(t);
+  const home = join(directory, 'kitto');
+  const projects = join(directory, 'projects');
+  mkdirSync(projects);
+  repo(join(projects, 'first'));
+  assert.deepEqual(await codegraphTargets({ home, cwd: projects, registeredOnly: true }), []);
+  assert.deepEqual(await codegraphTargets({ home, cwd: projects }), [join(projects, 'first')]);
+});
+
 test('codegraphPlan separates ready, missing, unavailable and unwritable indexes', t => {
   const directory = temp(t);
   const ready = join(directory, 'ready');

@@ -136,6 +136,33 @@ class SyncTests(unittest.TestCase):
         helper.cmd_export_mcp([str(repo), str(local), '', str(local), '', str(out)])
         self.assertEqual(self.get(out), self.get(repo))
 
+    def test_export_does_not_add_unmanaged_mcp_or_settings(self):
+        repo = self.put(self.base / 'repo.json', {'mcpServers': {'shared': {'command': 'shared'}}})
+        machine = self.put(self.base / 'machine.json', {
+            'theme': 'light',
+            'mcpServers': {
+                'shared': {'command': 'shared'},
+                'personal': {'command': 'npx', 'args': ['--token', 'sk-this-should-not-travel']},
+            },
+        })
+        out = self.base / 'export.json'
+        helper.cmd_export_mcp([str(repo), str(machine), '', '', '', str(out)])
+        self.assertEqual(self.get(out), {'mcpServers': {'shared': {'command': 'shared'}}})
+        settings = self.put(self.base / 'settings.json', {'packages': [], 'theme': 'dark'})
+        machine_settings = self.put(self.base / 'machine-settings.json', {
+            'packages': [], 'theme': 'light', 'apiKey': 'sk-this-should-not-travel',
+        })
+        exported = self.base / 'settings-export.json'
+        helper.cmd_sanitize_settings([str(machine_settings), str(settings), str(self.local), str(exported)])
+        data = self.get(exported)
+        self.assertNotIn('apiKey', data)
+        self.assertEqual(data['theme'], 'light')
+
+    def test_export_refuses_literal_secret_in_declared_entry(self):
+        repo = self.put(self.base / 'repo.json', {'mcpServers': {'bad': {'command': 'x', 'args': ['sk-this-should-not-travel']}}})
+        out = self.base / 'export.json'
+        self.assertEqual(helper.cmd_export_mcp([str(repo), str(repo), '', '', '', str(out)]), 1)
+
     def test_env_preserved_and_pull_idempotent(self):
         token = self.home / '.pi-agent-env'
         token.write_text('SYNTHETIC_TOKEN=keep-me\n')

@@ -94,7 +94,7 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 
 ## CodeGraph 索引与工作区权限
 
-DSH 的 CodeGraph MCP 只查询已经建立索引的仓库。Kitto 在 `status` 中报告缺失的索引，在 `setup` 和 `sync --apply` 时检测已登记工作区并执行 `codegraph init`；这要求 `codegraph` 在 PATH 中。设置 `KITTO_NO_CODEGRAPH_INIT=1` 可以只提醒、不自动执行。
+DSH 的 CodeGraph MCP 只查询已经建立索引的仓库。Kitto 在 `status` 中报告缺失的索引，并在 scoped `setup` 登记工作区后对其执行 `codegraph init`；这要求 `codegraph` 在 PATH 中。普通 `sync`、`deps`、`export` 不写索引。设置 `KITTO_NO_CODEGRAPH_INIT=1` 可以只提醒、不自动执行。
 
 Kitto 也会检查已登记工作区是否对当前账号可写。只读工作区会让 agent 无法创建 `.codegraph`、`.pi` 或修改文件；setup 会打印警告。按提示给运行 DSH 的账号授予写权限（`chown` 或 `setfacl`）后重试。
 

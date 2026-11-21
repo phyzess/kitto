@@ -15,10 +15,71 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
 
 VOLATILE_KEYS = ("lastChangelogVersion", "extensionChangelogVersions")
+
+# Export must never turn a local secret into a repository commit. These are the
+# key names and literal shapes that Kitto refuses to write into the source tree.
+SECRET_KEY_NAMES = frozenset({
+    "apikey", "api_key", "token", "access_token", "refresh_token", "secret",
+    "client_secret", "password", "passwd", "private_key", "bearer_token", "authorization",
+})
+SECRET_VALUE_PATTERNS = (
+    ("openai-style key", re.compile(r"sk-[A-Za-z0-9_-]{16,}")),
+    ("GitHub token", re.compile(r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}")),
+    ("GitHub fine-grained token", re.compile(r"github_pat_[A-Za-z0-9_]{20,}")),
+    ("Slack token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),
+    ("AWS access key", re.compile(r"AKIA[0-9A-Z]{16}")),
+    ("JWT", re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),
+    ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+)
+
+
+def scan_secrets(value, path=""):
+    """Return (cleaned, removed key paths, found literal secrets).
+
+    Dict keys named like credentials are removed. Literal token shapes remain
+    in place but are reported so the caller can refuse the export.
+    """
+    removed, found = [], []
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            child = f"{path}.{key}" if path else key
+            if key.casefold() in SECRET_KEY_NAMES:
+                removed.append(child)
+                continue
+            cleaned, child_removed, child_found = scan_secrets(item, child)
+            out[key] = cleaned
+            removed.extend(child_removed)
+            found.extend(child_found)
+        return out, removed, found
+    if isinstance(value, list):
+        cleaned = []
+        for index, item in enumerate(value):
+            child = f"{path}[{index}]"
+            item, child_removed, child_found = scan_secrets(item, child)
+            cleaned.append(item)
+            removed.extend(child_removed)
+            found.extend(child_found)
+        return cleaned, removed, found
+    if isinstance(value, str):
+        for label, pattern in SECRET_VALUE_PATTERNS:
+            if pattern.search(value):
+                found.append((path, label))
+    return value, removed, found
+
+
+def refuse_secrets(found):
+    if not found:
+        return False
+    for path, label in found:
+        print(f"refusing to export a literal secret ({label}) at {path}", file=sys.stderr)
+    print("Replace the literal with an environment-variable reference or remove it before exporting.", file=sys.stderr)
+    return True
 
 
 # ---------------------------------------------------------------- helpers
@@ -229,13 +290,14 @@ def cmd_sanitize_settings(argv: list[str]) -> int:
         out[key] = packages if key == "packages" else machine.get(key, repo[key])
     if "packages" not in out:
         out["packages"] = packages
-    for key, value in machine.items():
-        if key in out or key in VOLATILE_KEYS:
-            continue
-        out[key] = value
 
     overrides = load(os.path.join(local_dir, "settings.json"), {}) or {}
     out = restore_overrides(out, repo, overrides)
+    out, removed, found = scan_secrets(out)
+    if refuse_secrets(found):
+        return 1
+    if removed:
+        print("  credential-shaped keys left out: " + ", ".join(sorted(removed)))
     changed = dump_semantic(out_path, out)
     print(f"settings: {'exported' if changed else 'unchanged'}")
     if dropped:
@@ -299,12 +361,20 @@ def cmd_export_mcp(argv: list[str]) -> int:
             else:
                 dropped.append(name)        # platform-only server never ships
             continue
-        out[name] = entry
+        if name in repo:
+            out[name] = entry
+        else:
+            dropped.append(name)            # unmanaged server never ships
 
+    out, removed, found = scan_secrets(out)
+    if refuse_secrets(found):
+        return 1
+    if removed:
+        print("  credential-shaped keys left out: " + ", ".join(sorted(removed)))
     changed = dump_semantic(out_path, {"mcpServers": out})
     print(f"mcp: {'exported' if changed else 'unchanged'} ({len(out)} servers)")
     if dropped:
-        print("  left out (local/platform/private): " + ", ".join(sorted(dropped)))
+        print("  left out (unmanaged/local/platform/private): " + ", ".join(sorted(dropped)))
     if replaced:
         print("  repo entry kept instead of machine override: " + ", ".join(sorted(replaced)))
     return 0
