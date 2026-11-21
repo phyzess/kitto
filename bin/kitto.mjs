@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, realpath, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { setup, parseOptions, update } from '../lib/kitto.mjs';
+import { worktreeCommand } from '../lib/worktree-audit.mjs';
 import { hostsCommand } from '../lib/hosts.mjs';
 import { readScopeRegistry, scopeHome, writeScopeRegistry } from '../lib/scopes.mjs';
 
@@ -27,6 +28,8 @@ const help = `Kitto — portable personal agent configuration
                                       --apply installs only the pinned target, never the latest release.
                                       --host limits this to one selected host; --version pins one host
                                       to an exact version instead of its baseline.
+  kitto worktree audit [--workspace PATH] [--json]
+                              Inventory Git worktrees by estimated size, without writing or cleaning
   kitto scope list [--json]   Show global, workspace and workspace-parent scope registrations
   kitto scope remove --global
   kitto scope remove --workspace PATH
@@ -170,6 +173,7 @@ async function scopeCommand(args) {
 try {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === '--help' || command === '-h') console.log(help);
+  else if (command === 'worktree') await worktreeCommand(args);
   else if (command === 'scope') await scopeCommand(args);
   else if (command === 'update') {
     if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) console.log(help);

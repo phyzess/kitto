@@ -18,6 +18,19 @@
 
 父目录及其子目录都可以在 setup 之后创建。在 repo-a 中开启新会话就会加载全局配置和 workspace-1 的配置。在 repo-b 中则加载全局配置和 workspace-2 的配置。普通工作区无需创建任何 Kitto 文件。
 
+## 只读盘点 Git worktree
+
+```sh
+kitto worktree audit                             # 从当前仓库（含子目录）盘点
+kitto worktree audit --workspace '/path/to/workspace' --json
+```
+
+显式工作区若自身有 `.git` 就只盘点该仓库，否则查找直属真实目录中带 `.git` 的仓库。不递归扫描、不遍历 Kitto scope、不跟随工作区别名子目录。按 Git common dir 去重，再列出 Git 登记的所有树（可能在工作区之外），不是按目录名猜。工作树路径需能用 UTF-8 表示；无法解析清单时报错，不返回替代路径。
+
+按 `du -skx` 的估算字节数降序排列；未知排最后，不当作零。这个值包括目录里同一文件系统上的文件（主 checkout 可能含对象库），不是保证可回收的空间，也不宜直接相加。`--json` 保留原始路径、分支/HEAD、主树、锁定、prunable、修改、未跟踪/忽略文件等事实和阻塞项。`mergedIntoLocalBase` 只比较本地记录的 HEAD 与主树 HEAD，不访问远端，不证明 PR 已合并或内容已交付。子模块内容未检查；有 split index 时跳过索引探测（Git 的读操作也可能改变共享索引时间戳）。配置了 clean/process filter 时不运行 status，避免执行外部程序。数据是逐树的本地观察，不是原子快照。
+
+无所有权登记的树一律 `unmanaged`，占用为 `unknown`；目录名、时间、归档或干净状态都不能证明可清理。命令不获取远端、不刷新索引、不登记、不删除；没有 `--apply`。
+
 ## 共享工作区
 
 如果只需登记一个已有工作区，运行 `npx --yes @phyzess/kitto setup --workspace /path/to/workspace`。目录可以已经有多个独立 Git 仓库。Kitto 会保留已有的规则与 skill，创建缺少的目录和规则文件，并为当前账号能运行的宿主安装适配器。加 `--dry-run` 可以预览，`--agents pi,codex` 可选定宿主。
