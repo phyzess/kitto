@@ -81,7 +81,7 @@ npx --yes @phyzess/kitto scope remove --workspace-parent /path/to/workspaces
 |---|---|---|
 | Pi | settings、MCP、扩展、规则和 skills | Bash、Python 3.10+。通过 Kitto 安装 Pi CLI 需要 Node 22.19+ |
 | Codex | 全局规则、skills 和 Kitto 插件 | 登录 Codex，按需配置自己的模型、权限和 MCP |
-| DSH | 全局规则、skills、指定 profile 的 Kitto bundle，以及 CodeGraph 索引提醒/初始化 | pnpm。通过 Kitto 安装 DSH CLI 需要 Node 24.9+；`--install-agents` 可补装 pnpm |
+| DSH | 全局规则、skills、指定 profile 的 Kitto bundle、白名单 MCP 同步，以及 CodeGraph 索引提醒/初始化 | pnpm。通过 Kitto 安装 DSH CLI 需要 Node 24.9+；`--install-agents` 可补装 pnpm |
 
 DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-profile <name>`，以后按该 profile 的原生方式启动。
 
@@ -93,12 +93,12 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 | 共享 skills | `~/.agents/skills` | `~/.agents/skills` + SessionStart hook | `~/.agents/skills` + scope provider |
 | 宿主专属 skills | Pi 上游包 | `config/codex/skills` 副本 | `config/dsh/skills` 副本 |
 | 插件/扩展 | Pi 包、Pi 扩展 | Kitto Codex 插件 | Kitto DSH bundle |
-| MCP | 共享 + 平台 + private + 项目级 | 宿主自管 | 宿主自管 |
+| MCP | 共享 + 平台 + private + 项目级 | 宿主自管 | Kitto 同步白名单 server（无 env/headers） |
 | 模型/settings | Kitto 管理 | 宿主自管 | 宿主自管 |
 | 凭据/env | `~/.pi-agent-env` | 宿主自管 | 宿主 env/service env |
 | workspace scope | scoped-pi | scoped-codex | scoped-dsh |
 
-MCP、模型/settings、凭据目前**只在 Pi 上由 Kitto 管理**；Codex/DSH 使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
+MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 `setup` 和 `sync` 时由 Kitto 把 `config/pi/mcp.json`（叠加当前平台的 `config/pi/platform/<macos|linux>/mcp.json`）中没有 `env`/`headers` 的 server 同步为 `$DSH_HOME/cordis.patch.yml` 里的 `kitto-mcp-*` 条目；该 home patch 对所有 profile 生效，同步只增删这些条目，保留其它 YAML、注释、`!!js` 和顺序。带 `env`/`headers` 的 server、`mcp.private.json` 和 `local/mcp.json` 不会同步，仍需在 DSH 原生配置或环境中手动准备；已有同名 `serverName`（例如 CodeGraph 安装器写入的 `mcp-codegraph`）会跳过并警告。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步。Codex 的 MCP、模型/settings 和凭据继续使用各自原生配置。
 
 `kitto status` 会用 `mcp pi/codex/dsh` 和 `mcp missing on …` 列出各宿主实际加载的 MCP 名称；它只读，不写任何宿主配置。
 
@@ -109,7 +109,7 @@ MCP、模型/settings、凭据目前**只在 Pi 上由 Kitto 管理**；Codex/DS
 1. 安装并登录各宿主 CLI（或用 `--install-agents` 只补装 CLI）。
 2. Pi：复制 `config/pi/mcp.private.json` 并填写 host/token；把 `~/.pi-agent-env` 放进 shell 启动文件。
 3. Codex：首次在 `/hooks` 信任 Kitto 的 SessionStart hook。
-4. DSH：重启对应 profile/服务；私有 MCP 由 DSH 自己的配置提供。
+4. DSH：重启对应 profile/服务；带 `env`/`headers` 的 MCP 和私有 MCP 仍需在 DSH 原生配置中手动添加。
 5. 需要 CodeGraph 的仓库：在仓库根目录执行一次 `codegraph init`（Kitto 会提醒）。
 
 
