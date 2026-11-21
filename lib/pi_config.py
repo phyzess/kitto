@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Structural merge helpers for pi-config sync.
+"""Structural helpers for the Pi adapter.
 
-Three responsibilities, each exposed as a subcommand so sync.sh can stay in bash:
+Each responsibility is a small subcommand so sync.sh can stay in bash:
 
   merge-settings   repo settings + machine settings + machine-only packages -> machine settings
   sanitize-settings machine settings -> repo settings (drops volatile keys)
   merge-mcp        repo + platform + machine local + machine -> machine mcp.json
+  compose-agents   shared rules + host addendum -> deployed AGENTS.md
+  extract-agents   deployed AGENTS.md -> host addendum only (never shared rules)
 
 Shared definitions are updated while machine overrides and runtime switches
 stay local. Preview helpers write only their explicit output path.
@@ -122,6 +124,40 @@ def dump_semantic(path: str, data) -> bool:
     if os.path.exists(path) and load(path) == data:
         return False
     return dump(path, data)
+
+
+def read_text(path: str) -> str | None:
+    if not path or not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def write_text(path: str, text: str) -> bool:
+    """Write UTF-8 text atomically. Returns True when the file changed."""
+    old = read_text(path)
+    if old == text:
+        return False
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".kitto-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return True
+
+
+def compose_agents(common: str | None, addendum: str | None) -> str:
+    """Shared rules first, then the host addendum.
+
+    Byte-identical to composeInstructions() in lib/host-config.mjs. Stripping
+    each section keeps the result stable no matter how the files end.
+    """
+    sections = [text.strip() for text in (common, addendum) if text and text.strip()]
+    return "\n\n".join(sections) + "\n" if sections else ""
 
 
 def read_list(path: str) -> list[str]:
@@ -380,6 +416,40 @@ def cmd_export_mcp(argv: list[str]) -> int:
     return 0
 
 
+def cmd_compose_agents(argv: list[str]) -> int:
+    common_path, addendum_path, out_path = argv
+    common = read_text(common_path)
+    if common is None:
+        print(f"missing shared instructions: {common_path}", file=sys.stderr)
+        return 1
+    write_text(out_path, compose_agents(common, read_text(addendum_path)))
+    return 0
+
+
+def cmd_extract_agents(argv: list[str]) -> int:
+    """Export only the host addendum, so shared rules never travel upstream."""
+    machine_path, common_path, out_path = argv
+    machine, common = read_text(machine_path), read_text(common_path)
+    if machine is None:
+        print(f"missing deployed instructions: {machine_path}", file=sys.stderr)
+        return 1
+    if common is None:
+        print(f"missing shared instructions: {common_path}", file=sys.stderr)
+        return 1
+    prefix, body = common.strip(), machine.strip()
+    if not prefix or not body.startswith(prefix):
+        print(f"{machine_path} does not start with {common_path}; push only exports the host-specific "
+              "section. Edit shared rules in the source and run sync again before exporting.", file=sys.stderr)
+        return 1
+    addendum = body[len(prefix):].strip()
+    if not addendum:
+        print(f"{machine_path} has no host-specific section; refusing to export an empty addendum.", file=sys.stderr)
+        return 1
+    changed = write_text(out_path, addendum + "\n")
+    print(f"AGENTS.md: {'exported' if changed else 'unchanged'} (host addendum only)")
+    return 0
+
+
 COMMANDS = {
     "list-shared-packages": cmd_list_shared_packages,
     "record-settings": cmd_record_settings,
@@ -387,12 +457,15 @@ COMMANDS = {
     "sanitize-settings": cmd_sanitize_settings,
     "merge-mcp": cmd_merge_mcp,
     "export-mcp": cmd_export_mcp,
+    "compose-agents": cmd_compose_agents,
+    "extract-agents": cmd_extract_agents,
 }
 
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[1] not in COMMANDS:
-        sys.exit("usage: pi_config.py {merge-settings|sanitize-settings|merge-mcp|export-mcp} ...")
+        sys.exit("usage: pi_config.py "
+                 "{merge-settings|sanitize-settings|merge-mcp|export-mcp|compose-agents|extract-agents} ...")
     return COMMANDS[argv[1]](argv[2:])
 
 

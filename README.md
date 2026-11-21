@@ -38,6 +38,10 @@ npx --yes @phyzess/kitto setup --agents dsh --dsh-profile desktop
 
 重新打开 Desktop 后生效。需要 Kitto bundle、scoped 规则或 MCP 同步时，改用 `--dsh-profile web`；Desktop 内置 CLI 不能为 Kitto 提供这些能力。切换 profile 前先运行维护 skill 的 `maintain remove --apply` 解除当前集成。细节见[使用指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#dsh-desktop-配置档v1仅全局规则与-skills)。Desktop 的深度支持（受控写 profile patch、内置 CLI、bundle 边界）仍暂缓，只记录在 [DSH Desktop roadmap](https://github.com/phyzess/kitto/blob/main/docs/roadmap.md) 中。
 
+## 规则共享层
+
+三个宿主的共同工作规则集中在 [config/instructions/common.md](config/instructions/common.md)，各宿主的 `config/<宿主>/AGENTS.md` 只保留自己的 addendum（Pi 的 MCP 工具表、浏览器与评审约定；Codex/DSH 的 skill 回退路径等）。Kitto 部署时直接拼接两者，不使用模板：Pi 组合后整份写入 `~/.pi/agent/AGENTS.md`；Codex 和 DSH 写入各自全局 `AGENTS.md` 的 Kitto 标记块，块外内容保持本机所有。改共享规则只改 `common.md`；Pi 的 `sync.sh push` 只导出 Pi 专属段，不会把共享规则写回 addendum。细节见[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#规则共享层与宿主-addendum)。
+
 ## 把改动带到下一台机器
 
 把需要跨机器分发的内容改在配置仓库里，提交并推送。另一台机器运行：

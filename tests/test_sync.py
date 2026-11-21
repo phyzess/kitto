@@ -99,6 +99,91 @@ class SyncTests(unittest.TestCase):
         self.assertFalse((self.home / '.agents/skills').exists())
         self.assertTrue(self.machine.exists(), 'Pi settings should still deploy')
 
+    def test_pi_agents_compose_shared_rules_before_the_pi_addendum(self):
+        self.run_sync('pull')
+        common = (self.repo / 'config/instructions/common.md').read_text().strip()
+        addendum = (self.repo / 'config/pi/AGENTS.md').read_text().strip()
+        text = (self.home / '.pi/agent/AGENTS.md').read_text()
+        self.assertTrue(text.startswith(common))
+        self.assertEqual(text.count(common), 1)
+        self.assertIn(addendum, text)
+        self.assertEqual(text.count('## Pi 专属补充'), 1)
+        repo_addendum = (self.repo / 'config/pi/AGENTS.md').read_text()
+        self.assertNotIn('# 共享工作规则', repo_addendum)
+        self.assertTrue(repo_addendum.startswith('## Pi 专属补充'))
+
+    def test_pi_push_exports_only_the_pi_addendum(self):
+        self.run_sync('pull')
+        machine = self.home / '.pi/agent/AGENTS.md'
+        machine.write_text(machine.read_text().replace('## Pi 专属补充', '## Pi 专属补充（本机修改）'))
+        self.run_sync('push')
+        exported = (self.repo / 'config/pi/AGENTS.md').read_text()
+        self.assertIn('（本机修改）', exported)
+        self.assertNotIn('# 共享工作规则', exported)
+
+    def test_pi_push_preview_does_not_write_shared_rules_back(self):
+        self.run_sync('pull')
+        machine = self.home / '.pi/agent/AGENTS.md'
+        machine.write_text(machine.read_text().replace('## Pi 专属补充', '## Pi 专属补充（预览）'))
+        before = self.snapshot()
+        result = self.run_sync('push', '--dry-run')
+        self.assertIn('[dry-run] cp -f', result.stdout)
+        self.assertEqual(before, self.snapshot())
+
+    def test_pi_push_refuses_agents_without_the_shared_prefix(self):
+        self.run_sync('pull')
+        machine = self.home / '.pi/agent/AGENTS.md'
+        machine.write_text('# legacy whole-file AGENTS\n')
+        before = (self.repo / 'config/pi/AGENTS.md').read_text()
+        result = self.run_sync('push', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('host-specific section', result.stderr)
+        self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), before)
+
+    def test_legacy_whole_file_pi_agents_is_replaced_without_duplication(self):
+        path = self.home / '.pi/agent/AGENTS.md'
+        path.parent.mkdir(parents=True)
+        path.write_text('# Pi Agent — 全局适配\n\n- old whole-file rule\n')
+        self.run_sync('pull')
+        text = path.read_text()
+        self.assertEqual(text.count('# 共享工作规则'), 1)
+        self.assertIn('## Pi 专属补充', text)
+        self.assertNotIn('old whole-file rule', text)
+
+    def test_shared_rule_change_flows_into_the_pi_agents_file(self):
+        self.run_sync('pull')
+        common = self.repo / 'config/instructions/common.md'
+        common.write_text(common.read_text() + '\n- new shared rule marker\n')
+        self.run_sync('pull')
+        text = (self.home / '.pi/agent/AGENTS.md').read_text()
+        self.assertEqual(text.count('new shared rule marker'), 1)
+        self.assertIn('## Pi 专属补充', text)
+
+    def test_config_without_shared_layer_keeps_the_legacy_whole_file_deploy(self):
+        (self.repo / 'config/instructions/common.md').unlink()
+        self.run_sync('pull')
+        expected = (self.repo / 'config/pi/AGENTS.md').read_text()
+        self.assertEqual((self.home / '.pi/agent/AGENTS.md').read_text(), expected)
+        self.run_sync('push')
+        self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), expected)
+
+    def test_compose_and_extract_agents_helpers(self):
+        common = self.base / 'common.md'
+        addendum = self.base / 'addendum.md'
+        out = self.base / 'out.md'
+        common.write_text('# Shared\n\n- one\n')
+        addendum.write_text('## Host\n\n- two\n')
+        self.assertEqual(helper.cmd_compose_agents([str(common), str(addendum), str(out)]), 0)
+        self.assertEqual(out.read_text(), '# Shared\n\n- one\n\n## Host\n\n- two\n')
+        extracted = self.base / 'extracted.md'
+        self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 0)
+        self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
+        out.write_text('# not composed\n')
+        self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
+        self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
+        out.write_text('# Shared\n')
+        self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
+
     def test_legacy_skill_sync_requires_explicit_opt_in(self):
         env = {**self.env, 'KITTO_ALLOW_LEGACY_SKILL_SYNC': '1'}
         result = self.run_sync('pull', env=env)

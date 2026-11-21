@@ -18,10 +18,11 @@ function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), "kitto's test "));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const home = join(temp, 'home'), source = join(temp, 'source'), bin = join(temp, 'bin');
-  for (const dir of [home, bin, join(source, 'config/pi'), join(source, 'skills/example'), join(source, 'lists')]) mkdirSync(dir, { recursive: true });
+  for (const dir of [home, bin, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example'), join(source, 'lists')]) mkdirSync(dir, { recursive: true });
   const files = {
     'config/pi/settings.json': '{"packages": []}', 'config/pi/mcp.json': '{"mcpServers": {}}',
     'config/pi/AGENTS.md': 'Pi instructions', 'config/pi/i-have-adhd-always': '',
+    'config/instructions/common.md': '# 共享规则\n\n- shared-marker: 先检查工具，CodeGraph 可用时优先。\n- 每次会话开始先加载 `i-have-adhd` skill。\n- 每次会话开始先加载 `hindsight` skill。\n',
     'config/env.example': '# no secrets', 'skills/example/SKILL.md': '---\nname: example\ndescription: Example task\n---\nExample body',
   };
   for (const [name, content] of Object.entries(files)) writeFileSync(join(source, name), content);
@@ -110,11 +111,92 @@ test('Codex and DSH i-have-adhd skills are model-invocable and loaded at startup
   for (const host of ['codex', 'dsh']) {
     const skill = readFileSync(join(root, `config/${host}/skills/i-have-adhd/SKILL.md`), 'utf8');
     assert.doesNotMatch(skill, /disable-model-invocation/);
-    const agents = readFileSync(join(root, `config/${host}/AGENTS.md`), 'utf8');
-    assert.match(agents, /每次会话开始先加载 `i-have-adhd` skill/);
   }
+  const common = readFileSync(join(root, 'config/instructions/common.md'), 'utf8');
+  assert.match(common, /每次会话开始先加载 `i-have-adhd` skill/);
+  assert.match(common, /每次会话开始先加载 `hindsight` skill/);
   const policy = readFileSync(join(root, 'config/codex/skills/i-have-adhd/agents/openai.yaml'), 'utf8');
   assert.match(policy, /allow_implicit_invocation: true/);
+});
+
+test('shared rules compose into all three hosts with addenda kept host-specific', t => {
+  const f = fixture(t);
+  for (const [host, text] of [['pi', 'Pi addendum only'], ['codex', 'Codex addendum only'], ['dsh', 'DSH addendum only']]) {
+    mkdirSync(join(f.source, 'config', host), { recursive: true });
+    writeFileSync(join(f.source, 'config', host, 'AGENTS.md'), text);
+  }
+  good(f.cli('setup', '--agents', 'pi,codex,dsh', '--source', f.source));
+  const common = readFileSync(join(f.source, 'config/instructions/common.md'), 'utf8').trim();
+  const files = {
+    pi: join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'),
+    codex: join(f.env.CODEX_HOME, 'AGENTS.md'),
+    dsh: join(f.env.DSH_HOME, 'AGENTS.md'),
+  };
+  const addenda = { pi: 'Pi addendum only', codex: 'Codex addendum only', dsh: 'DSH addendum only' };
+  for (const [host, file] of Object.entries(files)) {
+    const text = readFileSync(file, 'utf8');
+    assert.equal(text.split(common).length - 1, 1, `${host}: shared rules must appear once`);
+    assert.equal(text.split(addenda[host]).length - 1, 1, `${host}: own addendum must appear once`);
+    for (const [other, addendum] of Object.entries(addenda)) {
+      if (other !== host) assert.equal(text.includes(addendum), false, `${host} must not contain ${other}'s addendum`);
+    }
+  }
+  const pi = readFileSync(files.pi, 'utf8');
+  assert(pi.startsWith(common), 'the Pi file starts with the shared rules');
+  assert.doesNotMatch(pi, /kitto:begin|kitto:end/, 'Pi keeps a whole-file deployment');
+  assert.match(readFileSync(files.codex, 'utf8'), /<!-- kitto:begin -->[\s\S]*<!-- kitto:end -->/);
+  assert.match(readFileSync(files.dsh, 'utf8'), /<!-- kitto:begin -->[\s\S]*<!-- kitto:end -->/);
+});
+
+test('shared rule edits redeploy to every host and preserve block-external content', t => {
+  const f = fixture(t);
+  mkdirSync(join(f.env.CODEX_HOME), { recursive: true });
+  mkdirSync(join(f.env.DSH_HOME), { recursive: true });
+  writeFileSync(join(f.env.CODEX_HOME, 'AGENTS.md'), 'Local Codex note\n');
+  writeFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'Local DSH note\n');
+  good(f.cli('setup', '--agents', 'pi,codex,dsh', '--source', f.source));
+  const commonPath = join(f.source, 'config/instructions/common.md');
+  writeFileSync(commonPath, readFileSync(commonPath, 'utf8').replace('shared-marker', 'shared-marker-v2'));
+  good(f.maintain('sync', '--apply'));
+  const files = [join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), join(f.env.CODEX_HOME, 'AGENTS.md'), join(f.env.DSH_HOME, 'AGENTS.md')];
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8');
+    assert.match(text, /shared-marker-v2/);
+    assert.doesNotMatch(text, /shared-marker(?!-v2)/);
+  }
+  assert.match(readFileSync(files[1], 'utf8'), /^Local Codex note\n/);
+  assert.match(readFileSync(files[2], 'utf8'), /^Local DSH note\n/);
+  assert.match(readFileSync(files[0], 'utf8'), /Pi instructions/);
+});
+
+test('Pi export writes only the Pi addendum back to the source', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const deployed = join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md');
+  const addendumPath = join(f.source, 'config/pi/AGENTS.md');
+  writeFileSync(deployed, readFileSync(deployed, 'utf8').replace('Pi instructions', 'Pi instructions from machine'));
+  good(f.maintain('export', '--apply'));
+  const exported = readFileSync(addendumPath, 'utf8');
+  assert.equal(exported, 'Pi instructions from machine\n');
+  assert.doesNotMatch(exported, /共享规则|shared-marker/);
+
+  // A machine file that does not start with the current shared layer is refused.
+  writeFileSync(deployed, '# legacy full AGENTS\n');
+  const result = f.maintain('export', '--apply');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /host-specific section/);
+  assert.equal(readFileSync(addendumPath, 'utf8'), exported);
+});
+
+test('a legacy whole-file Pi AGENTS is replaced once without duplicating shared rules', t => {
+  const f = fixture(t);
+  mkdirSync(join(f.env.PI_CODING_AGENT_DIR), { recursive: true });
+  writeFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), '# Pi Agent — 全局适配\n\n- legacy Pi-only rule\n');
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const text = readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8');
+  assert.equal(text.split('shared-marker').length - 1, 1);
+  assert.match(text, /Pi instructions/);
+  assert.doesNotMatch(text, /legacy Pi-only rule/);
 });
 
 test('self-update notice is rate-limited, ignores prereleases, and tolerates offline', async t => {
@@ -1037,7 +1119,7 @@ for (const agent of ['codex', 'dsh']) {
     writeFileSync(instructions, 'My local rules\n');
     const options = agent === 'dsh' ? ['--dsh-profile', 'headless'] : [];
     good(f.cli('setup', '--agents', agent, '--source', f.source, ...options));
-    assert.match(readFileSync(instructions, 'utf8'), /My local rules\n.*\nPortable rules/);
+    assert.match(readFileSync(instructions, 'utf8'), /My local rules\n[\s\S]*Portable rules/);
     assert.equal(readFileSync(join(home, 'skills/host-example/SKILL.md'), 'utf8'), 'Host only');
     assert(!existsSync(join(f.env.PI_AGENTS_DIR, 'skills/host-example')));
     const versions = f.maintain('versions');
@@ -1050,7 +1132,7 @@ for (const agent of ['codex', 'dsh']) {
     assert(!existsSync(f.env.PI_CODING_AGENT_DIR));
     writeFileSync(source, 'Updated portable rules');
     good(f.maintain('sync', '--apply'));
-    assert.match(readFileSync(instructions, 'utf8'), /My local rules\n.*\nUpdated portable rules/);
+    assert.match(readFileSync(instructions, 'utf8'), /My local rules\n[\s\S]*Updated portable rules/);
     const updated = readFileSync(instructions, 'utf8');
     writeFileSync(instructions, updated.replace('Updated portable rules', 'Edited locally'));
     assert.match(f.maintain('sync', '--apply').stderr, /Local changes inside/);
