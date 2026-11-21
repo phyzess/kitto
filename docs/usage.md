@@ -52,14 +52,20 @@ kitto worktree audit --workspace '/path/to/workspace' --json
 |---|---|---|
 | Pi CLI | `session_start` / `session_shutdown` 会用于会话切换等流程；退出、reload、fork 都不是归档证明。 | 不安装监听；显式开工时提醒，显式交接时预览。 |
 | Codex CLI | `SessionStart` / `SessionEnd` 不是 archive；app-server 的 thread archive/unarchive 不是 `hooks.json` 事件。 | 不安装 hook，不承诺从 SessionStart 切换 cwd。 |
-| DSH CLI/Web | `workspace/session-archived` 是持久化后通知，`unarchiving` 发生在解除归档前；这些事件不是 Kitto 占用证明。原生 worktree 有自己的清理者。 | 不接收事件、不改 `retainOnArchive`、不收养原生树。归档或解除归档至多是人工复核的信号。 |
-| Codex Desktop（本期范围） | 全局技能、手动调用；不承诺按工作区下发或内嵌事件。 | 使用现有 CLI 做显式预览；若宿主无法调用 CLI，报告限制，不安装。 |
+| DSH Web / headless | `workspace/session-archived` 在归档持久化后发出 `{ sessionId }`；`workspace/session-unarchiving` 在取消归档持久化前发出同样的 payload。headless 一次运行结束不等于归档。 | 可选的 Web profile 工具读取权威归档集合；不订阅事件、不改 `retainOnArchive`、不收养原生树。headless 不主动提问，也不会因命令结束而写标记。 |
+| DSH / Codex Desktop（本期范围） | 不假定 Desktop 提供相同插件和归档接口。 | 保持技能与手动预览；不接入 Desktop 状态。 |
+
+**主动询问与归档待查不是同一件事。** 加载 `kitto-worktree` skill 的实时交互会话，在实际工作结束且尚未问过时，仅在交接回复里询问一次是否需要只读清理预览。不因每次输出、退出、归档或恢复而询问；拒绝后不动工作树。不向已归档会话写提问。
+
+**DSH Web 归档待查（默认关闭）。** 已有 Kitto bundle 的同一用户 `web` profile，可在该 profile 的 patch 显式设置 Kitto 插件的 `config.archiveReview: true`，并与 Kitto CLI 使用同一私有 state 和 scope。例如给现有 row 增加 `- id: phyzess-kitto`，其下加入 `config: { archiveReview: true }`；按 DSH 的 patch 规则，若已有该 row 的其他配置，应一并保留。工具 `kitto_worktree_archive_review` 只在 `workspaceRegistry`、`sessionPersistence` 和 `tools` 均可用时注册。用 Kitto checkout 的**根目录**创建 DSH 会话，取得该原生会话 ID 后，在同任务上显式确认复用，并把**同一个 ID**登记为 `--session`；不要用猜测的 ID、workspace 名称或当前目录代替。之后可在另一个仍活跃的会话中明确要求按主仓库、任务 ID 和原生会话 ID 复核。只有宿主持久化会话的创建目录、仍有效的 Kitto claim 和工作树身份匹配，且 ID 目前确实在归档集合中，才输出 `review-pending`。它不是占用证明，也不授予清理权。
+
+DSH 的 `workspaceRegistry.archivedSessionIds` 是待查事实的持久化来源；`sessionPersistence.list()` 提供会话头（`id`、创建时的 `cwd`）。证据见 DSH 0.2.2-rc.5 的 `@deepseek-ai/dsh-workspace/src/index.ts`（`archiveSession`、`unarchiveSession`、`archivedSessionIds`）和 `@deepseek-ai/dsh-session/src/types.ts`（`SessionHeader`）。读透权威状态避免在 Kitto 另写一份可能滞后的归档标记：重启仍可复核，取消归档后不再提示。没有服务、未开启、无法绑定或读取失败时，保持人工交接；不写 claim、不触发删除、不追加聊天消息，也没有常驻任务。没有验证原生 UI 的自动弹窗，本版不提供它。
 
 1. 在两台机器各用独立的测试 clone、私有本机状态目录和一次性测试 scope；核对测试代码 SHA 相同。不要同步 Kitto 台账，不对日常工作树做清理测试。
 2. 设备 A 为测试任务预览并确认开工；新会话使用不同 ID。退出、reload、fork，在可用的真实 UI 归档、解除归档，再次归档；在下一次显式 `start` 预览中，其他任务的登记不会因此减少。用相同任务的 `start` 预览核对 ID 仍在，同仓库另一个任务的预览只返回汇总计数。若有 DSH 原生树，仅观察它自身的行为，不对它调用 Kitto 的执行命令。
 3. 设备 B 对相同任务 ID 预览；不能复用 A 的 checkout 或看到 A 的提示。只有显式确认才会建立 B 自己的树。两台设备分别从树外核实会话和进程后，预览 `--release`；不确认时既不释放也不删。需要测试最终移除时，仅在一次性树确认后执行并核对分支仍在。
 
-事件边界基于 Pi 1.5.2、Codex 0.170.0 与 DSH Web 0.2.2-rc.5 的文档或代码核验，不是实机 UI 验收。自动测试仅在隔离 Git 仓库操作 CLI 和模拟事件输入；Desktop 和第二设备的真实操作按以上步骤待验。
+事件边界基于 Pi 1.5.2、Codex 0.170.0 与 DSH Web 0.2.2-rc.5 的文档或代码核验。原生契约测试以隔离 Git 仓库、存储夹具和 DSH 实际注册表/工具 SDK 加载适配入口，验证重复归档、重启恢复、取消归档及在读取期间取消归档；不启动用户的 Web UI、不改真实 profile。真实 UI 的对话效果、headless 会话和第二设备尚待验。
 
 ## 共享工作区
 
