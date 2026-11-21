@@ -34,7 +34,7 @@ Desktop 之外还有一组未闭环的边界：凭据表达、私有 MCP、宿�
 - **HMR/watch 竞态**：Desktop 可能在运行中监听 profile patch 并热加载。写入必须原子（临时文件 + rename 或等价方式），避免 watcher 读到半文件；写入期间或写入后 App 启动、热加载失败时的行为必须定义，且不能留下半套 Kitto 行。
 - **恢复**：写入失败或 App 中途启动时，能回滚到写入前的 patch；解除集成时只删除 Kitto 自有行，用户内容和无法安全解析的文件保持原样。
 - **并发**：与 `kitto setup`、`maintain remove`、scope 写入共用互斥，避免两个 Kitto 进程同时改同一文件。
-- **凭据**：MCP 条目只允许 credential-free 白名单字段；`env`/`headers`/token 不写入，和现有 DSH web/profile 同步策略一致。
+- **凭据**：MCP 条目只允许白名单字段；凭据只能使用 `${credential:VAR}` 等宿主模板引用（需要时设置 `expandTemplates`），不写入任何明文凭据；`env`/`headers` 的值也必须是引用，不能是字面值。Desktop profile patch 对模板和 `expandTemplates` 的支持若比 home patch 更严格，需单独验证并在实现文档中说明，不能假定两者一致。
 
 ### 验证要求
 
@@ -100,19 +100,19 @@ Desktop 之外还有一组未闭环的边界：凭据表达、私有 MCP、宿�
 
 ### D.3 宿主 CLI 更新策略
 
-**状态**：部分实现。只升已验证基线的命令已实现；基线何时提升、如何回退未定义。
+**状态**：部分实现。只升已验证基线、显式降级、预览和安装后校验都已实现；已验证旧基线清单和基线提升策略未定义。
 
-**当前行为**：`kitto hosts [--check|--apply] [--host NAME] [--version V]` 只处理已选宿主。默认目标是代码中的 Kitto 基线 `hosts[name].version`，不追 npm `latest`、不用 `npx`、不自动升级；`--version` 只接受精确版本，属于显式覆盖并警告“未经 Kitto 验证”；已高于基线不隐式降级；`desktop` 的 DSH 由 App 管理，Kitto 不安装或固定其 CLI。`kitto update` 只打印宿主版本，不升级。基线本身随 Kitto 发布改变，但“为什么能升、升坏了怎么办”没有成文策略。
+**当前行为**：`kitto hosts [--check|--apply] [--host NAME] [--version V]` 只处理已选宿主。默认目标是代码中的 Kitto 基线 `hosts[name].version`，不追 npm `latest`、不用 `npx`、不自动升级；`--version` 只接受精确版本，属于显式覆盖并警告“未经 Kitto 验证”。当前版本高于基线时不会隐式降级；同时指定低于当前版本的 `--version`（多选宿主时还需 `--host`）时，`--apply` 执行显式降级，`--check` 只预览并给出同一警告，安装后按精确版本校验，失败不写 `state.json`。`desktop` 的 DSH 由 App 管理，Kitto 不安装或固定其 CLI；`kitto update` 只打印宿主版本，不升级。基线本身随 Kitto 发布改变，但“什么时候允许提升基线、哪些旧版本算已验证的回退目标”没有成文策略。
 
-**下一步 / 验收**：下一步定义基线提升条件（真实宿主回归、旧基线兼容窗口、需要同步更新的验证矩阵）和回退路径（显式固定旧版本、降级后的版本核对与失败恢复），不引入后台自动检查。验收：每次基线变更都有可复现的验证记录；回退是显式 opt-in、先预览、逐宿主汇总部分失败、失败不写 `state.json`；`desktop` 始终跳过；显式 `--version` 仍标注未经基线验证。
+**下一步 / 验收**：下一步定义基线提升条件（真实宿主回归、旧基线兼容窗口、需要同步更新的验证矩阵）和“已验证旧基线”清单，让回退目标有依据；不重新设计显式降级机制，也不引入后台自动检查。验收：每次基线变更都有可复现的验证记录；显式降级保留现有语义（opt-in、先预览、警告未验证、安装后精确校验、失败不写 `state.json`）并补回归测试；`desktop` 始终跳过；显式 `--version` 仍标注未经基线验证。
 
-**风险 / 非目标**：宿主原生升级可能破坏兼容；自动追最新版会绕过验证；不提供常驻更新服务，不自动降级，也不把 `hosts --apply` 变成通用包管理器。
+**风险 / 非目标**：宿主原生升级可能破坏兼容；自动追最新版会绕过验证；不提供常驻更新服务，不自动降级（降级必须由用户显式 `--version` 触发），也不把 `hosts --apply` 变成通用包管理器。
 
 ### D.4 宿主插件/包 parity
 
-**状态**：部分实现。MCP 名称对比已有；插件/包/扩展的跨宿主能力报告未实现，仅本文记录。
+**状态**：未实现（仅原生清单）。跨宿主的插件/包/扩展 capability parity 没有实现，也没有统一清单。
 
-**当前行为**：三个宿主的扩展机制是原生的：Pi 用 packages 和 extensions，Codex 用插件（含 Kitto Codex 插件），DSH 用 bundle（web/headless 的 Kitto bundle；`desktop` 无）。Kitto 共享规则、skills、scope 语义，并按白名单同步 MCP，但不维护统一插件清单，也不假设同名能力可互换。现有只读输出中与插件/包相关的只有 `versions` 按宿主列出的部分原生资源，以及 `status` 的 MCP 名称对比（`mcp <host>` / `mcp missing on <host>`）；所有权、能力粒度和可用性语义并不统一。
+**当前行为**：三个宿主的扩展机制是原生的：Pi 用 packages 和 extensions，Codex 用插件（含 Kitto Codex 插件），DSH 用 bundle（web/headless 的 Kitto bundle；`desktop` 无）。Kitto 共享规则、skills、scope 语义，并按白名单同步 MCP，但不维护统一插件清单，也没有跨宿主的插件/包能力对比。现有只读输出只是各宿主原生清单和 MCP 名称对比：`versions` 列出 Pi 包/扩展、Codex 插件、DSH bundle；`status` 对 Pi 对比 settings/MCP/AGENTS/extensions/packages 等原生项，并跨宿主打印 `mcp <host>` / `mcp missing on <host>`。这些都不是插件/包级别的 parity 报告。
 
 **下一步 / 验收**：下一步只评估是否值得做只读 capability 报告（例如按宿主列出已安装插件/包、是否 Kitto 管理、可用/缺失提示），不引入通用插件框架。若实现，验收：报告只读、默认不写宿主、区分 Kitto 自有与用户自有、不定义统一安装语义、失败只提示不阻塞，且不改变 `setup`/`sync` 行为。
 
@@ -142,7 +142,7 @@ Desktop 之外还有一组未闭环的边界：凭据表达、私有 MCP、宿�
 
 **状态**：部分实现（已知限制已文档化）。下列改进是 TODO，不阻塞其他条目。
 
-**当前行为**：`scope remove` 只改登记，不删规则、skills、宿主适配器或用户文件；路径先按 realpath 规范化，目标不存在（ENOENT/ENOTDIR）时退回字面绝对路径，未登记则退出码 1 且不写文件；与 scoped setup 共用 `.scope-setup.lock`，被占用时报错。限制：如果目标路径的祖先已断开（例如失效的符号链接），realpath 无法得到登记时的 canonical 路径，可能匹配不到；锁冲突只提示“被 setup 占用”，没有残留锁的确认/清理指引。`update` 对丢失的 checkout 只按记录的普通分支重新 clone；tag 固定、ref 未知或远端已删除、本地/远端真正分叉时都在写前拒绝，不猜测。`pendingRuntime` 标记只保存在 `state.json`；维护 `status` 打印原始 state，`versions` 和用户摘要不单独标注它与回退方式。source URL 的 `//user:pass@` 已在 Kitto 自己的控制台消息中脱敏，但 `state.json` 仍需保留原始 URL 以便 clone，外部 Git 命令的错误输出是否脱敏取决于 Git 本身。
+**当前行为**：`scope remove` 只改登记，不删规则、skills、宿主适配器或用户文件；路径先按 realpath 规范化，目标不存在（ENOENT/ENOTDIR）时退回字面绝对路径，未登记则退出码 1 且不写文件；与 scoped setup 共用 `.scope-setup.lock`，被占用时报错。限制：如果目标路径的祖先已断开（例如失效的符号链接），realpath 无法得到登记时的 canonical 路径，可能匹配不到；锁冲突只提示“被 setup 占用”，没有残留锁的确认/清理指引。`update` 对丢失的 checkout：记录为普通分支时按该分支重新 clone；`sourceRef` 为 `null`（以远端默认分支初始化）时会重新 clone 远端默认分支；tag 固定、ref 未记录（`undefined`）或远端已删除、本地/远端真正分叉时都在写前拒绝，不猜测。`pendingRuntime` 标记只保存在 `state.json`；维护 `status` 打印原始 state，`versions` 和用户摘要不单独标注它与回退方式。source URL 的 `//user:pass@` 已在 Kitto 自己的控制台消息中脱敏，但 `state.json` 仍需保留原始 URL 以便 clone，外部 Git 命令的错误输出是否脱敏取决于 Git 本身。
 
 **下一步 / 验收**：TODO：统一锁冲突提示（含残留锁的检查/删除指引）；评估祖先路径断开时的匹配策略；评估 tag/ref 的安全重 clone（显式确认或校验提交）；在 `status`/`versions` 中显式展示 pending runtime 和回退方式；统一 source URL 的脱敏范围。验收：每项有回归测试；错误信息含可执行的下一步且不含凭据；不改变 scope 只读登记语义、不自动猜测 tag/ref、不把 pending runtime 当作已验证版本。
 
