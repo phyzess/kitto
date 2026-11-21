@@ -390,9 +390,12 @@ test('foreign native registration stops removal before detaching any host', t =>
 });
 
 for (const agent of ['codex', 'dsh']) {
-  test(`${agent}-only setup, sync and versions work without Pi files, Bash or Python`, t => {
+  test(`${agent}-only setup, sync and versions work without unneeded Pi files, Bash or Python`, t => {
     const f = fixture(t);
-    rmSync(join(f.source, 'config/pi'), { recursive: true });
+    if (agent === 'codex') {
+      // Codex MCP sync reads the Pi MCP source, but no Pi settings, rules or tools.
+      for (const name of ['settings.json', 'AGENTS.md', 'i-have-adhd-always']) rmSync(join(f.source, `config/pi/${name}`));
+    } else rmSync(join(f.source, 'config/pi'), { recursive: true });
     const bin = join(f.temp, 'bin');
     const git = command('which', ['git'], f.env).stdout.trim();
     symlinkSync(git, join(bin, 'git'));

@@ -24,6 +24,74 @@ if (name === 'pi') {
 } else if (name === 'codex') {
   const file = path.join(process.env.CODEX_HOME, '_fake-codex.json');
   const data = load(file, { marketplaces: [], installed: [] });
+  data.marketplaces ||= [];
+  data.installed ||= [];
+  if (args[0] === 'mcp') {
+    data.mcpServers ||= {};
+    const serializeTransport = entry => entry.transport.type === 'stdio'
+      ? { type: 'stdio', command: entry.transport.command, args: entry.transport.args || [],
+          env: entry.transport.env ?? null, env_vars: entry.transport.env_vars ?? [], cwd: entry.transport.cwd ?? null }
+      : { type: 'streamable_http', url: entry.transport.url,
+          bearer_token_env_var: entry.transport.bearer_token_env_var ?? null,
+          http_headers: entry.transport.http_headers ?? null,
+          env_http_headers: entry.transport.env_http_headers ?? null,
+          http_headers_helper: entry.transport.http_headers_helper ?? null };
+    const serialize = (serverName, entry, list) => {
+      const transport = serializeTransport(entry), enabled = entry.enabled !== false;
+      const base = { name: serverName, enabled, disabled_reason: null, transport };
+      if (list) {
+        return { ...base, startup_timeout_sec: entry.startup_timeout_sec ?? null,
+          tool_timeout_sec: entry.tool_timeout_sec ?? null, auth_status: 'unsupported' };
+      }
+      return { ...base, enabled_tools: entry.enabled_tools ?? null, disabled_tools: entry.disabled_tools ?? null,
+        startup_timeout_sec: entry.startup_timeout_sec ?? null, tool_timeout_sec: entry.tool_timeout_sec ?? null };
+    };
+    const action = args[1];
+    if (action === 'list') {
+      const rows = Object.entries(data.mcpServers).map(([serverName, entry]) => serialize(serverName, entry, true));
+      if (args.includes('--json')) console.log(JSON.stringify(rows));
+      else for (const row of rows) console.log(row.name);
+      process.exit();
+    }
+    if (action === 'get') {
+      const serverName = args[2];
+      if (!data.mcpServers[serverName]) { console.error(`No MCP server named '${serverName}' found.`); process.exit(1); }
+      const row = serialize(serverName, data.mcpServers[serverName], false);
+      console.log(args.includes('--json') ? JSON.stringify(row) : `${row.name}\n  enabled: ${row.enabled}`);
+      process.exit();
+    }
+    if (action === 'add') {
+      const rest = args.slice(2), serverName = rest.shift();
+      if (process.env.FAKE_MCP_FAIL_ADD === serverName) { console.error('simulated MCP add failure'); process.exit(9); }
+      let url = null, bearer = null, command = [], env = {};
+      for (let i = 0; i < rest.length; i++) {
+        if (rest[i] === '--') { command = rest.slice(i + 1); break; }
+        if (rest[i] === '--url') url = rest[++i];
+        else if (rest[i] === '--env') {
+          const pair = rest[++i] ?? '', split = pair.indexOf('=');
+          env[pair.slice(0, split)] = pair.slice(split + 1);
+        } else if (rest[i] === '--bearer-token-env-var') bearer = rest[++i];
+      }
+      data.mcpServers[serverName] = url
+        ? { transport: { type: 'streamable_http', url, ...(bearer ? { bearer_token_env_var: bearer } : {}) } }
+        : { transport: { type: 'stdio', command: command[0] ?? '', args: command.slice(1),
+            ...(Object.keys(env).length ? { env } : {}) } };
+      save(file, data);
+      console.log(`Added global MCP server '${serverName}'.`);
+      process.exit();
+    }
+    if (action === 'remove') {
+      const serverName = args[2];
+      if (process.env.FAKE_MCP_FAIL_REMOVE === serverName) { console.error('simulated MCP remove failure'); process.exit(9); }
+      if (data.mcpServers[serverName]) {
+        delete data.mcpServers[serverName];
+        save(file, data);
+      } else console.log(`No MCP server named '${serverName}' found.`);
+      process.exit();
+    }
+    console.error(`Unknown fake mcp command: ${args.join(' ')}`);
+    process.exit(2);
+  }
   const market = args[1] === 'marketplace', action = args[market ? 2 : 1], value = args[market ? 3 : 2];
   if (action === 'list') console.log(JSON.stringify(market ? { marketplaces: data.marketplaces } : { installed: data.installed, available: [] }));
   else {
