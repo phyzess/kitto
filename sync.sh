@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 # ============================================================
-# pi-config sync — 仓库 <-> 本机 双向同步
+# sync.sh — Kitto 内部的 Pi 适配器（仓库 <-> 本机）
 #
+# 这是 `lib/kitto.mjs` 的 syncCommand 调用的内部实现，不是公开入口。
+# 直接 `bash sync.sh` 会打印 deprecated 警告；请用 `kitto setup`，
+# 或在 Kitto 会话里让维护 skill 执行 sync。
+#
+# 兼容保留的命令（settings/mcp/AGENTS.md/extensions/packages 仍可用）：
 #   bash sync.sh status           看仓库与本机差异（只读）
 #   bash sync.sh pull             仓库 -> 本机（内容不同才覆盖；settings/mcp 走结构化合并）
 #   bash sync.sh push             本机 -> 仓库（脱敏导出，运行时键与私钥不落盘）
 #   bash sync.sh push --commit    导出并提交
 #   bash sync.sh deps             按平台装 CLI 依赖（brew / mise / npm / pip）
+#
+# 共享 skills（~/.agents/skills）由 Kitto JS 管理（hash 所有权 + 锁）。
+# 直接运行 sync.sh 默认跳过；确需旧行为时显式设置：
+#   KITTO_ALLOW_LEGACY_SKILL_SYNC=1 bash sync.sh pull
 #
 # 机器专属配置放 config/pi/local/（gitignore），不会回流到仓库：
 #   packages.txt       本机额外 pi 包
@@ -31,6 +40,7 @@ ok()   { printf '%s[ok]%s   %s\n' "$GREEN" "$NC" "$*"; }
 same() { printf '%s[=]%s    %s\n' "$DIM" "$NC" "$*"; }
 warn() { printf '%s[skip]%s %s\n' "$YELLOW" "$NC" "$*"; }
 fail() { printf '%s[fail]%s %s\n' "$RED" "$NC" "$*"; }
+deprecated() { printf '%s[deprecated]%s %s\n' "$YELLOW" "$NC" "$*"; }
 
 case "$(uname -s)" in
     Darwin) PLATFORM=macos ;;
@@ -47,10 +57,18 @@ for arg in "$@"; do
         --dry-run|-n) DRY=1 ;;
         --commit)     COMMIT=1 ;;
         --force|-f)   ;;            # 兼容 setup.sh 旧参数：pull 本就按内容覆盖
-        -h|--help)    sed -n '2,18p' "$0"; exit 0 ;;
+        -h|--help)    sed -n '2,25p' "$0"; exit 0 ;;
         *)            fail "unknown option: $arg"; exit 2 ;;
     esac
 done
+
+# Kitto JS sets KITTO_SHARED_SKILLS_MANAGED=1 for its own syncCommand calls.
+if [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" != 1 ]; then
+    deprecated "deprecated direct entry; use kitto setup/sync (or the Kitto maintenance skill) instead."
+    if [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
+        deprecated "shared skills ~/.agents/skills are managed by Kitto JS; opt in with KITTO_ALLOW_LEGACY_SKILL_SYNC=1 only for legacy compatibility."
+    fi
+fi
 
 TMP="$(mktemp -d)"
 LOCK=""
@@ -190,8 +208,15 @@ step_extensions() {
 }
 
 step_skills() {
+    # Kitto JS owns shared skills (hash ownership + lock); never deploy from an internal call.
     [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" = 1 ] && return 0
-    info "skills"
+    if [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
+        warn "shared skills（~/.agents/skills）由 Kitto JS 管理，直接 sync.sh 跳过部署"
+        info "确需旧行为: KITTO_ALLOW_LEGACY_SKILL_SYNC=1 bash sync.sh pull"
+        return 0
+    fi
+    info "skills（legacy direct-sync，KITTO_ALLOW_LEGACY_SKILL_SYNC=1）"
+    run mkdir -p "$DOT_AGENTS/skills"
     local dir name
     for dir in "$ROOT"/skills/*/; do
         [ -d "$dir" ] || continue
@@ -232,7 +257,7 @@ step_env() {
 
 cmd_pull() {
     printf '\n%s==> pull%s  仓库 %s -> 本机 %s (platform: %s)\n\n' "$CYAN" "$NC" "$ROOT" "$DOT_PI" "$PLATFORM"
-    run mkdir -p "$LOCAL" "$DOT_PI/extensions" "$DOT_AGENTS/skills"
+    run mkdir -p "$LOCAL" "$DOT_PI/extensions"
     step_packages
     step_settings
     step_mcp
@@ -356,12 +381,16 @@ cmd_status() {
         if [ ! -e "$DOT_PI/extensions/$name" ]; then printf '  %smissing%s  extensions/%s\n' "$YELLOW" "$NC" "$name"
         elif cmp -s "$ext" "$DOT_PI/extensions/$name"; then :; else printf '  %sdiffers%s  extensions/%s\n' "$RED" "$NC" "$name"; fi
     done
-    local dir sname
-    for dir in "$ROOT"/skills/*/; do
-        sname="$(basename "$dir")"
-        if [ ! -d "$DOT_AGENTS/skills/$sname" ]; then printf '  %smissing%s  skills/%s\n' "$YELLOW" "$NC" "$sname"
-        elif diff -rq "$dir" "$DOT_AGENTS/skills/$sname" >/dev/null 2>&1; then :; else printf '  %sdiffers%s  skills/%s\n' "$RED" "$NC" "$sname"; fi
-    done
+    if [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" != 1 ] && [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
+        info "shared skills：由 Kitto JS 管理，直接 sync.sh 不比较/部署（KITTO_ALLOW_LEGACY_SKILL_SYNC=1 查看旧逻辑）"
+    else
+        local dir sname
+        for dir in "$ROOT"/skills/*/; do
+            sname="$(basename "$dir")"
+            if [ ! -d "$DOT_AGENTS/skills/$sname" ]; then printf '  %smissing%s  skills/%s\n' "$YELLOW" "$NC" "$sname"
+            elif diff -rq "$dir" "$DOT_AGENTS/skills/$sname" >/dev/null 2>&1; then :; else printf '  %sdiffers%s  skills/%s\n' "$RED" "$NC" "$sname"; fi
+        done
+    fi
     echo
     info "包"
     python3 - "$ROOT/config/pi/settings.json" "$DOT_PI/settings.json" "$LOCAL" <<'PY'
@@ -476,5 +505,5 @@ case "$CMD" in
     push)   cmd_push ;;
     status) cmd_status ;;
     deps)   cmd_deps ;;
-    *)      fail "unknown command: $CMD"; sed -n '2,18p' "$0"; exit 2 ;;
+    *)      fail "unknown command: $CMD"; sed -n '2,25p' "$0"; exit 2 ;;
 esac
