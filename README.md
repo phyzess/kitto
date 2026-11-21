@@ -40,6 +40,13 @@ npx --yes @phyzess/kitto setup --agents dsh --dsh-profile desktop
 
 ## 把改动带到下一台机器
 
-把需要跨机器分发的内容改在配置仓库里，提交并推送。另一台机器的完整安装可以在 agent 会话里说「用 Kitto 检查并同步配置」。直接编辑全局或工作区文件会在对应目录生效，想跨机器复用时需将它们纳入自己的版本管理。
+把需要跨机器分发的内容改在配置仓库里，提交并推送。另一台机器运行：
+
+```bash
+npx --yes @phyzess/kitto@latest update          # 预览，不写入
+npx --yes @phyzess/kitto@latest update --apply  # 拉取配置、刷新 runtime、部署
+```
+
+`update` 先按 checkout 记录的分支/tag 更新配置源，再刷新 Kitto 自己的 runtime 副本，最后重新部署规则、skills 与 MCP（原生插件注册仍指向 runtime 路径，无需重装）。它不会升级 Pi、Codex、DSH 宿主 CLI（用各自的包管理器升级）；升级后重启宿主以加载新的插件代码。checkout 丢失时按记录的 `sourceUrl`/`sourceRef` 恢复；tag 固定、ref 未知或远端分支已删除时不会猜测，会提示原地重建 checkout 后重跑 setup，或换一个 `KITTO_HOME`。在 agent 会话里也可以说「用 Kitto 检查并同步配置」。直接编辑全局或工作区文件会在对应目录生效，想跨机器复用时需将它们纳入自己的版本管理。
 
 [配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md) · [Pi 配置参考](https://github.com/phyzess/kitto/blob/main/docs/pi.md) · [版本记录](CHANGELOG.md)
