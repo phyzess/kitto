@@ -1,5 +1,5 @@
 {
-  "_comment": "Linux 覆盖层：仓库里有的服务器，本机缺二进制时先关掉，装好依赖后把 enabled 去掉再跑 sync.sh pull。合并优先级 repo < platform < local < machine。",
+  "_comment": "Linux 覆盖层：仓库里有的服务器，本机缺二进制时先关掉，装好依赖后把 enabled 去掉，再运行 ./setup.sh（或让 Kitto 同步）。合并优先级 repo < platform < local < machine。",
   "mcpServers": {
     "codegraph": {
       "enabled": false

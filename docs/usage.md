@@ -176,7 +176,9 @@ Codex MCP 的已知边界：
 | 某项能力用到的工具和版本 | [config/dependencies.json](../config/dependencies.json) |
 | 只在本机生效的规则 | Codex 或 DSH 全局 `AGENTS.md` 的 Kitto 区块之外；Pi 使用 `config/pi/local/` |
 
-默认配置来源是这个 GitHub 仓库。使用自己的 fork 时，首次 setup 加 `--source <Git-URL>`；要复用已有仓库，则传入本地路径。让 Kitto “检查配置状态”可以看到本机使用的源目录。共享 skills 默认部署到 `~/.agents/skills/`。
+默认配置来源是这个 GitHub 仓库。使用自己的 fork 时，首次 setup 加 `--source <Git-URL>`；要复用已有仓库，则传入本地路径。让 Kitto “检查配置状态”可以看到本机使用的源目录。共享 skills 默认由 Kitto 部署到 `~/.agents/skills/`。
+
+`sync.sh` 只是 Kitto 内部的 Pi 适配器，不是公开入口。直接运行 `bash sync.sh` 会打印 deprecated 警告，并跳过共享 skills（`~/.agents/skills` 由 Kitto JS 按 hash 所有权和锁管理）；只有显式设置 `KITTO_ALLOW_LEGACY_SKILL_SYNC=1` 才按旧行为写入。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告并按普通 setup 运行。
 
 ## 换机与更新
 
