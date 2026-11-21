@@ -60,8 +60,12 @@ const exists = async path => {
 const conflictRow = serverName => ({
   insert: [{ id: `mcp-${serverName}`, name: '@deepseek-ai/dsh-mcp-client', config: { serverName, transport: 'stdio', command: serverName } }],
 });
+const kittoConfigs = (text, yaml) => new Map(yaml.parseDocument(text).toJS()
+  .flatMap(item => item.insert ?? [])
+  .filter(row => row.id?.startsWith('kitto-mcp-'))
+  .map(row => [row.config.serverName, row.config]));
 
-test('Pi MCP source applies the platform overlay and ignores private/local files', async t => {
+test('Pi MCP source applies the platform overlay and reads private/local files only when opted in', async t => {
   const source = await sourceFixture(t, {
     _comment: 'not a server',
     context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@4.7.3'], directTools: true, lifecycle: 'lazy' },
@@ -79,24 +83,44 @@ test('Pi MCP source applies the platform overlay and ignores private/local files
   await writeJson(join(source, 'config/pi/local/mcp.json'), { mcpServers: { localOnly: { command: 'local' } } });
 
   const linux = await piMcpServers(source, 'linux');
-  assert.deepEqual(linux.servers.map(server => server.name), ['context7', 'api', 'plain']);
+  assert.deepEqual(linux.servers.map(server => server.name),
+    ['context7', 'api', 'plain', 'envServer', 'headerServer']);
   assert.deepEqual(linux.servers[0], {
     name: 'context7', transport: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp@4.7.3'],
   });
   assert.deepEqual(linux.servers[1], { name: 'api', transport: 'streamable-http', url: 'https://example.test/mcp' });
-  assert(linux.skipped.some(item => item.name === 'envServer' && /env/.test(item.reason)));
-  assert(linux.skipped.some(item => item.name === 'headerServer' && /headers/.test(item.reason)));
+  assert.deepEqual(linux.servers[3], {
+    name: 'envServer', transport: 'stdio', command: 'env-server', args: [],
+    env: { TOKEN: '${credential:TOKEN}' }, expandTemplates: true,
+  });
+  assert.deepEqual(linux.servers[4], {
+    name: 'headerServer', transport: 'streamable-http', url: 'https://example.test/mcp',
+    headers: { Authorization: 'Bearer ${credential:TOKEN}' }, expandTemplates: true,
+  });
   assert(linux.skipped.some(item => item.name === 'bad/name'));
   assert(!linux.servers.some(server => ['gitlab', 'localOnly', 'codegraph'].includes(server.name)));
 
+  const withPrivate = await piMcpServers(source, 'linux', { includePrivate: true });
+  assert.deepEqual(withPrivate.servers.map(server => server.name),
+    ['context7', 'api', 'plain', 'envServer', 'headerServer', 'localOnly', 'gitlab']);
+
   const macos = await piMcpServers(source, 'darwin');
-  assert.deepEqual(macos.servers.map(server => server.name), ['context7', 'api', 'plain', 'computer-use']);
+  assert.deepEqual(macos.servers.map(server => server.name),
+    ['context7', 'api', 'plain', 'envServer', 'headerServer', 'computer-use']);
 });
 
-test('DSH rows use kitto ids and the DSH transport names', () => {
+test('DSH rows use kitto ids, DSH transport names and credential templates', () => {
   assert.deepEqual(dshMcpRows([
     { name: 'context7', transport: 'stdio', command: 'npx', args: ['-y', 'context7'] },
     { name: 'api', transport: 'streamable-http', url: 'https://example.test/mcp' },
+    {
+      name: 'env', transport: 'stdio', command: 'env-mcp', args: [],
+      env: { TOKEN: '${credential:TOKEN}' }, expandTemplates: true,
+    },
+    {
+      name: 'headers', transport: 'streamable-http', url: 'https://example.test/headers',
+      headers: { Authorization: 'Bearer ${credential:AUTH}' }, expandTemplates: true,
+    },
   ]), [
     {
       id: 'kitto-mcp-context7', name: '@deepseek-ai/dsh-mcp-client',
@@ -106,21 +130,168 @@ test('DSH rows use kitto ids and the DSH transport names', () => {
       id: 'kitto-mcp-api', name: '@deepseek-ai/dsh-mcp-client',
       config: { serverName: 'api', transport: 'streamable-http', url: 'https://example.test/mcp' },
     },
+    {
+      id: 'kitto-mcp-env', name: '@deepseek-ai/dsh-mcp-client',
+      config: {
+        serverName: 'env', transport: 'stdio', command: 'env-mcp', args: [],
+        env: { TOKEN: '${credential:TOKEN}' }, expandTemplates: true,
+      },
+    },
+    {
+      id: 'kitto-mcp-headers', name: '@deepseek-ai/dsh-mcp-client',
+      config: {
+        serverName: 'headers', transport: 'streamable-http', url: 'https://example.test/headers',
+        headers: { Authorization: 'Bearer ${credential:AUTH}' }, expandTemplates: true,
+      },
+    },
   ]);
 });
 
-test('servers with env or headers are warned about and left out of the DSH patch', async t => {
+test('reference env/headers become DSH credential templates; literal values are skipped', { skip: !yaml }, async t => {
+  const literalToken = `ghp_${'a'.repeat(30)}`;
+  const openAiToken = `sk-${'b'.repeat(30)}`;
+  const source = await sourceFixture(t, {
+    envServer: { command: 'env-server', env: { TOKEN: '${TOKEN}', OTHER: '${OTHER_KEY}' } },
+    bearerServer: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
+    headerServer: { type: 'http', url: 'https://example.test/mcp', headers: { 'X-Api-Key': '${API_KEY}' } },
+    literalEnv: { command: 'literal-env', env: { TOKEN: 'plain-literal' } },
+    partialEnv: { command: 'partial-env', env: { TOKEN: 'prefix-${TOKEN}' } },
+    literalBearer: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer short-token' } },
+    secretHeader: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: `Bearer ${literalToken}` } },
+    secretArgs: { command: 'npx', args: [`--token=${openAiToken}`] },
+    partialHeader: { type: 'http', url: 'https://example.test/mcp', headers: { 'X-Api-Key': 'prefix-${KEY}' } },
+    urlTemplate: { type: 'http', url: 'https://example.test/${TENANT}/mcp' },
+    urlUserinfo: { type: 'http', url: 'https://user:pass@example.test/mcp' },
+    urlQueryToken: { type: 'http', url: 'https://example.test/mcp?access_token=abcd' },
+    urlQueryKey: { type: 'http', url: 'https://example.test/mcp?api-key=abcd' },
+    urlQuerySafe: { type: 'http', url: 'https://example.test/mcp?tenant=acme' },
+    cmdFlag: { command: 'npx', args: ['--api-key', 'abcd'] },
+    cmdAssign: { command: 'npx', args: ['TOKEN=abcd'] },
+    cmdHeader: { command: 'npx', args: ['--header', 'Authorization: Bearer abcd'] },
+  });
+  const dshHome = await temporary(t, 'kitto-mcp-dsh-');
+  const path = join(dshHome, 'cordis.patch.yml');
+  const warnings = [];
+  const result = await syncDshMcp({ source, dshHome }, { yaml, warn: line => warnings.push(line) });
+  assert.equal(result.changed, true);
+  const configs = kittoConfigs(await read(path), yaml);
+  assert.deepEqual(configs.get('envServer').env, {
+    TOKEN: '${credential:TOKEN}', OTHER: '${credential:OTHER_KEY}',
+  });
+  assert.equal(configs.get('envServer').expandTemplates, true);
+  assert.deepEqual(configs.get('bearerServer').headers, { Authorization: 'Bearer ${credential:TOKEN}' });
+  assert.deepEqual(configs.get('headerServer').headers, { 'X-Api-Key': '${credential:API_KEY}' });
+  assert.equal(configs.get('bearerServer').expandTemplates, true);
+  assert.equal(configs.get('headerServer').expandTemplates, true);
+  for (const name of ['literalEnv', 'partialEnv', 'literalBearer', 'secretHeader', 'secretArgs', 'partialHeader',
+    'urlTemplate', 'urlUserinfo', 'urlQueryToken', 'urlQueryKey', 'cmdFlag', 'cmdAssign', 'cmdHeader']) {
+    assert.equal(configs.has(name), false, name);
+  }
+  assert.equal(configs.get('urlQuerySafe').url, 'https://example.test/mcp?tenant=acme');
+  const joined = warnings.join('\n');
+  assert.match(joined, /skipped literalEnv \(env\.TOKEN is a literal value; only \$\{VAR\} references are synced\)/);
+  assert.match(joined, /skipped partialEnv \(env\.TOKEN is not a whole \$\{VAR\} reference\)/);
+  assert.match(joined, /skipped literalBearer \(headers\.Authorization is not a credential reference/);
+  assert.match(joined, /skipped secretHeader \(contains a literal secret \(GitHub token\) at headers\.Authorization\)/);
+  assert.match(joined, /skipped secretArgs \(contains a literal secret \(openai-style key\) at args\[0\]\)/);
+  assert.match(joined, /skipped partialHeader \(headers\.X-Api-Key is not a whole \$\{VAR\} reference\)/);
+  assert.match(joined, /skipped urlTemplate \(url contains a credential template/);
+  assert.match(joined, /skipped urlUserinfo \(url contains userinfo credentials; only env\/headers references are synced\)/);
+  assert.match(joined, /skipped urlQueryToken \(url has a credential-like query parameter/);
+  assert.match(joined, /skipped urlQueryKey \(url has a credential-like query parameter/);
+  assert.match(joined, /skipped cmdFlag \(args\[1\] looks like a literal credential/);
+  assert.match(joined, /skipped cmdAssign \(args\[0\] looks like a literal credential/);
+  assert.match(joined, /skipped cmdHeader \(args\[1\] looks like a sensitive header/);
+  assert.doesNotMatch(joined, /plain-literal|short-token|ghp_|sk-|user:pass|abcd/);
+
+  const again = await syncDshMcp({ source, dshHome }, { yaml, warn: () => {} });
+  assert.equal(again.changed, false);
+});
+
+test('sensitive query keys and header flags are refused without values', { skip: !yaml }, async t => {
+  const queryKeys = ['sig', 'signature', 'auth', 'apikey', 'api_key', 'access_token',
+    'refresh_token', 'credential', 'token', 'key', 'secret', 'password'];
+  const servers = {};
+  for (const key of queryKeys) {
+    servers[`query_${key}`] = { type: 'http', url: `https://example.test/mcp?${key}=abcd` };
+  }
+  servers.safeQuery = { type: 'http', url: 'https://example.test/mcp?tenant=acme&monkey=1&author=me&design=plain&signal=ok' };
+  servers.headerSeparate = { command: 'npx', args: ['-H', 'X-Key: abcd'] };
+  servers.headerInline = { command: 'npx', args: ['--header=X-Key: abcd'] };
+  servers.headerNameThenValue = { command: 'npx', args: ['--header', 'X-Key', 'abcd'] };
+  servers.headerInlineNameThenValue = { command: 'npx', args: ['--header=X-Key', 'abcd'] };
+  servers.headerSafe = { command: 'npx', args: ['-H', 'Accept: application/json'] };
+  servers.headerValue = { command: 'npx', args: ['-H', 'X-Custom: some-long-unbroken-value-1234'] };
+  servers.flagToken = { command: 'npx', args: ['--token', 'abcd'] };
+  servers.flagSecret = { command: 'npx', args: ['--secret=abcd'] };
+  const source = await sourceFixture(t, servers);
+  const dshHome = await temporary(t, 'kitto-mcp-dsh-');
+  const warnings = [];
+  await syncDshMcp({ source, dshHome }, { yaml, warn: line => warnings.push(line) });
+  const configs = kittoConfigs(await read(join(dshHome, 'cordis.patch.yml')), yaml);
+  assert.deepEqual([...configs.keys()], ['safeQuery', 'headerSafe']);
+  assert.equal(configs.get('safeQuery').url, 'https://example.test/mcp?tenant=acme&monkey=1&author=me&design=plain&signal=ok');
+  const joined = warnings.join('\n');
+  for (const key of queryKeys) {
+    assert.match(joined, new RegExp(`skipped query_${key} \\(url has a credential-like query parameter`), key);
+  }
+  assert.match(joined, /skipped headerSeparate \(args\[1\] looks like a sensitive header/);
+  assert.match(joined, /skipped headerInline \(args\[0\] looks like a sensitive header/);
+  assert.match(joined, /skipped headerNameThenValue \(args\[1\] looks like a sensitive header/);
+  assert.match(joined, /skipped headerInlineNameThenValue \(args\[0\] looks like a sensitive header/);
+  assert.match(joined, /skipped headerValue \(args\[1\] looks like a credential header value/);
+  assert.match(joined, /skipped flagToken \(args\[1\] looks like a literal credential/);
+  assert.match(joined, /skipped flagSecret \(args\[0\] looks like a literal credential/);
+  assert.doesNotMatch(joined, /abcd/);
+});
+
+test('private and local MCP sources are opt-in for DSH sync', { skip: !yaml }, async t => {
+  const source = await sourceFixture(t, {
+    context7: { command: 'npx' },
+    shared: { command: 'shared', args: ['base'] },
+  });
+  await writeJson(join(source, 'config/pi/local/mcp.json'), { mcpServers: {
+    shared: { args: ['local'] },
+    localOnly: { command: 'local', env: { LOCAL_TOKEN: '${LOCAL_TOKEN}' } },
+  } });
+  await writeJson(join(source, 'config/pi/mcp.private.json'), { mcpServers: {
+    privateApi: { type: 'http', url: 'https://private.test/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
+  } });
+  const dshHome = await temporary(t, 'kitto-mcp-dsh-');
+  const path = join(dshHome, 'cordis.patch.yml');
+
+  await syncDshMcp({ source, dshHome }, { yaml, warn: () => {} });
+  let configs = kittoConfigs(await read(path), yaml);
+  assert.deepEqual([...configs.keys()], ['context7', 'shared']);
+  assert.deepEqual(configs.get('shared').args, ['base']);
+
+  const included = await syncDshMcp({ source, dshHome, includePrivate: true }, { yaml, warn: () => {} });
+  assert.equal(included.changed, true);
+  configs = kittoConfigs(await read(path), yaml);
+  assert.deepEqual([...configs.keys()], ['context7', 'shared', 'localOnly', 'privateApi']);
+  assert.deepEqual(configs.get('shared').args, ['local']);
+  assert.deepEqual(configs.get('localOnly').env, { LOCAL_TOKEN: '${credential:LOCAL_TOKEN}' });
+  assert.deepEqual(configs.get('privateApi').headers, { Authorization: 'Bearer ${credential:PRIVATE_TOKEN}' });
+
+  const excluded = await syncDshMcp({ source, dshHome, includePrivate: false }, { yaml, warn: () => {} });
+  assert.equal(excluded.changed, true);
+  configs = kittoConfigs(await read(path), yaml);
+  assert.deepEqual([...configs.keys()], ['context7', 'shared']);
+});
+
+test('removeDshMcp removes credential template rows', { skip: !yaml }, async t => {
   const source = await sourceFixture(t, {
     envServer: { command: 'env-server', env: { TOKEN: '${TOKEN}' } },
     headerServer: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
   });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
-  const warnings = [];
-  const result = await syncDshMcp({ source, dshHome }, { warn: line => warnings.push(line) });
-  assert.equal(result.changed, false);
-  assert.equal(await exists(join(dshHome, 'cordis.patch.yml')), false);
-  assert(warnings.some(line => /skipped envServer \(env is not synced\)/.test(line)));
-  assert(warnings.some(line => /skipped headerServer \(headers is not synced\)/.test(line)));
+  const path = join(dshHome, 'cordis.patch.yml');
+  await syncDshMcp({ source, dshHome }, { yaml, warn: () => {} });
+  const preview = await removeDshMcp({ dshHome }, { yaml, dryRun: true, log: () => {} });
+  assert.deepEqual(preview.removed, ['envServer', 'headerServer']);
+  await removeDshMcp({ dshHome }, { yaml, log: () => {} });
+  const after = await read(path);
+  assert.doesNotMatch(after, /kitto-mcp-|credential:/);
 });
 
 test('KITTO_NO_MCP_SYNC disables the sync', async t => {
@@ -594,4 +765,32 @@ test('the native DSH loader accepts the synced home patch', { skip: !nativeDsh, 
   assert.match(output, /id: kitto-mcp-context7/);
   assert.match(output, /serverName: context7/);
   assert.match(output, /transport: stdio/);
+});
+
+test('the native DSH loader accepts credential template rows', { skip: !nativeDsh, timeout: 60_000 }, async t => {
+  const source = await sourceFixture(t, {
+    envServer: { command: 'env-server', env: { TOKEN: '${TOKEN}' } },
+    headerServer: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
+  });
+  const home = await temporary(t, 'kitto-mcp-native-');
+  const dshHome = join(home, '.dsh');
+  await syncDshMcp({ source, dshHome }, { yaml });
+  const output = execFileSync(executable, ['web', '--dump-config'], {
+    encoding: 'utf8',
+    timeout: 45_000,
+    env: {
+      ...process.env,
+      HOME: home,
+      DSH_HOME: dshHome,
+      DSH_AGENTS_HOME: join(home, '.agents'),
+      DSH_TELEMETRY_DISABLED: '1',
+      PATH: `${dirname(executable)}${delimiter}${process.env.PATH}`,
+    },
+  });
+  assert.match(output, /id: kitto-mcp-envServer/);
+  assert.match(output, /id: kitto-mcp-headerServer/);
+  assert.match(output, /expandTemplates: true/);
+  assert.match(output, /\$\{credential:TOKEN\}/);
+  assert.match(output, /Bearer \$\{credential:TOKEN\}/);
+  assert.doesNotMatch(output, /literal secret/i);
 });

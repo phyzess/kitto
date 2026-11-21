@@ -126,25 +126,29 @@ DSH 默认使用 `web`。已有其他 profile 时，首次 setup 加 `--dsh-prof
 | 共享 skills | `~/.agents/skills` | `~/.agents/skills` + SessionStart hook | `~/.agents/skills`（`desktop` 无 scope provider） |
 | 宿主专属 skills | Pi 上游包 | `config/codex/skills` 副本 | `config/dsh/skills` 副本 |
 | 插件/扩展 | Pi 包、Pi 扩展 | Kitto Codex 插件 | Kitto DSH bundle（web/headless；`desktop` 无） |
-| MCP | 共享 + 平台 + private + 项目级 | Kitto 同步白名单 server（无 env/headers） | Kitto 同步白名单 server（无 env/headers；`desktop` 不同步） |
+| MCP | 共享 + 平台 + private + 项目级 | Kitto 同步白名单 server；HTTP `Authorization: Bearer ${VAR}` 转为 `--bearer-token-env-var` | Kitto 同步白名单 server；env/headers 的 `${VAR}` 转为 credential 模板（`desktop` 不同步） |
 | 模型/settings | Kitto 管理 | 宿主自管 | 宿主自管 |
-| 凭据/env | `~/.pi-agent-env` | 宿主自管 | 宿主 env/service env |
+| 凭据/env | `~/.pi-agent-env` | HTTP bearer 环境变量引用；其余宿主自管 | `${credential:VAR}` 模板 + `expandTemplates`；其余宿主 env/service env |
 | workspace scope | scoped-pi | scoped-codex | scoped-dsh（web/headless；`desktop` 无） |
 
 `desktop` 是唯一的例外：它由 Desktop 应用独占，Kitto v1 只部署全局规则和 skills，不安装 bundle、不写 profile patch、不注册 scope adapter，也不同步 MCP home patch。
 
-MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 `setup` 和 `sync` 时由 Kitto 把 `config/pi/mcp.json`（叠加当前平台的 `config/pi/platform/<macos|linux>/mcp.json`，跳过 `enabled: false`）中没有 `env`/`headers` 的 server 同步为 `$DSH_HOME/cordis.patch.yml` 里的 `kitto-mcp-*` 条目；home patch 对所有 profile 生效，同步只增删这些条目，保留其它 YAML 行、注释和 `!!js`，Kitto 自己的条目按源顺序追加到末尾。`env`/`headers` server 会跳过并警告；`mcp.private.json` 和 `local/mcp.json` 根本不读取，仍需在 DSH 原生配置或环境中手动准备。
+MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 `setup` 和 `sync` 时由 Kitto 把 `config/pi/mcp.json`（叠加当前平台的 `config/pi/platform/<macos|linux>/mcp.json`，跳过 `enabled: false`）中的 server 同步为 `$DSH_HOME/cordis.patch.yml` 里的 `kitto-mcp-*` 条目；home patch 对所有 profile 生效，同步只增删这些条目，保留其它 YAML 行、注释和 `!!js`，Kitto 自己的条目按源顺序追加到末尾。
+
+凭据只接受引用：stdio `env` 和 HTTP `headers` 的值必须是完整的 `${VAR}`；`Authorization` 还可以写 `Bearer ${VAR}`。DSH 把引用映射为 mcp-client 的 `${credential:VAR}` 模板，并在该行设置 `expandTemplates: true`，由 DSH 的 credentials provider 在运行时解析（优先级：`$DSH_HOME/.credentials.yaml` > 进程环境 > 启动目录 `.env` > `$DSH_HOME/.env`）。secret 不写入 host patch，也不出现在 Kitto 日志里；引用未配置时该 server 会等待凭据，而不会拿到字面 token。字面值、字面 token 形状、`${VAR}` 与其他文本拼合、以及出现在 `url`/`command`/`args` 里的模板都会整条 skip，原因只包含键名或 token 类型。`url` 带 userinfo（`user:pass@host`）或 token/key/secret/password/sig/signature/auth 类 query/fragment，以及 `command`/`args` 中带凭据形状的 flag（含 `--header`/`-H` 后跟敏感 header 名或凭据值）、env 赋值或字面 Authorization 也会被拒绝。该映射要求 mcp-client 支持 credential 模板（DSH `0.2.2-rc.2` 起；实测 `0.2.2-rc.5`）；Kitto 的 DSH 基线与 `engines` 已提升到 `0.2.2-rc.2`，setup 会用带 prerelease 比较的版本检查拒绝 rc.1，`--install-agents` 固定安装 rc.2（已装更新的版本仍可通过检查）。Kitto 不生成 `!!js process.env.VAR` 作为回退，因为 `!!js` 会在 host 启动时执行配置表达式，暴露面比只允许 `${credential:...}` 的模板更大。
+
+默认只读 Pi 的 base 与 platform。机器专属的 `config/pi/mcp.private.json`（Git 忽略）和 `config/pi/local/mcp.json` 默认不读取；全局 `setup` 或 `update` 加 `--include-private` 才会纳入，叠加顺序为 base < platform < local < private，两个文件都可选。该选择记录在 `state.json`：之后不带参数的 `setup` 会沿用，`--no-include-private` 关闭；scoped setup 不处理 MCP，因此拒绝这两个参数。仍含 `YOUR_*` 占位符的条目也会跳过，避免把模板 URL 同步出去。
 
 home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。`desktop` 配置档不参与 MCP 同步（也不写 home patch）。Codex 的 MCP 由 Kitto 同步（见下），模型/settings 和凭据继续使用各自原生配置。
 
-Codex 的启用 server 同样从该 Pi 源派生。同步只传递 stdio 的 command/args 或 HTTP 的 URL；env、headers、`env_http_headers` 和含 `${...}` 的凭据字段在 v1 不写入，相关 server 会跳过并给出原因。模型/settings 和凭据继续使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
+Codex 的启用 server 同样从该 Pi 源派生（默认 base+platform，`--include-private` 的开关与 DSH 相同）。同步传递 stdio 的 command/args 或 HTTP 的 URL；HTTP server 若只带一个 `Authorization: Bearer ${VAR}` header，会映射为 `codex mcp add ... --url ... --bearer-token-env-var VAR`，Codex 只保存环境变量名，明文 secret 不进入 `config.toml` 或 argv。其他 headers、stdio 的 `env`、`env_http_headers` 和 `bearer_token_env_var` 字段不能由 `codex mcp add` 安全表达，包含这些字段的 server 会整条跳过并打印原因；含字面 token 形状、`url`/`command`/`args` 模板、URL userinfo/凭据类 query，或 `command`/`args` 中凭据形状 flag（含 `--header`/`-H` 后跟敏感 header 名或凭据值）、env 赋值或字面 Authorization 的 server 同样拒绝；原生 Codex 失败信息不回显 argv。模型/settings 和凭据继续使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
 
 Codex 的 MCP 归属记录在 `state.json` 的 `mcp.codex`：只有带有 Kitto 指纹且 live 配置未被改动的 server 才会被更新或删除。写入前，Kitto 先把目标指纹记为 pending；`codex mcp add` 成功并通过重新 list 校验后才转为正式归属。若进程在 live 写入后、state 保存前中断，下次 sync 会直接收养（`mcp adopt`），不会留下永久无归属的 server。verified list 确认 owned server 已从 live 消失时，Kitto 会清除旧指纹（`mcp forget`），避免之后误删同名同 transport 的用户 server。若中断的 add 只留下 pending、随后源条目被删除，pending 对应的 live server 会被移除；没有 live 或 transport 已被改动的 pending 会被清理（`mcp forget pending`）。同名但不是 Kitto 添加的 server、以及被本机修改过的 server（包括额外 env、headers、工具过滤或超时）都会保留，并在 `status`/`sync` 计划中标记为 `mcp conflict`。
 
 Codex MCP 的已知边界：
 
 1. 源文件必需：Kitto 从 `config/pi/mcp.json` 加当前平台覆盖生成计划；即使只选 Codex，缺少这个文件也会让 setup 明确失败。
-2. 凭据和语义字段不映射：`env`、`headers`、`env_http_headers`、含 `${...}` 的字段，以及 Pi 源中的 `oauth`、`scopes`、`tools`/`toolFilter`、`timeout` 等字段不会写入 Codex。包含这些字段的 server 会整条跳过并打印原因，相关能力继续在 Codex 原生配置中维护。Pi 专用的 `lifecycle`、`directTools` 等展示/生命周期字段会被忽略。
+2. 凭据和语义字段的边界：唯一会写入 Codex 的凭据是 HTTP 的单 `Authorization: Bearer ${VAR}`，它映射为 `--bearer-token-env-var VAR`（归属指纹记录变量名，不记录值）。stdio `env`、其他 headers、`env_http_headers`、`bearer_token_env_var` 字段，以及 Pi 源中的 `oauth`、`scopes`、`tools`/`toolFilter`、`timeout` 等字段不会写入 Codex。包含这些字段的 server 会整条跳过并打印原因，相关能力继续在 Codex 原生配置中维护。Pi 专用的 `lifecycle`、`directTools` 等展示/生命周期字段会被忽略。
 3. `--url` 与 OAuth：Codex 0.170 的 `mcp add --url` 会先写 `config.toml`，再做认证发现；对需要 OAuth 的 URL，首次 add 可能等待约 30 秒后超时。Kitto 在写前已记录 pending；若超时/失败后 list 能看到 transport 完全一致且没有额外设置的 server，会立即 `mcp adopt` 并打印警告（提示 `codex mcp login <NAME>`），不会把 transport 不同的用户 server 误判为 Kitto 的；否则保留 pending，下次 sync 重试。认证本身仍需在 Codex 中完成。
 4. Codex 原生字段不由 Kitto 写入：`startup_timeout_sec`、`tool_timeout_sec`、`enabled_tools`/`disabled_tools` 等如果出现在 live 中，会视为本机修改并保留，不会被覆盖。
 5. TOML 重写：`codex mcp add/remove` 会重写配置，可能丢失注释（尤其是被操作的 `mcp_servers` 表及其邻近注释，更新已有 server 时文件顶部注释也可能消失）并调整 mcp 表顺序；Kitto 不直接写 TOML，只在 transport 有差异时调用原生命令。
@@ -157,9 +161,9 @@ Codex MCP 的已知边界：
 `setup` 会部署规则、skills、宿主注册和依赖检查，但以下项目按宿主/账号不同，必须手动完成：
 
 1. 安装并登录各宿主 CLI（或用 `--install-agents` 只补装 CLI）。
-2. Pi：复制 `config/pi/mcp.private.json` 并填写 host/token；把 `~/.pi-agent-env` 放进 shell 启动文件。
+2. Pi：复制 `config/pi/mcp.private.json` 并填写 host/token；把 `~/.pi-agent-env` 放进 shell 启动文件。若希望 DSH/Codex 也同步这些引用式私有 server，给全局 setup/update 加 `--include-private`。
 3. Codex：首次在 `/hooks` 信任 Kitto 的 SessionStart hook。
-4. DSH：重启对应 profile/服务；Desktop 用户完全退出并重新打开 App（Kitto 只部署其全局规则/skills）；带 `env`/`headers` 的 MCP 和私有 MCP 仍需在 DSH 原生配置中手动添加。
+4. DSH：重启对应 profile/服务；Desktop 用户完全退出并重新打开 App（Kitto 只部署其全局规则/skills）；DSH 中未使用引用式 env/headers 的私有 MCP、旧版 DSH 不支持的 credential 模板，以及 Codex 无法表达的 stdio env / 非 Authorization header，仍需在对应宿主原生配置中手动添加。
 5. 需要 CodeGraph 的仓库：在仓库根目录执行一次 `codegraph init`（Kitto 会提醒）。
 
 
@@ -225,7 +229,7 @@ npx --yes @phyzess/kitto@latest hosts --apply  # 只把低于基线的已选宿�
 npx --yes @phyzess/kitto@latest hosts --host codex --version 0.170.0 --apply
 ```
 
-`kitto hosts` 只处理 `state.json` 中已选的宿主，逐行显示当前 `--version`、Kitto 基线 `hosts[name].version` 和对应的原生管理命令。`--check`（默认行为）只读：不写宿主、不写 Kitto 状态；`--apply` 才执行 `npm install --global <包>@<版本>`。Pi 和 Codex 安装各自的 npm 全局包；DSH 安装 `@deepseek-ai/dsh@<基线>`，基线是 prerelease 时保留精确版本（例如 `0.2.2-rc.1`），不会替换成 `next` 或 `latest`。
+`kitto hosts` 只处理 `state.json` 中已选的宿主，逐行显示当前 `--version`、Kitto 基线 `hosts[name].version` 和对应的原生管理命令。`--check`（默认行为）只读：不写宿主、不写 Kitto 状态；`--apply` 才执行 `npm install --global <包>@<版本>`。Pi 和 Codex 安装各自的 npm 全局包；DSH 安装 `@deepseek-ai/dsh@<基线>`，基线是 prerelease 时保留精确版本（例如 `0.2.2-rc.2`），不会替换成 `next` 或 `latest`。
 
 - 版本低于基线或尚未安装：`--apply` 安装基线。
 - 已等于基线：不做任何事。

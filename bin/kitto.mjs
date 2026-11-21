@@ -15,8 +15,10 @@ const help = `Kitto — portable personal agent configuration
   kitto setup --workspace PATH [--agents pi,codex,dsh] [--dsh-service UNIT] [--dry-run]
   kitto setup [--agents pi,codex,dsh] [--source PATH_OR_GIT_URL] [--ref BRANCH_OR_TAG]
               [--dsh-profile PROFILE] [--install-agents] [--dry-run]
+              [--include-private|--no-include-private]
   kitto setup --recover [--dry-run]   Restore the last working Kitto code
-  kitto update [--check|--apply]      Preview (the default; --check makes it explicit) or apply:
+  kitto update [--check|--apply] [--include-private|--no-include-private]
+                                      Preview (the default; --check makes it explicit) or apply:
                                       fetch and fast-forward the configuration source, refresh the
                                       installed runtime copy, then deploy configuration, skills and MCP
   kitto hosts [--check|--apply] [--host NAME] [--version VERSION]
@@ -42,6 +44,11 @@ DSH web/headless needs pnpm and uses the web profile by default. The Desktop app
 profile: Kitto deploys only its global AGENTS.md and skills, never checks or installs a dsh CLI, and
 adds no bundle, profile patch or scope.
 Host CLIs have their own Node requirements.
+MCP credentials are references only: env/header values must be a whole \${VAR}
+(or Authorization: Bearer \${VAR}). Literal values and tokens are skipped, never copied.
+config/pi/mcp.private.json and config/pi/local/mcp.json are excluded unless
+--include-private is set; the choice is remembered in state.json and can be changed
+with a later setup/update.
 Scope removal only changes the scope registry; AGENTS.md, skills, host adapters and user files stay in place.
 The DSH desktop profile is app-managed and cannot be configured as a scope or system service.
 `;

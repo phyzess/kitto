@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { probeDesktopProfile } from '../lib/dsh-profile.mjs';
 import { composeInstructions } from '../lib/host-config.mjs';
 import { compareVersions } from '../lib/hosts.mjs';
-import { parseOptions, replaceDirectory, treeHash } from '../lib/kitto.mjs';
+import { hosts, meetsBaseline, parseOptions, replaceDirectory, treeHash } from '../lib/kitto.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -93,6 +93,25 @@ function mirrorOf(f, ...urls) {
 test('public options reject unknown hosts, flags and missing values', () => {
   assert.deepEqual(parseOptions(['--agents', 'pi,codex,pi']).agents, ['pi', 'codex']);
   for (const args of [['--agents', 'other'], ['--source'], ['--run'], ['--agents', 'pi,'], ['--recover', '--agents', 'pi']]) assert.throws(() => parseOptions(args));
+});
+
+test('private MCP sources are an explicit opt-in option', () => {
+  assert.equal(parseOptions(['--include-private'])['include-private'], true);
+  assert.equal(parseOptions(['--no-include-private'])['no-include-private'], true);
+  assert.throws(() => parseOptions(['--include-private', '--no-include-private']), /Choose either/);
+  assert.throws(() => parseOptions(['--recover', '--include-private']), /only accepts/);
+});
+
+test('host baseline comparison orders prereleases', () => {
+  assert.equal(hosts.dsh.version, '0.2.2-rc.2', 'the DSH baseline must support credential templates');
+  assert.equal(meetsBaseline('0.2.2-rc.2', '0.2.2-rc.2'), true);
+  assert.equal(meetsBaseline('0.2.2-rc.1', '0.2.2-rc.2'), false, 'rc.1 is older than rc.2');
+  assert.equal(meetsBaseline('0.2.2-rc.10', '0.2.2-rc.2'), true, 'numeric prerelease identifiers compare as numbers');
+  assert.equal(meetsBaseline('0.2.2', '0.2.2-rc.2'), true);
+  assert.equal(meetsBaseline('0.2.2-rc.2', '0.2.2'), false);
+  assert.equal(meetsBaseline('0.2.1', '0.2.2-rc.2'), false);
+  assert.equal(meetsBaseline('0.3.0-rc.1', '0.2.2-rc.2'), true);
+  assert.equal(meetsBaseline('not-a-version', '0.2.2-rc.2'), false);
 });
 
 test('skill directory replacement is atomic and leaves no backup', async t => {
@@ -1494,8 +1513,8 @@ test('kitto hosts --apply keeps a prerelease DSH baseline exact', t => {
   const result = tools.run('hosts', '--apply');
   good(result);
   assert.deepEqual(tools.installs(),
-    [{ command: 'npm', args: ['install', '--global', '@deepseek-ai/dsh@0.2.2-rc.1'] }]);
-  assert.match(result.stdout, /verified dsh 0\.2\.2-rc\.1/);
+    [{ command: 'npm', args: ['install', '--global', '@deepseek-ai/dsh@0.2.2-rc.2'] }]);
+  assert.match(result.stdout, /verified dsh 0\.2\.2-rc\.2/);
 });
 
 test('kitto hosts --version pins one exact version and refuses dist-tags', t => {
@@ -1578,7 +1597,7 @@ test('kitto hosts leaves the app-managed DSH Desktop CLI to the Desktop app', t 
 
   const check = tools.run('hosts');
   good(check);
-  assert.match(check.stdout, /dsh: app-managed by DeepSeek Harness Desktop; Kitto baseline 0\.2\.2-rc\.1/);
+  assert.match(check.stdout, /dsh: app-managed by DeepSeek Harness Desktop; Kitto baseline 0\.2\.2-rc\.2/);
   assert.match(check.stdout, /Nothing for Kitto to manage/);
 
   const applied = tools.run('hosts', '--apply');
@@ -1587,7 +1606,7 @@ test('kitto hosts leaves the app-managed DSH Desktop CLI to the Desktop app', t 
   assert.equal(tools.calls().some(call => call.command === 'npm'), false);
   assert.deepEqual(snapshot(home), before);
 
-  const pinned = tools.run('hosts', '--host', 'dsh', '--version', '0.2.2-rc.1', '--apply');
+  const pinned = tools.run('hosts', '--host', 'dsh', '--version', '0.2.2-rc.2', '--apply');
   assert.notEqual(pinned.status, 0);
   assert.match(pinned.stderr, /app-managed/);
 });

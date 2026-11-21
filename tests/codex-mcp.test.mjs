@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  applyCodexMcp, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
+  applyCodexMcp, defaultCodexRun, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
 } from '../lib/codex-mcp.mjs';
 
 // The fake Codex CLI records argv and keeps a small JSON config. It never starts
@@ -615,4 +615,189 @@ test('setup preview and status never invoke Codex with the real CODEX_HOME', t =
   rmSync(marker, { force: true });
   good(f.maintain('status'));
   assert.equal(existsSync(marker), false, 'status must use scratch CODEX_HOME probes');
+});
+
+test('an HTTP Authorization reference becomes --bearer-token-env-var', async t => {
+  const f = fixture(t);
+  f.writeSource({ api: { url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer ${API_TOKEN}' } } });
+  const state = f.state();
+  const { operations } = await f.plan(state);
+  assert.deepEqual(operations.map(operation => `${operation.action}:${operation.name}`), ['add:api']);
+  assert.deepEqual(operations[0].transport,
+    { type: 'http', url: 'https://example.invalid/mcp', bearerTokenEnvVar: 'API_TOKEN' });
+
+  await f.apply(state);
+  assert.deepEqual(f.codexState().mcpServers.api.transport,
+    { type: 'streamable_http', url: 'https://example.invalid/mcp', bearer_token_env_var: 'API_TOKEN' });
+  assert.deepEqual(f.mcpCalls('add')[0].args,
+    ['mcp', 'add', 'api', '--url', 'https://example.invalid/mcp', '--bearer-token-env-var', 'API_TOKEN']);
+  assert.equal(state.mcp.codex.api, transportHash(
+    { type: 'http', url: 'https://example.invalid/mcp', bearerTokenEnvVar: 'API_TOKEN' }));
+  assert(!JSON.stringify(f.calls()).includes('Bearer'), 'the source scheme is not copied into argv');
+  assert(!JSON.stringify(f.codexState()).includes('Bearer'));
+
+  const { operations: again } = await f.plan(state);
+  assert.equal(again[0].action, 'same');
+  await f.apply(state);
+  assert.equal(f.mcpCalls('add').length, 1);
+});
+
+test('headers and stdio env Codex cannot express are skipped with a warning', async t => {
+  const f = fixture(t);
+  f.writeSource({
+    otherHeader: { url: 'https://example.invalid/other', headers: { 'X-Api-Key': '${API_KEY}' } },
+    bearerWithoutScheme: { url: 'https://example.invalid/bare', headers: { Authorization: '${AUTH}' } },
+    stdioEnv: { command: 'node', env: { TOKEN: '${TOKEN}' } },
+    stdioHeaders: { command: 'node', headers: { Authorization: 'Bearer ${TOKEN}' } },
+  });
+  const state = f.state();
+  const { operations, lines } = await f.plan(state);
+  assert(operations.every(operation => operation.action === 'skip'));
+  assert.match(operations.find(operation => operation.name === 'otherHeader').reason,
+    /headers are not synced in v1: only Authorization: Bearer \$\{VAR\}/);
+  assert.match(operations.find(operation => operation.name === 'stdioEnv').reason,
+    /env is not synced in v1: codex mcp add --env would store a literal/);
+  assert.match(lines.join('\n'), /mcp skip: otherHeader \(codex\)/);
+
+  const { warnings } = await f.apply(state);
+  assert.match(warnings.join('\n'), /mcp skip: stdioEnv \(codex\)/);
+  assert.deepEqual(f.mcpCalls('add'), []);
+  assert.deepEqual(f.codexState().mcpServers, {});
+});
+
+test('a literal secret anywhere in a source server is refused without being printed', async t => {
+  const f = fixture(t);
+  const token = `ghp_${'c'.repeat(30)}`;
+  f.writeSource({
+    plain: { command: 'plain-mcp' },
+    leaky: { command: 'npx', args: [`--token=${token}`] },
+  });
+  const state = f.state();
+  const { operations } = await f.plan(state);
+  const leaky = operations.find(operation => operation.name === 'leaky');
+  assert.equal(leaky.action, 'skip');
+  assert.match(leaky.reason, /contains a literal secret \(GitHub token\) at args\[0\]/);
+  assert(!JSON.stringify(operations).includes(token));
+  await f.apply(state);
+  assert.equal(f.codexState().mcpServers.leaky, undefined);
+  assert(f.codexState().mcpServers.plain);
+  assert(!f.mcpCalls('add').some(call => call.args[2] === 'leaky'));
+});
+
+test('private and local self-hosted servers are opt-in for Codex', async t => {
+  const f = fixture(t);
+  f.writeSource({ plain: { command: 'plain-mcp' } });
+  writeFileSync(join(f.source, 'config/pi/mcp.private.json'), JSON.stringify({ mcpServers: {
+    privateApi: { url: 'https://private.invalid/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
+  } }));
+  mkdirSync(join(f.source, 'config/pi/local'), { recursive: true });
+  writeFileSync(join(f.source, 'config/pi/local/mcp.json'), JSON.stringify({ mcpServers: {
+    localServer: { command: 'local-mcp' },
+  } }));
+  const state = f.state();
+
+  let { operations } = await f.plan(state);
+  assert.deepEqual(operations.map(operation => `${operation.action}:${operation.name}`), ['add:plain']);
+
+  state.includePrivate = true;
+  ({ operations } = await f.plan(state));
+  assert.deepEqual(operations.map(operation => `${operation.action}:${operation.name}`).sort(),
+    ['add:localServer', 'add:plain', 'add:privateApi']);
+  await f.apply(state);
+  assert(f.codexState().mcpServers.privateApi.transport.bearer_token_env_var === 'PRIVATE_TOKEN');
+  assert(f.codexState().mcpServers.localServer);
+
+  state.includePrivate = false;
+  ({ operations } = await f.plan(state));
+  assert.deepEqual(operations.map(operation => `${operation.action}:${operation.name}`).sort(),
+    ['remove:localServer', 'remove:privateApi', 'same:plain']);
+  await f.apply(state);
+  assert.deepEqual(Object.keys(f.codexState().mcpServers).sort(), ['plain']);
+});
+
+test('setup --include-private persists the opt-in and --no-include-private removes it', t => {
+  const f = fixture(t);
+  f.writeSource({ plain: { command: 'plain-mcp' } });
+  writeFileSync(join(f.source, 'config/pi/mcp.private.json'), JSON.stringify({ mcpServers: {
+    privateApi: { url: 'https://private.invalid/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
+  } }));
+  f.initSource();
+  const state = () => JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'), 'utf8'));
+
+  good(f.cli('setup', '--agents', 'codex', '--source', f.source, '--include-private'));
+  assert.equal(state().includePrivate, true);
+  assert(f.codexState().mcpServers.privateApi);
+
+  good(f.cli('setup'));
+  assert.equal(state().includePrivate, true, 'a later setup keeps the saved opt-in');
+  assert(f.codexState().mcpServers.privateApi);
+
+  good(f.cli('setup', '--no-include-private'));
+  assert.equal(state().includePrivate, false);
+  assert.equal(f.codexState().mcpServers.privateApi, undefined);
+  assert(f.codexState().mcpServers.plain);
+});
+
+test('literal URL and command credentials are refused before argv', async t => {
+  const f = fixture(t);
+  f.writeSource({
+    userinfo: { url: 'https://user:pass@example.invalid/mcp' },
+    query: { url: 'https://example.invalid/mcp?access_token=abcd' },
+    flag: { command: 'npx', args: ['--api-key', 'abcd'] },
+    assign: { command: 'npx', args: ['TOKEN=abcd'] },
+    header: { command: 'npx', args: ['--header', 'Authorization: Bearer abcd'] },
+    sigQuery: { url: 'https://example.invalid/mcp?sig=abcd' },
+    authQuery: { url: 'https://example.invalid/mcp?auth=abcd' },
+    apikeyQuery: { url: 'https://example.invalid/mcp?apikey=abcd' },
+    headerSeparate: { command: 'npx', args: ['-H', 'X-Key: abcd'] },
+    headerInline: { command: 'npx', args: ['--header=X-Key: abcd'] },
+    headerSafe: { command: 'npx', args: ['-H', 'Accept: application/json'] },
+    flagToken: { command: 'npx', args: ['--token', 'abcd'] },
+    safe: { url: 'https://example.invalid/mcp?tenant=acme' },
+  });
+  const state = f.state();
+  const { operations } = await f.plan(state);
+  const byName = new Map(operations.map(operation => [operation.name, operation]));
+  for (const [name, reason] of [
+    ['userinfo', /url contains userinfo credentials/],
+    ['query', /url has a credential-like query parameter/],
+    ['flag', /args\[1\] looks like a literal credential/],
+    ['assign', /args\[0\] looks like a literal credential/],
+    ['header', /args\[1\] looks like a sensitive header/],
+    ['sigQuery', /url has a credential-like query parameter/],
+    ['authQuery', /url has a credential-like query parameter/],
+    ['apikeyQuery', /url has a credential-like query parameter/],
+    ['headerSeparate', /args\[1\] looks like a sensitive header/],
+    ['headerInline', /args\[0\] looks like a sensitive header/],
+    ['flagToken', /args\[1\] looks like a literal credential/],
+  ]) {
+    assert.equal(byName.get(name).action, 'skip', name);
+    assert.match(byName.get(name).reason, reason, name);
+  }
+  assert.equal(byName.get('safe').action, 'add');
+  assert.equal(byName.get('headerSafe').action, 'add');
+  assert(!JSON.stringify(operations).includes('user:pass'));
+  assert(!JSON.stringify(operations).includes('abcd'));
+
+  await f.apply(state);
+  assert.deepEqual(f.mcpCalls('add').map(call => call.args[2]), ['headerSafe', 'safe']);
+  assert(f.mcpCalls('add').some(call => call.args.includes('https://example.invalid/mcp?tenant=acme')));
+  assert(!JSON.stringify(f.calls()).includes('user:pass'));
+  assert(!JSON.stringify(f.calls()).includes('abcd'));
+});
+
+test('native Codex failures never echo argv', async t => {
+  const temp = mkdtempSync(join(tmpdir(), 'kitto-codex-failure-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const bin = join(temp, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'codex'), `#!${process.execPath}\nprocess.exit(9)\n`, { mode: 0o755 });
+  const env = { ...process.env, HOME: temp, CODEX_HOME: join(temp, 'codex'), PATH: `${bin}:${process.env.PATH}` };
+  assert.throws(() => defaultCodexRun(
+    ['mcp', 'add', 'secret-server-name', '--url', 'https://user:pass@example.invalid/mcp'], { env },
+  ), error => {
+    assert.match(error.message, /codex mcp add failed/);
+    assert.doesNotMatch(error.message, /secret-server-name|user:pass/);
+    return true;
+  });
 });
