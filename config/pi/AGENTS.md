@@ -18,6 +18,12 @@ Pi 的 `i-have-adhd` 扩展默认常开（`$PI_CODING_AGENT_DIR/.i-have-adhd-alw
 
 MCP 懒连接并通过代理按需发现工具。subagents 和 hindsight 都是扩展能力：存在且适合当前任务时使用，不可用时按 workspace `AGENTS.md` 降级。
 
+### 编排能力
+
+- Pi 的模型路由由 `$PI_CODING_AGENT_DIR/settings.json` 与扩展决定；多 provider 时按共享规则的家族分工选模型，subagent 承担批量与验证，审查换家族。
+- 只有单一 provider 时，按 Codex 的单模型降级规则执行，并保留「待外部审查」记录。
+- plannotator 的评审结论只覆盖方案质量，不等于验证通过；实现仍需命令证据。
+
 ### 浏览器默认
 
 - 浏览器任务(开网页、填表单、点击、截图、提取页面数据、Web 应用测试/QA)默认使用 ego-browser skill：先跑 `ego-browser skill`，再按其指引经 `ego-browser` CLI(ego lite)操作。

@@ -62,4 +62,4 @@ npx --yes @phyzess/kitto@latest hosts --apply  # 只把低于基线的已选宿�
 
 `--host NAME` 限定一个宿主；`--version X.Y.Z` 是显式覆盖（默认仍用已验证基线），固定非基线版本时 `--check` 和 `--apply` 都会提示该版本未经 Kitto 验证。未选宿主不动，`desktop` DSH 由 Desktop App 管理。细节见[使用指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#宿主-cli只升到已验证基线不自动更新)。
 
-[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md) · [Pi 配置参考](https://github.com/phyzess/kitto/blob/main/docs/pi.md) · [DSH Desktop roadmap](https://github.com/phyzess/kitto/blob/main/docs/roadmap.md) · [版本记录](CHANGELOG.md)
+[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md) · [开发任务编排](docs/orchestration.md) · [Pi 配置参考](https://github.com/phyzess/kitto/blob/main/docs/pi.md) · [DSH Desktop roadmap](https://github.com/phyzess/kitto/blob/main/docs/roadmap.md) · [版本记录](CHANGELOG.md)
