@@ -27,7 +27,9 @@ class SyncTests(unittest.TestCase):
         self.bin.mkdir()
         self.fake('brew', 'exit 1')
         self.fake('pi', 'if [ "$1" = list ]; then exit 0; fi\nexit 0')
-        self.env = {**os.environ, 'HOME': str(self.home),
+        self.env = {**{key: value for key, value in os.environ.items()
+                       if not key.startswith('KITTO_')},
+                    'HOME': str(self.home),
                     'PI_CODING_AGENT_DIR': str(self.home / '.pi/agent'),
                     'PI_AGENTS_DIR': str(self.home / '.agents'),
                     'PATH': str(self.bin) + os.pathsep + os.environ['PATH']}
@@ -75,11 +77,20 @@ class SyncTests(unittest.TestCase):
         self.run_sync('pull', '--dry-run')
         self.assertEqual(before, self.snapshot())
 
+    def test_environment_has_no_inherited_kitto_toggles(self):
+        self.assertEqual([key for key in self.env if key.startswith('KITTO_')], [])
+
     def test_direct_entry_warns_but_internal_sync_does_not(self):
         direct = self.run_sync('status')
         self.assertIn('deprecated direct entry; use kitto setup/sync', direct.stdout)
         internal = self.run_sync('status', env={**self.env, 'KITTO_SHARED_SKILLS_MANAGED': '1'})
         self.assertNotIn('deprecated direct entry', internal.stdout)
+
+    def test_direct_status_does_not_report_skipped_shared_skills(self):
+        result = self.run_sync('status')
+        self.assertIn('由 Kitto JS 管理', result.stdout)
+        self.assertNotIn('missing  skills/', result.stdout)
+        self.assertNotIn('differs  skills/', result.stdout)
 
     def test_direct_pull_does_not_deploy_shared_skills(self):
         result = self.run_sync('pull')

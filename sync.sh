@@ -381,12 +381,16 @@ cmd_status() {
         if [ ! -e "$DOT_PI/extensions/$name" ]; then printf '  %smissing%s  extensions/%s\n' "$YELLOW" "$NC" "$name"
         elif cmp -s "$ext" "$DOT_PI/extensions/$name"; then :; else printf '  %sdiffers%s  extensions/%s\n' "$RED" "$NC" "$name"; fi
     done
-    local dir sname
-    for dir in "$ROOT"/skills/*/; do
-        sname="$(basename "$dir")"
-        if [ ! -d "$DOT_AGENTS/skills/$sname" ]; then printf '  %smissing%s  skills/%s\n' "$YELLOW" "$NC" "$sname"
-        elif diff -rq "$dir" "$DOT_AGENTS/skills/$sname" >/dev/null 2>&1; then :; else printf '  %sdiffers%s  skills/%s\n' "$RED" "$NC" "$sname"; fi
-    done
+    if [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" != 1 ] && [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
+        info "shared skills：由 Kitto JS 管理，直接 sync.sh 不比较/部署（KITTO_ALLOW_LEGACY_SKILL_SYNC=1 查看旧逻辑）"
+    else
+        local dir sname
+        for dir in "$ROOT"/skills/*/; do
+            sname="$(basename "$dir")"
+            if [ ! -d "$DOT_AGENTS/skills/$sname" ]; then printf '  %smissing%s  skills/%s\n' "$YELLOW" "$NC" "$sname"
+            elif diff -rq "$dir" "$DOT_AGENTS/skills/$sname" >/dev/null 2>&1; then :; else printf '  %sdiffers%s  skills/%s\n' "$RED" "$NC" "$sname"; fi
+        done
+    fi
     echo
     info "包"
     python3 - "$ROOT/config/pi/settings.json" "$DOT_PI/settings.json" "$LOCAL" <<'PY'

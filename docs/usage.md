@@ -4,7 +4,7 @@
 
 ## 一次设置，自动发现之后新建的工作区
 
-在终端运行 `npx --yes @phyzess/kitto@latest setup`（已有源码时可运行 `./setup.sh`）。选择宿主、配置来源和可选依赖，在「工作区父目录」填入存放工作区的目录，例如 `/home/dsh/workspaces`。服务端和终端使用不同账号时，在向导中选择检测到的 DSH 系统服务。每个账号有自己的全局配置目录。要让终端和 DSH 服务读取同一份工作区文件，两边应使用相同的工作区绝对路径，并能读取其中的文件。
+在终端运行 `npx --yes @phyzess/kitto@latest setup`（已有源码时在源码根目录运行 `./setup.sh --source .`；本机已 setup 过则直接 `./setup.sh` 复用 state 中的配置源）。选择宿主、配置来源和可选依赖，在「工作区父目录」填入存放工作区的目录，例如 `/home/dsh/workspaces`。服务端和终端使用不同账号时，在向导中选择检测到的 DSH 系统服务。每个账号有自己的全局配置目录。要让终端和 DSH 服务读取同一份工作区文件，两边应使用相同的工作区绝对路径，并能读取其中的文件。`--dry-run` 只预览 Kitto setup 的计划，不写盘；旧版 Pi 的 `sync.sh` 预览路径已移除。
 
 ```text
 /home/dsh/workspaces/
@@ -178,7 +178,7 @@ Codex MCP 的已知边界：
 
 默认配置来源是这个 GitHub 仓库。使用自己的 fork 时，首次 setup 加 `--source <Git-URL>`；要复用已有仓库，则传入本地路径。让 Kitto “检查配置状态”可以看到本机使用的源目录。共享 skills 默认由 Kitto 部署到 `~/.agents/skills/`。
 
-`sync.sh` 只是 Kitto 内部的 Pi 适配器，不是公开入口。直接运行 `bash sync.sh` 会打印 deprecated 警告，并跳过共享 skills（`~/.agents/skills` 由 Kitto JS 按 hash 所有权和锁管理）；只有显式设置 `KITTO_ALLOW_LEGACY_SKILL_SYNC=1` 才按旧行为写入。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告并按普通 setup 运行。
+`sync.sh` 只是 Kitto 内部的 Pi 适配器，不是公开入口。直接运行 `bash sync.sh` 会打印 deprecated 警告，并跳过共享 skills（`~/.agents/skills` 由 Kitto JS 按 hash 所有权和锁管理）；只有显式设置 `KITTO_ALLOW_LEGACY_SKILL_SYNC=1` 才按旧行为写入，直接运行时 `status` 也不再报告这些被跳过的 skills。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告，并按旧的非交互语义运行 setup（不会启动向导）。
 
 ## 换机与更新
 
