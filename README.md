@@ -36,7 +36,7 @@ DSH Desktop 独占 `desktop` 配置档。Kitto v1 可以为它部署全局 `AGEN
 npx --yes @phyzess/kitto setup --agents dsh --dsh-profile desktop
 ```
 
-重新打开 Desktop 后生效。需要 Kitto bundle、scoped 规则或 MCP 同步时，改用 `--dsh-profile web`；Desktop 内置 CLI 不能为 Kitto 提供这些能力。切换 profile 前先运行维护 skill 的 `maintain remove --apply` 解除当前集成。细节见[使用指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#dsh-desktop-配置档v1仅全局规则与-skills)。
+重新打开 Desktop 后生效。需要 Kitto bundle、scoped 规则或 MCP 同步时，改用 `--dsh-profile web`；Desktop 内置 CLI 不能为 Kitto 提供这些能力。切换 profile 前先运行维护 skill 的 `maintain remove --apply` 解除当前集成。细节见[使用指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#dsh-desktop-配置档v1仅全局规则与-skills)。Desktop 的深度支持（受控写 profile patch、内置 CLI、bundle 边界）仍暂缓，只记录在 [DSH Desktop roadmap](https://github.com/phyzess/kitto/blob/main/docs/roadmap.md) 中。
 
 ## 把改动带到下一台机器
 
@@ -49,4 +49,13 @@ npx --yes @phyzess/kitto@latest update --apply  # 拉取配置、刷新 runtime�
 
 `update` 先按 checkout 记录的分支/tag 更新配置源，再刷新 Kitto 自己的 runtime 副本，最后重新部署规则、skills 与 MCP（原生插件注册仍指向 runtime 路径，无需重装）。它不会升级 Pi、Codex、DSH 宿主 CLI（用各自的包管理器升级）；升级后重启宿主以加载新的插件代码。checkout 丢失时按记录的 `sourceUrl`/`sourceRef` 恢复；tag 固定、ref 未知或远端分支已删除时不会猜测，会提示原地重建 checkout 后重跑 setup，或换一个 `KITTO_HOME`。在 agent 会话里也可以说「用 Kitto 检查并同步配置」。直接编辑全局或工作区文件会在对应目录生效，想跨机器复用时需将它们纳入自己的版本管理。
 
-[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md) · [Pi 配置参考](https://github.com/phyzess/kitto/blob/main/docs/pi.md) · [版本记录](CHANGELOG.md)
+宿主 CLI 的升级同样是显式操作，并且只升到 Kitto 已验证的基线，不追最新版，也不会自动发生：
+
+```bash
+npx --yes @phyzess/kitto@latest hosts          # 只读：当前版本、Kitto 基线、升级命令
+npx --yes @phyzess/kitto@latest hosts --apply  # 只把低于基线的已选宿主升到基线
+```
+
+`--host NAME` 限定一个宿主，`--version X.Y.Z` 明确固定精确版本（不是已验证基线时会提示）。未选宿主不动，`desktop` DSH 由 Desktop App 管理。细节见[使用指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#宿主-cli只升到已验证基线不自动更新)。
+
+[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md) · [Pi 配置参考](https://github.com/phyzess/kitto/blob/main/docs/pi.md) · [DSH Desktop roadmap](https://github.com/phyzess/kitto/blob/main/docs/roadmap.md) · [版本记录](CHANGELOG.md)

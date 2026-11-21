@@ -1285,3 +1285,187 @@ test('interactive DSH Desktop setup stays global-only and skips scoped adapters'
   assert(!calls.some(c => c.command === 'dsh' && c.args.includes('add')));
   assert(!calls.some(c => c.command === 'pnpm'));
 });
+
+// A test-local PATH with fake hosts and npm only, so `kitto hosts` cannot reach
+// real CLIs or the network. The version file is updated by the fake npm shim.
+function hostsTools(f, { versions = {}, missing = [], id = 'hosts-tools' } = {}) {
+  const bin = join(f.temp, id);
+  mkdirSync(bin, { recursive: true });
+  const versionsFile = join(bin, 'versions.json');
+  writeFileSync(versionsFile, JSON.stringify(versions));
+  const log = join(bin, 'calls.jsonl');
+  for (const name of ['npm', 'pi', 'codex', 'dsh']) {
+    if (missing.includes(name)) continue;
+    writeFileSync(join(bin, name),
+      `#!${process.execPath}\nrequire(${JSON.stringify(join(root, 'tests/helpers/fake-hosts-tool.cjs'))});\n`,
+      { mode: 0o755 });
+  }
+  const env = { ...f.env, PATH: bin, HOSTS_VERSIONS: versionsFile, HOSTS_LOG: log };
+  const calls = () => existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
+  return {
+    bin, env, log, versionsFile, calls,
+    installs: () => calls().filter(call => call.command === 'npm' && call.args[0] === 'install'),
+    versions: () => readJson(versionsFile),
+    run: (...args) => command(process.execPath, [join(root, 'bin/kitto.mjs'), ...args], env),
+  };
+}
+
+test('kitto hosts check reports selected versions and baselines without writes', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.4.0', codex: '0.170.0' } });
+  const home = f.env.KITTO_HOME, statePath = join(home, 'state.json');
+  const before = snapshot(home), stateBefore = readFileSync(statePath, 'utf8');
+
+  const result = tools.run('hosts');
+  good(result);
+  assert.match(result.stdout, /host CLIs \(check only; no writes\)/);
+  assert.match(result.stdout, /pi: current 1\.4\.0; Kitto baseline 1\.5\.2; target 1\.5\.2; upgrade needed/);
+  assert.match(result.stdout, /native manager: npm install --global @earendil-works\/pi-coding-agent@1\.5\.2/);
+  assert.match(result.stdout, /codex: current 0\.170\.0; Kitto baseline 0\.170\.0/);
+  assert.doesNotMatch(result.stdout, /dsh/);
+  assert.equal(tools.installs().length, 0);
+  assert.equal(tools.calls().some(call => call.command === 'npm'), false);
+  assert.deepEqual(snapshot(home), before);
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+  assert.equal(existsSync(join(home, '.lock')), false);
+
+  const explicit = tools.run('hosts', '--check');
+  good(explicit);
+  assert.match(explicit.stdout, /check only; no writes/);
+  assert.equal(tools.installs().length, 0);
+
+  const missingState = { ...tools.env, KITTO_HOME: join(f.temp, 'unset-kitto-home') };
+  const notSetup = command(process.execPath, [join(root, 'bin/kitto.mjs'), 'hosts'], missingState);
+  assert.notEqual(notSetup.status, 0);
+  assert.match(notSetup.stderr, /not set up/);
+});
+
+test('kitto hosts --apply installs the exact baseline for outdated selected hosts only', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.4.0', codex: '0.170.0' } });
+  const home = f.env.KITTO_HOME, statePath = join(home, 'state.json');
+  const stateBefore = readFileSync(statePath, 'utf8');
+
+  const result = tools.run('hosts', '--apply');
+  good(result);
+  assert.match(result.stdout, /pi: current 1\.4\.0 -> 1\.5\.2/);
+  assert.match(result.stdout, /verified pi 1\.5\.2/);
+  assert.deepEqual(tools.installs(),
+    [{ command: 'npm', args: ['install', '--global', '@earendil-works/pi-coding-agent@1.5.2'] }]);
+  assert.equal(tools.versions().installed['@earendil-works/pi-coding-agent'], '1.5.2');
+  assert.equal(tools.versions().installed['@openai/codex'], undefined);
+  assert(!tools.calls().some(call => call.command === 'dsh'));
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+
+  const again = tools.run('hosts', '--apply');
+  good(again);
+  assert.match(again.stdout, /Nothing to change/);
+  assert.equal(tools.installs().length, 1);
+});
+
+test('kitto hosts --apply keeps a prerelease DSH baseline exact', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'dsh', '--source', f.source));
+  const tools = hostsTools(f, { versions: { dsh: '0.2.2-rc.0' } });
+  const result = tools.run('hosts', '--apply');
+  good(result);
+  assert.deepEqual(tools.installs(),
+    [{ command: 'npm', args: ['install', '--global', '@deepseek-ai/dsh@0.2.2-rc.1'] }]);
+  assert.match(result.stdout, /verified dsh 0\.2\.2-rc\.1/);
+});
+
+test('kitto hosts --version pins one exact version and refuses dist-tags', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.5.2', codex: '0.170.0' } });
+
+  const pinned = tools.run('hosts', '--host', 'codex', '--version', '0.169.5', '--apply');
+  good(pinned);
+  assert.match(pinned.stdout, /Explicit pin overrides the Kitto-validated baseline for codex \(0\.170\.0 -> 0\.169\.5\)/);
+  assert.match(pinned.stdout, /verified codex 0\.169\.5/);
+  assert.deepEqual(tools.installs(),
+    [{ command: 'npm', args: ['install', '--global', '@openai/codex@0.169.5'] }]);
+
+  const ambiguous = tools.run('hosts', '--version', '1.5.2');
+  assert.notEqual(ambiguous.status, 0);
+  assert.match(ambiguous.stderr, /--version pins one host/);
+  const rejected = tools.run('hosts', '--version', 'latest');
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /exact semantic version/);
+  const unknownHost = tools.run('hosts', '--host', 'dsh');
+  assert.notEqual(unknownHost.status, 0);
+  assert.match(unknownHost.stderr, /not a selected host/);
+  const conflict = tools.run('hosts', '--check', '--apply');
+  assert.notEqual(conflict.status, 0);
+  assert.match(conflict.stderr, /Choose either --check or --apply/);
+});
+
+test('a failed kitto hosts --apply changes neither the host CLI nor Kitto state', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.4.0' } });
+  tools.env.HOSTS_NPM_FAIL = '1';
+  const home = f.env.KITTO_HOME, statePath = join(home, 'state.json');
+  const before = snapshot(home), stateBefore = readFileSync(statePath, 'utf8');
+
+  const failed = tools.run('hosts', '--apply');
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /exit 9/);
+  assert.deepEqual(snapshot(home), before);
+  assert.equal(readFileSync(statePath, 'utf8'), stateBefore);
+  assert.equal(tools.versions().pi, '1.4.0');
+
+  const broken = hostsTools(f, { versions: { pi: 'garbage' }, id: 'hosts-tools-broken' });
+  const brokenBefore = snapshot(home);
+  const unreadable = broken.run('hosts', '--apply');
+  assert.notEqual(unreadable.status, 0);
+  assert.match(unreadable.stderr, /Cannot read the current version/);
+  assert.equal(broken.installs().length, 0);
+  assert.deepEqual(snapshot(home), brokenBefore);
+});
+
+test('kitto hosts leaves unselected hosts alone and update still never upgrades hosts', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'codex', '--source', f.source));
+  withRemote(f);
+  const tools = hostsTools(f, { versions: { pi: '1.0.0', codex: '0.169.0', dsh: '0.1.0' } });
+  const home = f.env.KITTO_HOME, before = snapshot(home);
+
+  const update = f.cli('update', '--check');
+  good(update);
+  assert.match(update.stdout, /Host CLIs \(Kitto never upgrades them/);
+  assert.match(update.stdout, /codex: 0\.170\.0 \(Kitto tested baseline 0\.170\.0\)/);
+  assert.deepEqual(snapshot(home), before);
+
+  const applied = tools.run('hosts', '--apply');
+  good(applied);
+  assert.deepEqual(tools.installs().map(call => call.args[2]), ['@openai/codex@0.170.0']);
+  assert(!tools.calls().some(call => call.command === 'pi' || call.command === 'dsh'));
+});
+
+test('kitto hosts leaves the app-managed DSH Desktop CLI to the Desktop app', t => {
+  const f = fixture(t);
+  mkdirSync(join(f.source, 'config/dsh'), { recursive: true });
+  writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
+  commitAll(f, 'desktop rules');
+  good(f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source));
+  const tools = hostsTools(f, { missing: ['dsh'] });
+  const home = f.env.KITTO_HOME, before = snapshot(home);
+
+  const check = tools.run('hosts');
+  good(check);
+  assert.match(check.stdout, /dsh: app-managed by DeepSeek Harness Desktop; Kitto baseline 0\.2\.2-rc\.1/);
+  assert.match(check.stdout, /Nothing for Kitto to manage/);
+
+  const applied = tools.run('hosts', '--apply');
+  good(applied);
+  assert.match(applied.stdout, /app-managed by DeepSeek Harness Desktop; skipped/);
+  assert.equal(tools.calls().some(call => call.command === 'npm'), false);
+  assert.deepEqual(snapshot(home), before);
+
+  const pinned = tools.run('hosts', '--host', 'dsh', '--version', '0.2.2-rc.1', '--apply');
+  assert.notEqual(pinned.status, 0);
+  assert.match(pinned.stderr, /app-managed/);
+});

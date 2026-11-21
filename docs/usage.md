@@ -86,6 +86,8 @@ Kitto v1 对 `desktop` 不做：
 
 Desktop 内置的 `dsh` 命令只管理 App 自己的 profile，**不能**让 Kitto 获得 bundle、scoped 规则或 MCP 同步。需要这些能力时只能改用 `--dsh-profile web`（或 headless 等 Kitto 管理的 profile）。Desktop 更新可能改变其读取全局规则/skills 的方式，升级后请重新验证。
 
+Desktop 的深度支持（受控写 `profiles/desktop/cordis.patch.yml` 中的 Kitto 行、检测/使用内置 CLI、bundle/package/lockfile 边界）仍暂缓，只记录在 [DSH Desktop roadmap](roadmap.md) 中；v1 不实现，也不构成版本承诺。
+
 从 `desktop` 切到 `web`（或反向）时，Kitto 要求先解除当前集成：通过维护 skill 运行 `maintain remove --apply`，再用新的 `--dsh-profile` 执行 setup；未解除时 setup 会拒绝切换 profile。
 
 ## 查看与移除 scope 登记
@@ -194,6 +196,27 @@ npx --yes @phyzess/kitto@latest update --apply  # 拉取配置、刷新 runtime�
 1. **配置源**：只对干净的分支执行 `git fetch` + `git pull --ff-only`；本地与远端只要有一方是另一方的祖先就继续（本地领先时等同于 Already up to date），只有真正分叉（互不为祖先）才拒绝且不合并。本地修改会中止且不会 stash 或 reset；detached 或 tag 固定的 checkout 会提示改用 `setup --ref TAG`。Kitto 创建的 checkout 会记录 `sourceUrl` 和 `sourceRef`（分支名或 tag 名），checkout 丢失时按记录的 ref 重新 clone；tag 固定、ref 无法确定或远端已无该分支时不会猜测，而是提示在原地重建 checkout 后重跑 `setup`，或换一个 `KITTO_HOME`。origin 变化时会同步更新 `sourceUrl`（日志中的凭据已脱敏）。旧版 `state.json` 没有这些字段也能运行，存在 bootstrap marker 时会自动回填。
 2. **已安装 runtime**：把正在执行的 Kitto 包（`bin`、`lib`、`integration`、`sync.sh`、`package.json`、`CHANGELOG.md`）替换到 `~/.local/share/kitto/runtime`。替换前把上一次验证过的版本保存为 `runtime.previous` 检查点。新 runtime 在本次部署成功前只是 `pendingRuntime`，不会成为检查点，也不会覆盖 `state.json` 里的已验证版本；部署失败时 `setup --recover` 仍回到上次成功部署的版本，重试也不会把未经验证的代码当成检查点。
 3. **部署**：规则/指令、skills、MCP 与 Pi 配置沿用原有 `sync` 逻辑；原生插件/扩展注册保持不变（仍指向 runtime 路径，无需重装）。预览不写文件。
+
+### 宿主 CLI：只升到已验证基线，不自动更新
+
+`update` 不会升级 Pi、Codex 或 DSH 的宿主 CLI，也不会在后台检查新版本。宿主升级是单独、显式的动作，目标只取 Kitto 已验证的基线（即代码中的 `hosts[name].version`），不追 npm `latest`，也不使用 `npx` 临时运行：
+
+```bash
+npx --yes @phyzess/kitto@latest hosts          # 只读：当前版本、Kitto 基线、原生升级命令
+npx --yes @phyzess/kitto@latest hosts --check  # 同上，显式写法
+npx --yes @phyzess/kitto@latest hosts --apply  # 只把低于基线的已选宿主升到基线
+npx --yes @phyzess/kitto@latest hosts --host codex --version 0.170.0 --apply
+```
+
+`kitto hosts` 只处理 `state.json` 中已选的宿主，逐行显示当前 `--version`、Kitto 基线 `hosts[name].version` 和对应的原生管理命令。`--check`（默认行为）只读：不写宿主、不写 Kitto 状态；`--apply` 才执行 `npm install --global <包>@<版本>`。Pi 和 Codex 安装各自的 npm 全局包；DSH 安装 `@deepseek-ai/dsh@<基线>`，基线是 prerelease 时保留精确版本（例如 `0.2.2-rc.1`），不会替换成 `next` 或 `latest`。
+
+- 版本低于基线或尚未安装：`--apply` 安装基线。
+- 已等于基线：不做任何事。
+- 高于基线：默认不降级；确实需要时用 `--version` 明确固定，并会提示该版本不是已验证基线。
+- `--version` 只接受精确版本号（拒绝 `latest` 等 dist-tag 和版本范围），且只能作用于一个宿主：多选宿主时配合 `--host NAME`。
+- 未选中的宿主不会被探测或升级；`desktop` 配置档的 DSH 由 Desktop App 管理，Kitto 不安装或固定其 CLI，请使用 App 升级。
+- 若 npm 不可用、宿主版本无法读取，或安装后的版本与目标不一致，命令会明确失败；失败不会写 `state.json`。
+- 升级完成后重启对应宿主，让新 CLI 生效。
 
 需要复现某次配置时，在 setup 命令末尾加 `--ref <已存在的-tag>`。Kitto 创建的配置仓库可以用同一参数切换到另一个 tag；自己提供的本地仓库用 Git 切换。状态中的 `deployed` 表示上次成功部署的提交，`checkout` 表示源目录当前的提交。检查上游工具版本时，可以直接说“用 Kitto 在线检查已启用工具的版本”。
 
