@@ -60,11 +60,17 @@ Pi、Codex、DSH 共用这些约定；宿主的工具差异放在各自的 adden
 
 模型家族分工（宿主提供多路由时）：
 
-- 需求与方案：GPT 系高端档，仅在 T2 或需求歧义时启用。
-- 实现与长时自主：GPT 系主力档；只有 GPT 额度受限，或任务属于 Grok 的领域强项时，才换 Grok。
-- 批量、机械改动、可并行的重复工作、T1 验证与审查：DeepSeek Flash。
-- T2 审查与第三意见：优先用第三个家族（Grok）；没有就降级为 DeepSeek，并在报告注明。
-- 审查者必须与实现者不同家族，且不改代码，只交 verdict 与 findings。
+- 主力是 GPT 订阅：方案、实现、长时自主都用 GPT 档，边际成本为零。
+- 子 agent 从 GPT 与 opencode-go 两个订阅渠道按任务挑，不限家族：
+  - 方案与需求：GPT 高端档。
+  - 实现：GPT 主力档。
+  - 批量、机械改动、长跑扫描：opencode-go 的 $0.12–0.15/M 档（DeepSeek V4.1 Flash、GLM-5.3-Flash、Qwen3.8-Flash、MiMo-V2.6-Flash）。
+  - 验证与门禁：opencode-go 的 GPT-6 Luna 或 Claude Haiku 5.5（均 $0.10/$0.50）。
+  - T1 审查：opencode-go 的 Kimi K3.1 Pro 或 GLM-5.3。
+  - T2 审查与第三意见：opencode-go 的 Grok 4.7、Kimi K3 或 DeepSeek V4 Pro。
+- 不走 deepseek 官方 API 与 xAI 官方 API：两者按量计费，不由已付订阅覆盖；同款模型走 opencode-go 即可。
+- 一次性判定（开分级、失败归因、要不要加人）先问 `jev-decide` 拿概率再拍板，别只凭印象。
+- 审查者必须与实现者不是同一个模型，且不改代码，只交 verdict 与 findings。
 - 单模型宿主（如只接 GPT 的 Codex）：T1 可独立完成；T2 只做实现与验证，跨家族审查标记为待外部执行。
 
 硬门禁：
@@ -78,8 +84,8 @@ Pi、Codex、DSH 共用这些约定；宿主的工具差异放在各自的 adden
 
 成本、额度与验证纪律：
 
-- 已付订阅覆盖的模型优先承担实现、方案与长时任务；按量计费的模型只用于批量、验证和跨家族审查。
-- Grok 按量计费且 token 消耗高，默认只在 T2 审查、第三意见、领域强项或 GPT 额度受限时启用，不进 T1 团队。
+- 两个订阅渠道（GPT、opencode-go）覆盖实现、方案与审查；按量计费的官方渠道不进日常流程。
+- opencode-go 的消耗按模型标价折算月度额度：批量与验证走 $0.15/M 档，Grok 4.7 与 Kimi K3 只留给 T2 审查。
 - 单任务现金成本超过 $1 或整轮超过 $5 时，先报告再继续。
 - 验证只跑受影响的定向测试；构建、全量套件与端到端属于 PR 门禁，未经用户明确要求不跑。
 

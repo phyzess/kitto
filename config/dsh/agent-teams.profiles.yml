@@ -13,13 +13,14 @@
 #    或让队长调用 agent_teams_create({ profile: "dev-standard", approval: "required" })。
 #
 # 注意：toolPolicies 是工具可见性，不是 OS 沙箱；bash 仍可在允许后写文件。
-# Grok 只出现在 dev-hard 的 reviewer（T2 审查），不承接日常实现与长跑；
-# dev-standard 的审查用 DeepSeek，与 GPT 实现跨家族且成本可忽略。
-# 没有 XAI_API_KEY 时，dev-hard 的 reviewer 按 fallback 降级为 DeepSeek，
-# 队长需要在报告里注明降级。第三意见按需用 agent_teams_add_member 临时加入。
+# 两个订阅渠道：GPT（openai-codex）承担方案与实现，opencode-go 承担验证与审查。
+# Grok 只出现在 dev-hard 的 reviewer（T2 审查），走 opencode-go 而不是 xAI 官方计费；
+# dev-standard 的审查用 Kimi K3.1 Pro，与 GPT 实现跨家族。
+# opencode-go 不可用时，核实查与验证按 fallback 用 GPT 档，队长在报告里注明「同家族复核」。
+# 第三意见按需用 agent_teams_add_member 临时加入。
 
 # --- 1. Grok 路由：追加到现有 - id: llm-pi-ai 的 providers 下，不要整段覆盖 ---
-#   xai:
+#   xai:  # 不使用：xAI 官方渠道按量计费
 #     displayName: xAI
 #     apiKeyEnv: XAI_API_KEY
 #     api: openai-completions
@@ -52,7 +53,7 @@
         allow: [read, glob, grep, bash, web_search, web_fetch]
     profiles:
       dev-standard:
-        description: T1 标准开发：Sol 实现，Flash 验证与审查
+        description: T1 标准开发：Sol 实现，Luna 验证，Kimi 审查
         taskPlanning: captain
         members:
           - name: implementer
@@ -62,21 +63,21 @@
             reasoning_effort: high
           - name: verifier
             role: 验证
-            provider: deepseek-official
-            model: deepseek-flash
-            reasoning_effort: max
+            provider: opencode-go
+            model: gpt-6-luna
+            reasoning_effort: medium
           - name: reviewer
             role: 审查
-            provider: deepseek-official
-            model: deepseek-flash
-            reasoning_effort: max
+            provider: opencode-go
+            model: kimi-k3.1-pro
+            reasoning_effort: high
             tool_policy: read-only
         reviewPolicy:
           codeMaxRounds: 2
           maxRepairAttempts: 2
           requiredReviewers: [reviewer]
       dev-hard:
-        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，Flash 验证
+        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，Luna 验证
         taskPlanning: captain
         members:
           - name: architect
@@ -97,18 +98,18 @@
             reasoning_effort: high
           - name: verifier
             role: 验证
-            provider: deepseek-official
-            model: deepseek-flash
-            reasoning_effort: max
+            provider: opencode-go
+            model: gpt-6-luna
+            reasoning_effort: medium
           - name: reviewer
             role: 审查
-            provider: xai
+            provider: opencode-go
             model: grok-4.7
             reasoning_effort: high
             tool_policy: read-only
             fallback:
-              provider: deepseek-official
-              model: deepseek-flash
+              provider: opencode-go
+              model: kimi-k3.1-pro
         reviewPolicy:
           requirementsMinRounds: 1
           requirementsMaxRounds: 2

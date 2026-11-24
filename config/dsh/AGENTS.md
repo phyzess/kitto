@@ -13,12 +13,14 @@
   | --- | --- | --- | --- |
   | 方案 | openai-codex | gpt-6.2-astra | high |
   | 实现/长跑 | openai-codex | gpt-6.2-sol | high |
-  | 批量、T1 验证与审查 | deepseek-official | deepseek-flash | max |
-  | T2 审查、第三意见 | xai | grok-4.7 | high（只审 diff） |
-- Grok 默认不进 T1 团队：只在 T2 审查、GPT 与 DeepSeek 结论冲突、两轮修复仍失败、领域强项（EE/硬件/协议），或 GPT 额度受限时加入。
-- 成本约束：Grok 审查只给 diff 与必要上下文（≤50k 输入），长跑任务单次可能 $1+；单任务超 $1 或整轮超 $5 先报告。
-- `xai` 未配置时：T2 审查降级为 `deepseek-official/deepseek-flash`（与 GPT 实现仍跨家族），并在最终报告注明降级。
-- `xai` 的 provider/allowlist 在会话启动时快照：配置后必须新开会话才能把 Grok 成员纳入计划；旧会话里不要规划 Grok 成员，也不要把“配置已改”当作可用。
+  | 批量、机械、扫描 | opencode-go | deepseek-v4.1-flash / glm-5.3-flash / qwen3.8-flash | low |
+  | 验证与门禁 | opencode-go | gpt-6-luna / claude-haiku-5-5 | medium |
+  | T1 审查 | opencode-go | kimi-k3.1-pro（fallback glm-5.3） | high（只审 diff） |
+  | T2 审查、第三意见 | opencode-go | grok-4.7 / kimi-k3 / deepseek-v4-pro | high（只审 diff） |
+- opencode-go 是订阅渠道（`https://opencode.ai/inference/go`）：路由不带 `models` 时直接服务其内置目录；用 `modelOverrides` 把有效预算压到 400K（压缩触发 ~206K），`hy3` 留作 120K 短上下文批量档。
+- 不走 `deepseek-official` 与 `xai` 官方渠道：两者都按量计费。需要 Grok 时用 opencode-go 的 `grok-4.7`。
+- 一次性判定走 JEV：`node ~/.agents/skills/jev-decide/scripts/jev.mjs --state @state.md --questions @q.json`。`noul` 是/否、`choice` 多选一、`score` 档位；用于开分级、失败归因、finding 分档、要不要加第三意见。端点是 Go 渠道 `/inference/go/systemone/v1/systemone`，`jev-1.14` 与两种 decision 模型都计入 Go 额度；换成不带 `/go/` 的路径就变成 Console 按量计费。state 放摘要，不放源码与私有样本。
+- provider 与 allowlist 在会话启动时快照：改完配置要新开会话才生效；旧会话里不要规划新路由的成员，也不要把“配置已改”当作可用。
 - 独立 worktree 的创建与交还按 `kitto-worktree` skill 的预览与确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 - 质量任务用 `kind=requirements/implementation/verification/review/integration`；implementation/repair 必须带 `verify`；review 必须 `verdict=pass` 才解锁下游。
 - 规划与审查成员用 `tool_policy: "read-only"`（可跑 bash 验证，禁止 edit/write）；实现与批量用默认工具集。
