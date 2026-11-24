@@ -68,6 +68,8 @@ node ~/.agents/skills/jev-decide/scripts/jev.mjs --state "只改 docs/README.md�
 
 ## 计费与凭据
 
-- 端点 `https://opencode.ai/inference/systemone/v1/systemone`；`jev-1.13-free` 免费，`jev-1.14` 走 Console 按量计费（$0.042/M 输入），**OpenCode Go 订阅不覆盖 System One**。
+- 端点用 Go 渠道：`https://opencode.ai/inference/go/systemone/v1/systemone`，`jev-1.14`、`gpt-6-luna-decision`、`gemini-decision-1` 都从这里走，计入 Go 订阅额度（返回里 `billing_source: "go"`）。
+- 同一模型走 `https://opencode.ai/inference/systemone/v1/systemone` 则是 Console 按量计费，余额为零时返回 402。用错端点会误以为「Go 不覆盖 System One」。
+- `jev-1.13-free` 免费，但数据条款不承诺零留存，只用来做无敏感信息的判定。
 - 凭据：`$OPENCODE_API_KEY` 或 `$OPENCODE_GO_API_KEY`，DSH 上回退读 `$DSH_HOME/.credentials.yaml` 的 `refs` 块。
 - 请求必须带产品 User-Agent，否则被网关以 Cloudflare 1010 拒绝；脚本已固定该 header。

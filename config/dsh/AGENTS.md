@@ -19,7 +19,7 @@
   | T2 审查、第三意见 | opencode-go | grok-4.7 / kimi-k3 / deepseek-v4-pro | high（只审 diff） |
 - opencode-go 是订阅渠道（`https://opencode.ai/inference/go`）：路由不带 `models` 时直接服务其内置目录；用 `modelOverrides` 把有效预算压到 400K（压缩触发 ~206K），`hy3` 留作 120K 短上下文批量档。
 - 不走 `deepseek-official` 与 `xai` 官方渠道：两者都按量计费。需要 Grok 时用 opencode-go 的 `grok-4.7`。
-- 一次性判定走 JEV：`node ~/.agents/skills/jev-decide/scripts/jev.mjs --state @state.md --questions @q.json`。`noul` 是/否、`choice` 多选一、`score` 档位；用于开分级、失败归因、finding 分档、要不要加第三意见。System One **不在 Go 订阅内**，用 `jev-1.13-free`；state 放摘要，不放源码与私有样本。
+- 一次性判定走 JEV：`node ~/.agents/skills/jev-decide/scripts/jev.mjs --state @state.md --questions @q.json`。`noul` 是/否、`choice` 多选一、`score` 档位；用于开分级、失败归因、finding 分档、要不要加第三意见。端点是 Go 渠道 `/inference/go/systemone/v1/systemone`，`jev-1.14` 与两种 decision 模型都计入 Go 额度；换成不带 `/go/` 的路径就变成 Console 按量计费。state 放摘要，不放源码与私有样本。
 - provider 与 allowlist 在会话启动时快照：改完配置要新开会话才生效；旧会话里不要规划新路由的成员，也不要把“配置已改”当作可用。
 - 独立 worktree 的创建与交还按 `kitto-worktree` skill 的预览与确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 - 质量任务用 `kind=requirements/implementation/verification/review/integration`；implementation/repair 必须带 `verify`；review 必须 `verdict=pass` 才解锁下游。

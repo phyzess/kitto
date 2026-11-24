@@ -7,8 +7,10 @@
 //   node jev.mjs --state @- --questions @-        # from stdin (state first)
 //
 // Key: $OPENCODE_API_KEY or $OPENCODE_GO_API_KEY, else the refs block of
-// $DSH_HOME/.credentials.yaml (DSH only). Override the endpoint with
-// $JEV_ENDPOINT and the model with --model (default jev-1.13-free).
+// $DSH_HOME/.credentials.yaml (DSH only). The default endpoint is the Go one,
+// which bills System One against the OpenCode Go subscription; override with
+// $JEV_ENDPOINT (the Console path is https://opencode.ai/inference/systemone/v1/systemone
+// and bills pay-as-you-go credits).
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -17,7 +19,8 @@ const USAGE = `Usage: jev.mjs --state <text|@file> --questions <json|@file> [--m
 
   --state      the text the model judges (inline, @file, or @- for stdin)
   --questions  JSON object of {id: {type, instructions, criteria?}}; types: noul | choice | score
-  --model      decision model id (default jev-1.13-free)
+  --model      decision model id (default jev-1.14; gpt-6-luna-decision and
+               gemini-decision-1 take the same request)
 
 Exit codes: 0 answered, 2 bad usage or missing key, 3 HTTP failure.`;
 
@@ -27,7 +30,7 @@ function fail(code, message) {
 }
 
 function parseArgs(argv) {
-  const opts = { model: 'jev-1.13-free' };
+  const opts = { model: 'jev-1.14' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const value = () => {
@@ -87,7 +90,8 @@ try { questions = JSON.parse(questionsText); }
 catch { fail(2, '--questions must be valid JSON'); }
 if (!questions || typeof questions !== 'object' || Array.isArray(questions)) fail(2, '--questions must be a JSON object keyed by question id');
 
-const endpoint = process.env.JEV_ENDPOINT || 'https://opencode.ai/inference/systemone/v1/systemone';
+// The /go/ path bills the Go subscription; the bare /inference/ path bills Console credits.
+const endpoint = process.env.JEV_ENDPOINT || 'https://opencode.ai/inference/go/systemone/v1/systemone';
 const response = await fetch(endpoint, {
   method: 'POST',
   headers: {
@@ -102,7 +106,7 @@ const response = await fetch(endpoint, {
 const body = await response.text();
 if (!response.ok) {
   let hint = '';
-  if (response.status === 402) hint = ' — System One is pay-as-you-go; top up Console credits or use jev-1.13-free';
+  if (response.status === 402) hint = ' — Console credits are empty; use the Go endpoint ($JEV_ENDPOINT) or jev-1.13-free';
   if (response.status === 403 && body.includes('1010')) hint = ' — Cloudflare rejected the request; keep a product user agent';
   fail(3, `HTTP ${response.status}${hint}\n${body.slice(0, 400)}`);
 }
