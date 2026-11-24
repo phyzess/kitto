@@ -1760,3 +1760,41 @@ test('the maintenance runner exposes the same explicit host policy', t => {
   assert.match(result.stdout, /codex: current 0\.169\.0; Kitto baseline 0\.170\.0/);
   assert.match(result.stdout, /check only; no writes/);
 });
+
+// Host CLI versions are observations: one stale CLI must never block the other
+// selected hosts, and --require-baseline restores the strict release gate.
+test('a host below the tested baseline warns and keeps deploying the other hosts', t => {
+  const f = fixture(t);
+  f.env.FAKE_HOST_VERSIONS = JSON.stringify({ codex: '0.167.1' });
+  const result = f.cli('setup', '--agents', 'pi,codex', '--source', f.source);
+  good(result);
+  assert.match(result.stderr, /kitto: codex: 0\.167\.1 is older than the tested baseline 0\.170\.0/);
+  assert.match(result.stderr, /continuing and skipping the steps this CLI cannot support/);
+  assert.match(readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8'), /Pi instructions/);
+  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  assert.equal(state.ready, true);
+  assert.deepEqual(state.agents, ['pi', 'codex']);
+  // 0.167.1 still has the plugin subcommand, so its native registration runs.
+  assert(callsOf(f).some(c => c.command === 'codex' && c.args[0] === 'plugin' && c.args.includes('add')));
+});
+
+test('a host without the plugin subcommand skips only its native integration', t => {
+  const f = fixture(t);
+  f.env.FAKE_HOST_NO_HELP = 'codex';
+  const result = f.cli('setup', '--agents', 'pi,codex', '--source', f.source);
+  good(result);
+  assert.match(result.stderr, /this codex CLI has no plugin subcommand/);
+  assert.match(readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8'), /Pi instructions/);
+  assert(!callsOf(f).some(c => c.command === 'codex' && c.args[0] === 'plugin' && !c.args.includes('--help')));
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+});
+
+test('--require-baseline makes an untested host version fatal again', t => {
+  const f = fixture(t);
+  f.env.FAKE_HOST_VERSIONS = JSON.stringify({ codex: '0.167.1' });
+  const failed = f.cli('setup', '--agents', 'pi,codex', '--source', f.source, '--require-baseline');
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /codex: 0\.167\.1 is older than the tested baseline 0\.170\.0/);
+  assert.equal(existsSync(join(f.env.KITTO_HOME, 'state.json')), false);
+  assert.equal(existsSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md')), false);
+});

@@ -16,6 +16,7 @@ const help = `Kitto — portable personal agent configuration
   kitto setup --workspace PATH [--agents pi,codex,dsh] [--dsh-service UNIT] [--dry-run]
   kitto setup [--agents pi,codex,dsh] [--source PATH_OR_GIT_URL] [--ref BRANCH_OR_TAG]
               [--dsh-profile PROFILE] [--install-agents] [--dry-run]
+              [--require-baseline]
               [--include-private|--no-include-private]
   kitto setup --recover [--dry-run]   Restore the last working Kitto code
   kitto update [--check|--apply] [--include-private|--no-include-private]
@@ -42,6 +43,8 @@ kitto update only previews unless --apply is used (--check is the same preview, 
 it updates Kitto's code copy and configuration, never a host CLI or the Kitto package itself.
 Host CLIs are upgraded separately and explicitly with kitto hosts --apply, only to Kitto's validated
 baseline (or an explicit --version). Kitto never upgrades a host automatically.
+A host below that baseline only produces a warning: setup skips the steps that CLI cannot support and
+still deploys every other selected host. Pass --require-baseline to make an untested version fatal.
 Kitto needs Node >=22 and Git. Pi sync also needs Bash and Python >=3.10.
 DSH web/headless needs pnpm and uses the web profile by default. The Desktop app owns the desktop
 profile: Kitto deploys only its global AGENTS.md and skills, never checks or installs a dsh CLI, and
