@@ -15,28 +15,12 @@
 # 注意：toolPolicies 是工具可见性，不是 OS 沙箱；bash 仍可在允许后写文件。
 # 两个订阅渠道：GPT（openai-codex）承担方案与实现，opencode-go 承担验证与审查。
 # Grok 只出现在 dev-hard 的 reviewer（T2 审查），走 opencode-go 而不是 xAI 官方计费；
-# dev-standard 的审查用 Kimi K3.1 Pro，与 GPT 实现跨家族。
-# opencode-go 不可用时，核实查与验证按 fallback 用 GPT 档，队长在报告里注明「同家族复核」。
+# dev-standard 的审查用 Kimi K3.1 Pro，与 GPT 实现是不同模型。
+# opencode-go 不可用时，审查与验证按 fallback 用 GPT 档，队长在报告里注明「同模型复核，未换模型」。
 # 第三意见按需用 agent_teams_add_member 临时加入。
 
 # --- 1. Grok 路由：追加到现有 - id: llm-pi-ai 的 providers 下，不要整段覆盖 ---
-#   xai:  # 不使用：xAI 官方渠道按量计费
-#     displayName: xAI
-#     apiKeyEnv: XAI_API_KEY
-#     api: openai-completions
-#     baseURL: https://api.x.ai/v1
-#     compat:
-#       supportsDeveloperRole: false
-#     models:
-#       - id: grok-4.7
-#         name: Grok 4.7
-#         contextWindow: 524288
-#         input: [text, image]
-#         reasoningEfforts:
-#           low: low
-#           medium: medium
-#           high: high
-#           xhigh: xhigh
+# xAI 官方渠道不再配置（按量计费）。需要 Grok 时用 opencode-go 的 `grok-4.7`。
 
 # --- 2. 团队模板 ---
 - id: agent-teams
