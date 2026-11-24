@@ -24,3 +24,13 @@
 - 规划与审查成员用 `tool_policy: "read-only"`（可跑 bash 验证，禁止 edit/write）；实现与批量用默认工具集。
 - 默认 `approval: "required"`；用户说「直接跑/不用审」时才用 `automatic`。
 - 队长不写产品代码（合并冲突、集成提交除外），也不批准自己写的实现。
+
+### 上下文与成本（执行面）
+
+- **压缩是主控项**：DSH 按上下文窗口的比例触发自动压缩（默认 `thresholdRatio: 0.8`）。1M 窗口的模型因此到 ~840K 才压缩，实测会话就涨到了 840K prompt，44% 的请求落在 >200K 的翻倍档。把 standard 预设的 `compaction-basic` 配成 `thresholdRatio: 0.15`、`retainTokens: 32000`、`maxTokens: 8192`，阈值就落到 ~150K。参考值见 `config/dsh/compaction.reference.yml`。
+- 改压缩策略走 Web 的 agent preset 编辑器（`ui-agent-preset`）。profile patch 里给 `preset-standard` 只写部分 `plugins` 会整表替换，少一个插件就会让该预设残废；要么在 UI 里改，要么整份 `plugins` 覆盖。
+- 审计入口：`node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs`。只读扫描 `$DSH_HOME/sessions`，按模型、会话、天输出 token 与折算成本；`--project` 做路径前缀过滤，`--days` 限窗口。
+- 会话日志：`$DSH_HOME/sessions/<项目>/<会话 id>/session.v4.jsonl.zstd`。每条 `assistant/message` 带 `usage`（`inputTokens`、`cacheReadTokens`、`outputTokens`），模型 id 在 `message.source`；压缩与剪枝是 `compaction/*` 事件。以此为唯一事实来源，不靠估算。
+- 子 agent 默认 `subagent`（干净上下文）；`subagent_fork` 只在需要延续判断时使用。一个成员同一时间一个任务，波次任务数超过 3 个拆波。
+- 队长把证据与结论写进任务合同；转发原文会让每个成员各自重读一遍。
+- handoff 写到 `$DSH_HOME/handoffs/<工单>-<日期>.md`，格式按 `context-budget` skill 的模板。

@@ -9,6 +9,9 @@
 | 共享规则 | `config/instructions/common.md` → 「开发任务编排」 | 开工声明、T0/T1/T2 分级、家族分工、硬门禁与验证纪律。所有宿主都会拿到。 |
 | 宿主 addendum | `config/dsh/AGENTS.md`、`config/codex/AGENTS.md`、`config/pi/AGENTS.md` | 各宿主的执行面：AgentTeams 路由、单模型降级、Pi 能力适配。 |
 | 共享 skill | `skills/dev-orchestration/SKILL.md` | 完整 playbook：DAG 模板、任务合同、证据、升级、反模式。部署到 `~/.agents/skills`。 |
+| 共享 skill（成本） | `skills/context-budget/SKILL.md` | 上下文阈值、handoff 模板、审计用法与反模式。 |
+| 审计脚本 | `skills/context-budget/scripts/dsh-usage.mjs` | 只读扫 `$DSH_HOME/sessions`，出模型/项目/天/会话四张表与扇出、分位数。随 skill 一起部署。 |
+| DSH 原生配置（压缩） | `config/dsh/compaction.reference.yml` | 压缩阈值参考值；Kitto 不部署，在 Web 的 agent preset 编辑器里设置。 |
 | DSH 原生配置 | `config/dsh/agent-teams.profiles.yml` | AgentTeams 的 `profiles` 与 `toolPolicies` 参考片段。Kitto 不部署，需手工合并到 profile patch。 |
 
 ## 为什么这样分层
@@ -29,6 +32,32 @@
 5. **工具纪律**：读源码用 `read`，查找用 `grep`/`glob`，结构先 `codegraph`；并行批量读；连续 8 步只读未成形就停下写假设。
 
 实测结论：只写“建议”不会触发分级与组队；必须把声明做成开工门禁，并允许“单人执行但留下理由”这一显式降级。
+
+## 上下文与成本
+
+编排的第二个成本面不是模型单价，是上下文生命周期。根因在机制层，不在纪律层：DSH 的 `compaction-basic` 默认 `thresholdRatio: 0.8`，按上下文窗口的比例触发；1M 窗口的模型要涨到 ~840K prompt 才压缩，而 Grok/OpenAI 的翻倍档从 200K 就开始了。实测会话正好顶到 840.5K，日志里只有工具结果剪枝（`compaction/prune`），没有任何摘要压缩。所以先配压缩阈值（`config/dsh/compaction.reference.yml` → 150K 量级），再谈会话纪律。
+
+2026-11-19~24 实测（`node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs`）：
+
+- 5.37B 输入 token、15.4M 输出，折算约 $850；输入是输出的 348 倍。
+- 98% 的输入是缓存读——缓存工作正常，问题是绝对量。
+- 子 agent 占 76%（5.0x 扇出，18,700 次请求，平均 prompt 218K）。
+- 中位会话的 prompt 从首次到末次涨 11.5 倍（p90 28.5x）；44% 的请求 >200K，占 73% 的 token；单请求 p99 是 773K。
+- 5 个常驻协调会话占 91%；三个只读核查会话占 21%。
+
+按模型看的单价差同样重要：DeepSeek Flash 缓存命中 $0.003/M，GPT-6.2 Sol $0.10/M，币值差 30 倍以上。同样 1B token，一个是 $3，一个是 $100。所以判断"贵不贵"必须换成钱，不能看 token 数。
+
+落地分四层：
+
+| 层 | 位置 | 作用 |
+| --- | --- | --- |
+| 机制 | `config/dsh/compaction.reference.yml` | 压缩阈值的参考值与验证方法。Kitto 不部署，在 Web 的 agent preset 编辑器里设置。 |
+| 不变量 | `config/instructions/common.md` →「上下文与成本」 | 压缩阈值、prompt 红线、会话边界、干净上下文、只读聚合、波次规模。所有宿主都拿到。 |
+| DSH 执行面 | `config/dsh/AGENTS.md` →「上下文与成本（执行面）」 | 审计入口、会话日志位置、`subagent` 与 `subagent_fork` 的选择。 |
+| 完整协议 | `skills/context-budget/SKILL.md` | 阈值表、handoff 模板、按收益排序的动作、反模式。 |
+| 审计 | `skills/context-budget/scripts/dsh-usage.mjs` | 只读复算上面所有数字；改完策略后用它验收。 |
+
+为什么放规则层：阈值只有每次会话都看得到才会被执行，放进 skill 会被"需要时再说"跳过。所以 `common.md` 只留判定与动作，细节和测量在 skill。项目侧的落地面（工单会话、只读核查、波次规模）写在项目自己的 `AGENTS.md` 或 `docs/process/conventions.md`，不复制这里的规则。
 
 ## Grok 的取舍
 
