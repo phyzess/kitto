@@ -1,6 +1,6 @@
 {
   "name": "@phyzess/kitto",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Portable personal configuration for Pi, Codex and DeepSeek Harness",
   "type": "module",
   "bin": { "kitto": "bin/kitto.mjs" },
