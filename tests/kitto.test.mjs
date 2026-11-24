@@ -12,8 +12,12 @@ import { hosts, meetsBaseline, parseOptions, replaceDirectory, treeHash } from '
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+// A CLI run spawns real child processes and a full setup: 19s on an idle
+// machine, far more when the suite runs files in parallel. The ceiling only
+// has to catch a hang, so it must not kill a legitimate slow run.
+const cliTimeout = 180_000;
 function command(cmd, args, env, cwd = root) {
-  return spawnSync(cmd, args, { env, cwd, encoding: 'utf8', timeout: 60_000 });
+  return spawnSync(cmd, args, { env, cwd, encoding: 'utf8', timeout: cliTimeout });
 }
 function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), "kitto's test "));
@@ -1344,7 +1348,7 @@ test('interactive CLI previews and applies bundled Pi and Codex setup for future
     env: f.env,
     cwd: root,
     encoding: 'utf8',
-    timeout: 60_000,
+    timeout: cliTimeout,
     input: ['pi,codex', '2', f.source, 'n', workspaceParent, '1', '2', ''].join('\n'),
   });
   good(result);
@@ -1410,7 +1414,7 @@ test('interactive DSH Desktop setup stays global-only and skips scoped adapters'
   writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
   writeFileSync(join(f.temp, 'bin/pnpm'), `#!${process.execPath}\nprocess.exit(1);\n`, { mode: 0o755 });
   const result = spawnSync(process.execPath, [join(root, 'bin/kitto.mjs'), 'setup', '--interactive'], {
-    env: f.env, cwd: root, encoding: 'utf8', timeout: 60_000,
+    env: f.env, cwd: root, encoding: 'utf8', timeout: cliTimeout,
     input: ['dsh', 'desktop', '2', f.source, 'n', '', '2'].join('\n'),
   });
   good(result);
