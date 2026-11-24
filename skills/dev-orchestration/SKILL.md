@@ -39,15 +39,16 @@ description: 开发任务编排：当用户要求实现功能、修复 bug、重
 | --- | --- | --- |
 | 方案/需求 | 拆解、验收标准、风险清单 | GPT 高端档（Astra 级） |
 | 实现 | 写代码与测试 | GPT 主力档（Sol 级） |
-| 批量 | 机械改动、迁移、重复任务 | opencode-go 的 $0.15/M 档（GLM-5.3-Flash / Qwen3.8-Flash / MiMo-V2.6-Flash） |
+| 批量 | 机械改动、迁移、重复任务 | opencode-go 的 $0.12–0.15/M 档（DeepSeek V4.1 Flash / GLM-5.3-Flash / Qwen3.8-Flash / MiMo-V2.6-Flash） |
 | 长跑 | 终端为主、数小时自主、扫描 | GPT 主力档；纯扫描可降到 opencode-go flash 档 |
-| 验证 | 复现、跑门禁、收集证据 | opencode-go GPT-6 Luna（$0.10/$0.50，缓存 $0.01） |
+| 验证 | 复现、跑门禁、收集证据 | opencode-go 的 GPT-6 Luna 或 Claude Haiku 5.5（$0.10/$0.50，缓存 $0.01） |
 | 审查 | 独立判断，不改代码 | 与实现不同家族：T1 用 Kimi K3.1 Pro 或 GLM-5.3；T2 加 Grok 4.7（均走 opencode-go） |
 | 集成 | 合 diff、跑全量、最终报告 | 主 agent / 队长 |
 
 规则：
 
-- 审查者与实现者必须不同家族；单模型宿主按第 8 节降级。
+- 审查者与实现者必须是不同的模型；家族不限，独立上下文与独立判断才是约束。单模型宿主按第 8 节降级。
+- 一次性判定（分级、归因、要不要加人）先问 `jev-decide`：一个请求可同时问多个 `noul` / `choice` / `score` 问句，概率低于 0.6 按保守方向处理。
 - 项目自己的 AGENTS、工单状态与评审门禁优先于本 skill；项目要求 ready 或负责人确认时，停在那一层。
 - 成本：GPT 与 opencode-go 两个订阅渠道覆盖全部角色，不走 deepseek 官方 API 与 xAI 官方 API；opencode-go 按模型标价折算月度额度，批量与验证用 $0.15/M 档，Grok 4.7 与 Kimi K3 只给 T2 审查。单任务超 $1 先报告。
 - provider 与 allowlist 在会话启动时快照：改完路由要新开会话，旧会话里不要规划新路由的成员。
