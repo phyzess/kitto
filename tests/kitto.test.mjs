@@ -10,6 +10,7 @@ import { composeInstructions } from '../lib/host-config.mjs';
 import { compareVersions } from '../lib/hosts.mjs';
 import { hosts, meetsBaseline, parseOptions, replaceDirectory, treeHash } from '../lib/kitto.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
+import { waitForPublish } from '../scripts/release.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 // A CLI run spawns real child processes and a full setup: 19s on an idle
@@ -1856,4 +1857,27 @@ test('a slow python3 shim warns instead of stranding the deployment', t => {
   const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
   assert.equal(state.ready, true);
   assert.equal(state.pendingRuntime, undefined);
+});
+
+// A published version is not served by the registry immediately, so the release
+// script must poll instead of reporting a healthy release as a failure.
+test('release verification polls npm before reporting a result', () => {
+  const reads = [undefined, undefined, undefined, 'sha512-abc'];
+  let slept = 0;
+  const attempt = waitForPublish('@phyzess/kitto@0.3.2', 'sha512-abc', () => reads.shift(),
+    { attempts: 5, delayMs: 15_000, sleep: ms => { slept += ms; } });
+  assert.equal(attempt, 4);
+  assert.equal(slept, 45_000);
+});
+
+test('release verification rejects contents that differ from the tarball', () => {
+  assert.throws(() => waitForPublish('@phyzess/kitto@0.3.2', 'sha512-abc', () => 'sha512-other',
+    { attempts: 5, sleep: () => {} }), /is on npm with different contents/);
+});
+
+test('release verification gives up with the expected integrity', () => {
+  let calls = 0;
+  assert.throws(() => waitForPublish('@phyzess/kitto@0.3.2', 'sha512-abc', () => { calls += 1; },
+    { attempts: 3, delayMs: 1, sleep: () => {} }), /after 3 attempts.*sha512-abc/);
+  assert.equal(calls, 3);
 });
