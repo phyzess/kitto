@@ -313,6 +313,18 @@ Kitto 也会检查已登记工作区是否对当前账号可写。只读工作�
 
 如果升级后维护 skill 无法运行，在首页的安装命令末尾加 `--recover --dry-run` 查看恢复计划，再用 `--recover` 执行。恢复会切回之前验证过的 Kitto 程序并重新连接宿主。个人配置的历史版本通过 Git 恢复。
 
+### 被中断的运行、残留锁与未验证的 runtime
+
+`setup`/`update` 的写入由 `$KITTO_HOME/.lock` 串行化，Pi 适配器另有一把 `<配置源>/config/pi/local/.sync-lock`。两把锁都记录持有者（`owner.json` 或 `pid` 文件），所以续跑时能直接判断持有者是否还在：
+
+- 持有者仍在运行：报 `Another Kitto operation holds …: pid N started …`，等它结束再重试。
+- 持有者已退出：报这是 `stale lock` 并给出 pid；加 `--break-lock` 重跑即可清除。它**只清理可证明已退出的锁**，进程还活着时一律拒绝。
+- 旧版 Kitto 留下的锁没有 owner 记录，`--break-lock` 不碰，需要人工确认后删除。
+
+正常退出以及 `SIGINT`/`SIGTERM` 都会释放锁，只有 `SIGKILL` 或断电才会留下残留。部署中途失败时 runtime 会停在未验证状态（`state.json` 的 `pendingRuntime`）：重跑同一条 `update --apply` 完成，或用 `setup --recover` 回到上一份已验证的 runtime，命令会直接提示。
+
+Python 探测超时也不会再中止部署：pyenv、asdf、mise 这类 shim 首次调用可能超过 8 秒，Kitto 只警告并继续，真实结果由 Pi 适配器报告。缺解释器或版本低于 3.10 仍然在写入前就失败。
+
 需要解除集成时，可以在 agent 里说“用 Kitto 预览解除集成”。解除 DSH 时会同时删除 `$DSH_HOME/cordis.patch.yml` 中 Kitto 自有的 `kitto-mcp-*` 行，保留其它内容；patch 无法安全解析时保留文件并警告，不阻塞解除。解除后仍保留个人配置、共享 skills 和宿主 CLI。
 
 ## 发布新版本

@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, realpath, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { setup, parseOptions, update } from '../lib/kitto.mjs';
+import { allowStaleLockBreak, setup, parseOptions, update } from '../lib/kitto.mjs';
 import { worktreeCommand } from '../lib/worktree-audit.mjs';
 import { hostsCommand } from '../lib/hosts.mjs';
 import { readScopeRegistry, scopeHome, writeScopeRegistry } from '../lib/scopes.mjs';
@@ -18,6 +18,7 @@ const help = `Kitto — portable personal agent configuration
               [--dsh-profile PROFILE] [--install-agents] [--dry-run]
               [--require-baseline]
               [--include-private|--no-include-private]
+  kitto setup --break-lock            Continue after a provably abandoned lock (setup/update)
   kitto setup --recover [--dry-run]   Restore the last working Kitto code
   kitto update [--check|--apply] [--include-private|--no-include-private]
                                       Preview (the default; --check makes it explicit) or apply:
@@ -175,6 +176,14 @@ async function scopeCommand(args) {
 
 try {
   const [command, ...args] = process.argv.slice(2);
+  // --break-lock is accepted by the commands that take the installation lock.
+  // It removes a lock only when the recorded owner is provably gone, so a live
+  // operation is never displaced.
+  if (['setup', 'update'].includes(command) && args.includes('--break-lock')) {
+    allowStaleLockBreak(true);
+    args.splice(args.indexOf('--break-lock'), 1);
+    console.log('kitto: --break-lock removes a lock only when its recorded owner is no longer running.');
+  }
   if (!command || command === '--help' || command === '-h') console.log(help);
   else if (command === 'worktree') {
     if (['start', 'finish', 'apply'].includes(args[0])) {

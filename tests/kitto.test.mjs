@@ -535,7 +535,7 @@ test('lock rejects concurrent mutation and dirty source rejects update', t => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
   mkdirSync(join(f.env.KITTO_HOME, '.lock'));
-  assert.match(f.maintain('sync', '--apply').stderr, /Another Kitto operation/);
+  assert.match(f.maintain('sync', '--apply').stderr, /exists without an owner record/);
   rmSync(join(f.env.KITTO_HOME, '.lock'), { recursive: true });
   writeFileSync(join(f.source, 'uncommitted.txt'), 'work');
   assert.match(f.maintain('update', '--apply').stderr, /local changes/);
@@ -1801,4 +1801,59 @@ test('--require-baseline makes an untested host version fatal again', t => {
   assert.match(failed.stderr, /codex: 0\.167\.1 is older than the tested baseline 0\.170\.0/);
   assert.equal(existsSync(join(f.env.KITTO_HOME, 'state.json')), false);
   assert.equal(existsSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md')), false);
+});
+
+// A killed run leaves locks behind. The lock must say whether its owner is
+// still alive, and --break-lock may only clear one that provably is not.
+test('a stale lock reports its owner and --break-lock clears both locks', t => {
+  const f = fixture(t);
+  const dead = spawnSync(process.execPath, ['-e', '']).pid;
+  const lock = join(f.env.KITTO_HOME, '.lock');
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: dead, startedAt: '2026-01-01T00:00:00.000Z', command: 'setup --agents pi' }));
+  // The Pi adapter keeps its own lock beside the configuration checkout.
+  mkdirSync(join(f.source, 'config/pi/local/.sync-lock'), { recursive: true });
+  writeFileSync(join(f.source, 'config/pi/local/.sync-lock/pid'), `${dead}\n`);
+
+  const blocked = f.cli('setup', '--agents', 'pi', '--source', f.source);
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr, new RegExp(`is a stale lock: pid ${dead}`));
+  assert.match(blocked.stderr, /--break-lock/);
+
+  const released = f.cli('setup', '--agents', 'pi', '--source', f.source, '--break-lock');
+  good(released);
+  assert.match(released.stdout, new RegExp(`removed stale lock .*\\(pid ${dead} is no longer running\\)`));
+  assert.match(released.stdout, new RegExp(`removed stale sync lock .*\\(pid ${dead} is no longer running\\)`));
+  assert.equal(existsSync(lock), false);
+  assert.equal(existsSync(join(f.source, 'config/pi/local/.sync-lock')), false);
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+});
+
+test('a live lock is never displaced, even with --break-lock', t => {
+  const f = fixture(t);
+  const lock = join(f.env.KITTO_HOME, '.lock');
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), command: 'setup --agents pi' }));
+
+  const blocked = f.cli('setup', '--agents', 'pi', '--source', f.source, '--break-lock');
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr, new RegExp(`Another Kitto operation holds .*: pid ${process.pid}`));
+  assert.match(blocked.stderr, /Wait for it to finish/);
+  assert.equal(existsSync(join(lock, 'owner.json')), true);
+});
+
+test('a slow python3 shim warns instead of stranding the deployment', t => {
+  const f = fixture(t);
+  const real = command('bash', ['-c', 'python3 -c "import sys; print(sys.executable)"'], f.env).stdout.trim();
+  assert(real, 'the fixture needs a real python3 to delegate to');
+  writeFileSync(join(f.temp, 'bin/python3'),
+    `#!${process.execPath}\nrequire(${JSON.stringify(join(root, 'tests/helpers/slow-python.cjs'))});\n`, { mode: 0o755 });
+  f.env.REAL_PYTHON = real;
+
+  const result = f.cli('setup', '--agents', 'pi', '--source', f.source);
+  good(result);
+  assert.match(result.stderr, /python3 did not answer within 8s/);
+  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  assert.equal(state.ready, true);
+  assert.equal(state.pendingRuntime, undefined);
 });
