@@ -24,14 +24,8 @@ import tempfile
 
 VOLATILE_KEYS = ("lastChangelogVersion", "extensionChangelogVersions")
 
-# Explicit boundary between the shared layer and the host addendum. Without it,
-# a truncated common.md can look like an addendum prefix of an older deployed
-# file; the boundary (plus an exact shared-section comparison) makes the split
-# unambiguous. Keep in sync with lib/host-config.mjs.
 AGENTS_BOUNDARY = "<!-- kitto:host-addendum -->"
 
-# Export must never turn a local secret into a repository commit. These are the
-# key names and literal shapes that Kitto refuses to write into the source tree.
 SECRET_KEY_NAMES = frozenset({
     "apikey", "api_key", "token", "access_token", "refresh_token", "secret",
     "client_secret", "password", "passwd", "private_key", "bearer_token", "authorization",
@@ -91,7 +85,6 @@ def refuse_secrets(found):
     return True
 
 
-# ---------------------------------------------------------------- helpers
 
 
 def load(path: str, default=None):
@@ -222,7 +215,6 @@ def unique(seq):
     return out
 
 
-# ---------------------------------------------------------------- commands
 
 
 def package_key(package):
@@ -258,16 +250,12 @@ def cmd_merge_settings(argv: list[str]) -> int:
 
     extra = read_list(extra_path)
     previous = load(os.path.join(local_dir, "managed-packages.json"), []) or []
-    # Unknown packages remain local. Previously managed entries can be removed
-    # by deleting them from the shared source. No source mutation during preview.
     repo_pkgs = repo_cfg.get("packages", [])
     extra = unique(extra + [p for p in machine_cfg.get("packages", [])
                             if p not in repo_pkgs and p not in previous])
 
     overrides = load(os.path.join(local_dir, "settings.json"), {}) or {}
 
-    # Start from what the machine already has (keeps runtime keys), let the repo
-    # own the keys it declares, then apply this machine's overrides.
     result = dict(machine_cfg)
     for key, value in repo_cfg.items():
         result[key] = value
@@ -300,8 +288,6 @@ def cmd_record_settings(argv: list[str]) -> int:
     machine = load(machine_path, {}).get("packages", [])
     extra_path = os.path.join(local_dir, "packages.txt")
     extra = unique(read_list(extra_path) + [p for p in machine if p not in repo])
-    # Pi object-form package entries are preserved in settings but not flattened
-    # into a text list. The ownership record still supports them.
     write_list(extra_path, [p for p in extra if isinstance(p, str)])
     dump(os.path.join(local_dir, "managed-packages.json"), repo)
     return 0
@@ -330,8 +316,6 @@ def cmd_sanitize_settings(argv: list[str]) -> int:
     extra = read_list(os.path.join(local_dir, "packages.txt"))
     skip = read_list(os.path.join(local_dir, "packages.skip.txt"))
 
-    # Repo owns the key order so pushes stay diff-quiet; machine values win so
-    # local edits (theme, defaults, …) still travel upstream.
     repo_pkgs = list(repo.get("packages", []))
     mach_pkgs = list(machine.get("packages", []))
     dropped = [p for p in mach_pkgs if p in extra or p in skip]
@@ -411,15 +395,15 @@ def cmd_export_mcp(argv: list[str]) -> int:
             continue
         if name in platform:
             if name in repo:
-                out[name] = repo[name]      # platform override is machine-specific
+                out[name] = repo[name]
                 replaced.append(name)
             else:
-                dropped.append(name)        # platform-only server never ships
+                dropped.append(name)
             continue
         if name in repo:
             out[name] = entry
         else:
-            dropped.append(name)            # unmanaged server never ships
+            dropped.append(name)
 
     out, removed, found = scan_secrets(out)
     if refuse_secrets(found):
@@ -472,8 +456,6 @@ def cmd_extract_agents(argv: list[str]) -> int:
         print(f"{machine_path} contains more than one {AGENTS_BOUNDARY} boundary; refusing to export.",
               file=sys.stderr)
         return 1
-    # Compare the whole shared section, not just a prefix: deleting the tail of
-    # common.md must not turn old shared rules into an addendum.
     split = boundaries[0]
     if "\n".join(lines[:split]).strip() != prefix:
         print(f"{machine_path} shared rules differ from {common_path} (the deployed file may predate "

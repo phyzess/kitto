@@ -5,7 +5,6 @@ import { createRequire } from 'node:module';
 import { delimiter, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Locate the DSH launcher, resolving mise shims to the real entry point. */
 export async function dshExecutable() {
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     const candidate = resolve(dir, 'dsh');
@@ -30,7 +29,6 @@ export async function importFromDsh(entry, name) {
   return import(pathToFileURL(require.resolve(name)).href);
 }
 
-/** Load a module from the DSH installation instead of adding a second copy. */
 export async function loadDshModule(name, executable) {
   return importFromDsh(executable ?? await dshExecutable(), name);
 }

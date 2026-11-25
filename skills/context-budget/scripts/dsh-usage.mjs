@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Read-only DSH usage audit: token volume and cost shape per model, session and day.
-// Source of truth: $DSH_HOME/sessions/<project>/<session>/session.v4.jsonl.zstd,
-// where every assistant/message record carries a `usage` block.
 import { spawn } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -120,7 +117,7 @@ function readSession(file) {
         } else if (line.includes('"subagent/descriptor"')) {
           session.label = JSON.parse(line).data?.label;
         }
-      } catch { /* ignore partially written records */ }
+      } catch {  }
     });
     lines.on('close', () => resolve(spawnFailed ? null : session));
   });

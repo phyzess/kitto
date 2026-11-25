@@ -5,7 +5,6 @@ import { registerArchiveReview } from './dsh-archive-review.mjs';
 export const name = 'phyzess-kitto';
 export const inject = ['skills'];
 
-// Only one catalog entry at startup; the body is loaded on demand.
 export function apply(ctx, config) {
   const path = fileURLToPath(new URL('./skills/kitto/SKILL.md', import.meta.url));
   const candidate = {

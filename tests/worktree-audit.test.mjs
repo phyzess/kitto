@@ -31,7 +31,6 @@ async function fixture(t) {
   return { root, ws, repo, git, run, audit };
 }
 
-// Observe content and modification times, not access times from reading the tree.
 async function snapshot(root) {
   const files = {};
   async function visit(path) {

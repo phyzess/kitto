@@ -30,7 +30,7 @@
 ### 上下文与成本（执行面）
 
 - **压缩是主控项**：触发点 = `min(thresholdRatio × contextWindow, contextWindow − maxTokens − headroomTokens)`，默认 `thresholdRatio: 0.8`、`headroomTokens: 65536`，`contextWindow`/`maxTokens` 来自模型路由。按模型真实容量配 1M 窗口时触发点被推到 ~840K，实测会话就涨到了 840K prompt，44% 的请求落在 >200K 的翻倍档。
-- 调阈值走**模型路由**：在 `llm-pi-ai` 里把模型的 `contextWindow` 降到有效预算（如 `400000` + `maxTokens: 128000` → 触发点 ~206K）。改 preset 的 `compaction-basic` 是另一条路，但 Web 不编辑 preset，按行 id 覆盖会整表替换（实测 354 → 322 个节点），只剩整份冻结 `plugins` 一个选项，代价是 DSH 升级后新插件被静默遮蔽。参考值见 `config/dsh/compaction.reference.yml`。
+- 调阈值走**模型路由**：在 `llm-pi-ai` 里把模型的 `contextWindow` 降到有效预算（如 `400000` + `maxTokens: 128000` → 触发点 ~206K）。改 preset 的 `compaction-basic` 是另一条路，但 Web 不编辑 preset，按行 id 覆盖会整表替换（实测 354 → 322 个节点），只剩整份冻结 `plugins` 一个选项，代价是 DSH 升级后新插件被静默遮蔽。参考值见 Kitto 仓库的 [ADR 005：DSH 压缩预算](https://github.com/phyzess/kitto/blob/main/docs/adr/005-dsh-compaction-budget.md)。
 - 审计入口：`node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs`。只读扫描 `$DSH_HOME/sessions`，按模型、会话、天输出 token 与折算成本；`--project` 做路径前缀过滤，`--days` 限窗口。
 - 会话日志：`$DSH_HOME/sessions/<项目>/<会话 id>/session.v4.jsonl.zstd`。每条 `assistant/message` 带 `usage`（`inputTokens`、`cacheReadTokens`、`outputTokens`），模型 id 在 `message.source`；压缩与剪枝是 `compaction/*` 事件。以此为唯一事实来源，不靠估算。
 - 子 agent 默认 `subagent`（干净上下文）；`subagent_fork` 只在需要延续判断时使用。一个成员同一时间一个任务，波次任务数超过 3 个拆波。

@@ -11,8 +11,6 @@ import {
   applyCodexMcp, defaultCodexRun, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
 } from '../lib/codex-mcp.mjs';
 
-// The fake Codex CLI records argv and keeps a small JSON config. It never starts
-// a server, contacts a network or runs a model.
 const root = fileURLToPath(new URL('../', import.meta.url));
 const fakeAgent = join(root, 'tests/helpers/fake-agent.cjs');
 
@@ -273,7 +271,6 @@ test('pending-only servers are reconciled when the source disappears', async t =
   assert.equal(f.codexState().mcpServers.alpha, undefined);
   assert.equal(interrupted.mcp.codexPending, undefined);
   assert.deepEqual(interrupted.mcp.codex, {});
-  // A pending record with no live server is cleared without touching Codex.
   const orphan = f.state();
   orphan.mcp.codexPending = { beta: transportHash({ type: 'stdio', command: 'beta-mcp', args: [] }) };
   f.saveCodex({ mcpServers: {} });
@@ -281,7 +278,6 @@ test('pending-only servers are reconciled when the source disappears', async t =
   assert.equal(orphanPlan.operations[0].action, 'forgetPending');
   await f.apply(orphan);
   assert.equal(orphan.mcp.codexPending, undefined);
-  // A pending record whose live transport changed is cleared, but the server is kept.
   const changed = f.state();
   changed.mcp.codexPending = { gamma: transportHash({ type: 'stdio', command: 'gamma-mcp', args: [] }) };
   f.saveCodex({ mcpServers: { gamma: { transport: { type: 'stdio', command: 'user-gamma', args: [] } } } });
@@ -518,7 +514,7 @@ test('a partial apply saves the successful server and resumes without repeating 
   assert.deepEqual(Object.keys(f.codexState().mcpServers).sort(), ['alpha', 'beta']);
   assert.equal(state.mcp.codex.beta, transportHash({ type: 'stdio', command: 'beta-mcp', args: [] }));
   assert.equal(f.mcpCalls('add').filter(call => call.args[2] === 'alpha').length, 1);
-  assert.equal(f.mcpCalls('add').filter(call => call.args[2] === 'beta').length, 2); // one failed attempt, one success
+  assert.equal(f.mcpCalls('add').filter(call => call.args[2] === 'beta').length, 2);
 });
 
 test('setup preview prints MCP actions without writing; apply owns only Kitto servers', t => {

@@ -1,28 +1,5 @@
-# DSH AgentTeams 编排模板（Kitto 参考文件，不会自动部署）
-#
-# 合并到 ~/.dsh/profiles/web/cordis.patch.yml，然后重启 web profile。
-# Kitto 只管理 AGENTS.md 与 skills；DSH 的 profile 配置由本机原生维护，
-# 这份文件是跨机器复用的源。
-#
-# 顺序：
-# 1. 先配置 Grok 路由（推荐用「设置 → 模型 → 添加模型提供商 → 自定义模型 API」，
-#    由界面校验后写入；下表是同样的配置，便于新机器手工合并）。
-# 2. 再把 - id: agent-teams 条目合并进去。同 id 覆盖会替换整个 config，
-#    必须保留 stateDir 与 memberProvider。
-# 3. 重启 web profile 后，在聊天里用 /agent-teams --profile dev-standard <目标>，
-#    或让队长调用 agent_teams_create({ profile: "dev-standard", approval: "required" })。
-#
-# 注意：toolPolicies 是工具可见性，不是 OS 沙箱；bash 仍可在允许后写文件。
-# 两个订阅渠道：GPT（openai-codex）承担方案与实现，opencode-go 承担验证与审查。
-# Grok 只出现在 dev-hard 的 reviewer（T2 审查），走 opencode-go 而不是 xAI 官方计费；
-# dev-standard 的审查用 Kimi K3.1 Pro，与 GPT 实现是不同模型。
-# opencode-go 不可用时，审查与验证按 fallback 用 GPT 档，队长在报告里注明「同模型复核，未换模型」。
-# 第三意见按需用 agent_teams_add_member 临时加入。
 
-# --- 1. Grok 路由：追加到现有 - id: llm-pi-ai 的 providers 下，不要整段覆盖 ---
-# xAI 官方渠道不再配置（按量计费）。需要 Grok 时用 opencode-go 的 `grok-4.7`。
 
-# --- 2. 团队模板 ---
 - id: agent-teams
   config:
     stateDir: .agent-teams

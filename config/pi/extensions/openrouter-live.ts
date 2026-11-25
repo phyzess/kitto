@@ -1,46 +1,4 @@
 // @ts-nocheck
-/**
- * openrouter-live — keep pi's OpenRouter model list in step with OpenRouter itself.
- *
- * WHY THIS EXISTS
- * pi's built-in OpenRouter provider can only *filter* the catalog it ships by the
- * key's `/models/user` list; it can never *add* an id the catalog does not know
- * (`personalizeOpenRouterCatalog` ends in a `flatMap` that drops unknown chat ids).
- * A model OpenRouter starts serving between pi.dev catalog regenerations therefore
- * stays invisible until that catalog is regenerated or pi is upgraded.
- *
- * HOW IT WORKS
- * This extension registers a *native* provider for `openrouter`. The model registry
- * prefers a native extension provider over the built-in one, so this file owns the
- * openrouter entry (`ModelRegistry.composeProvider`). It reproduces what the built-in
- * does — merge the bundled catalog with the pi.dev catalog when newer, then filter
- * chat models by the key's `/models/user` list and refresh their context window,
- * output limit and prices — and adds the one thing the built-in cannot do: synthesize
- * entries for key-usable ids that no catalog knows, by inheriting compatibility
- * metadata (`compat`, `thinkingLevelMap`, `inputLimits`, `promptCache`) from the
- * closest same-family catalog model. Image and classifier models pass through
- * untouched, so the built-in generation and classification paths keep working.
- *
- * Refresh runs on the runtime's own schedule — startup, `/model`, `/login`,
- * `pi update --models` — first with the stored credential and `allowNetwork: false`
- * (restore the persisted snapshot, offline-safe), then with the resolved credential
- * and `allowNetwork: true`. No timers, sockets or watchers are started here.
- *
- * ENV SWITCHES
- *   OPENROUTER_LIVE_DISABLE=1          do not register; keep built-in behavior
- *   OPENROUTER_LIVE_SYNTH=off          keep filter + metadata refresh, no synthesis
- *   OPENROUTER_LIVE_REQUIRE_TOOLS=0    also synthesize models without tool calling
- *   OPENROUTER_LIVE_CATALOG_BASE_URL=  override the catalog base URL (default https://pi.dev)
- *
- * LIMITATIONS
- *   - A synthesized model's metadata is inferred. Only ids with a same-family catalog
- *     model are synthesized, and `input` follows the live modalities intersected with
- *     the donor's, so reasoning/image behavior stays as close to the known model as
- *     possible. Unknown families are skipped and only reported.
- *   - Synthesized entries are not refreshed by pi's own catalog pipeline; this file
- *     refreshes them on every network refresh, so prices follow `/models/user`.
- *   - Video/audio modalities and `:batch`/`:free` routing variants are not synthesized.
- */
 
 import { builtinProviders, getBuiltinClassifierModels, getBuiltinImageModels, getBuiltinModelDataGeneratedAt, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 
@@ -61,7 +19,6 @@ const debug = (...args) => {
   if (DEBUG) console.warn("[openrouter-live]", ...args);
 };
 
-/** Live list owned by this extension: what `getModels()`/`getAllModels()` return. */
 const state = {
   chat: [],
   image: [],
@@ -74,7 +31,6 @@ const state = {
 const isChat = (model) => (model?.type ?? "chat") === "chat";
 const typeKey = (model) => `${model?.type ?? "chat"}\u0000${model?.id}`;
 
-/** Same merge rule as pi: dedupe by model type and id, later entries win. */
 function mergeCatalog(...groups) {
   const merged = new Map();
   for (const group of groups) {
@@ -90,7 +46,6 @@ function perMillion(value, fallback) {
   return Number.isFinite(perToken) && perToken >= 0 ? Number((perToken * 1e6).toFixed(6)) : fallback;
 }
 
-/** Mirrors pi's `openRouterCost`: negative placeholder prices never become negative. */
 function openRouterCost(pricing) {
   const base = {
     input: perMillion(pricing?.prompt, 0),
@@ -124,7 +79,6 @@ const liveContextWindow = (entry, fallback) =>
   entry?.top_provider?.context_length || entry?.context_length || fallback;
 const liveMaxTokens = (entry, fallback) => entry?.top_provider?.max_completion_tokens || fallback;
 
-/** Refresh the fields `/models/user` is authoritative for; keep everything else. */
 function applyLive(model, entry) {
   return {
     ...model,
@@ -134,7 +88,6 @@ function applyLive(model, entry) {
   };
 }
 
-/** Progressively drop trailing segments: `deepseek/deepseek-v4.1-flash-1017` → `…-flash`. */
 function familyCandidates(id) {
   const slash = id.indexOf("/");
   if (slash < 0) return [];
@@ -198,7 +151,6 @@ function chatCapable(entry) {
   return params.includes("tools") || params.includes("tool_choice");
 }
 
-/** Build the effective list: catalog ∩ key, refreshed, plus donor-backed additions. */
 function compose(merged, allowed) {
   const chatCatalog = merged.filter(isChat);
   const catalogById = new Map(chatCatalog.map((model) => [model.id, model]));
@@ -214,7 +166,7 @@ function compose(merged, allowed) {
       continue;
     }
     const entry = allowed.get(model.id);
-    if (!entry) continue; // the key may not use it — same as the built-in filter
+    if (!entry) continue;
     chat.push(applyLive(model, entry));
     provenance.set(model.id, "catalog");
   }
@@ -272,7 +224,6 @@ async function fetchJson(url, init, signal, timeoutMs) {
   return response;
 }
 
-/** `/models/user` — the key's usable list. `null` means "do not filter" (as pi does). */
 async function fetchUserModels(baseUrl, key, signal) {
   const response = await fetchJson(
     `${baseUrl.replace(/\/+$/, "")}/models/user`,
@@ -293,7 +244,6 @@ async function fetchUserModels(baseUrl, key, signal) {
   return allowed;
 }
 
-/** Bundled catalog merged with the pi.dev catalog, gated like pi gates it. */
 async function loadCatalog(signal, builtin, builtinGeneratedAt) {
   let remote = [];
   let lastModified;
@@ -372,7 +322,6 @@ export default async function (pi) {
     const catalog = await loadCatalog(context.signal, builtin, builtinGeneratedAt);
     debug(`catalog: ${catalog === undefined ? "unavailable" : `${catalog.models.length} entries, remote=${catalog.usedRemote}`}`);
     if (catalog === undefined) {
-      // Keep the previous snapshot instead of regressing to the bundled catalog.
       if (context.stored) {
         await context.publish({ persist: { ...context.stored, checkedAt: Date.now() } });
       }

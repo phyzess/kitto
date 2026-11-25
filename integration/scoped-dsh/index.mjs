@@ -10,7 +10,6 @@ export const inject = ['skills', 'workingDirectory', 'systemPrompt', 'profileCon
 async function optionalFile(path, signal) {
   try {
     const info = await stat(path);
-    // Match DSH's native ceiling for a single instruction file.
     if (info.isFile() && info.size <= 1_048_576) return (await readFile(path, { encoding: 'utf8', signal })).trim();
   } catch (error) {
     if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
@@ -55,7 +54,6 @@ function registerScopes(ctx, FileSystemSkillProvider, discoverBaselineInstructio
             candidates.push({
               ...candidate,
               source: 'custom',
-              // Native project skills already have priority (ranks 100 and 200).
               rank: covers(root, directory) ? 225 : 525,
               locator: { skills, candidate },
             });
@@ -86,7 +84,6 @@ function registerScopes(ctx, FileSystemSkillProvider, discoverBaselineInstructio
       : []);
     const sections = [];
     for (const { instructions } of scopes) {
-      // The built-in loader already supplies files in its baseline chain.
       if (!instructions || nativePaths.has(instructions)) continue;
       const text = await optionalFile(instructions, signal);
       if (text) sections.push(`# Project instructions from ${instructions}\n\n${text}`);

@@ -12,7 +12,7 @@
 | 共享 skill（成本） | `skills/context-budget/SKILL.md` | 上下文阈值、handoff 模板、审计用法与反模式。 |
 | 审计脚本 | `skills/context-budget/scripts/dsh-usage.mjs` | 只读扫 `$DSH_HOME/sessions`，出模型/项目/天/会话四张表与扇出、分位数。随 skill 一起部署。 |
 | 结构化判定 | `skills/jev-decide/SKILL.md` + `scripts/jev.mjs` | 用 System One 决策模型做一次性判定（分级、归因、要不要加人），返回概率而不是正文；端点在 Go 渠道，计入订阅额度。 |
-| DSH 原生配置（压缩） | `config/dsh/compaction.reference.yml` | 压缩触发点参考值；Kitto 不部署，改模型路由的 `contextWindow`。 |
+| DSH 原生配置（压缩） | [ADR 005：DSH 压缩预算](adr/005-dsh-compaction-budget.md) | 压缩触发点参考值；Kitto 不部署，改模型路由的 `contextWindow`。 |
 | DSH 原生配置 | `config/dsh/agent-teams.profiles.yml` | AgentTeams 的 `profiles` 与 `toolPolicies` 参考片段。Kitto 不部署，需手工合并到 profile patch。 |
 
 ## 为什么这样分层
@@ -36,7 +36,7 @@
 
 ## 上下文与成本
 
-编排的第二个成本面不是模型单价，是上下文生命周期。根因在机制层，不在纪律层：DSH 的 `compaction-basic` 默认 `thresholdRatio: 0.8`，按上下文窗口的比例触发；1M 窗口的模型要涨到 ~840K prompt 才压缩，而 Grok/OpenAI 的翻倍档从 200K 就开始了。实测会话正好顶到 840.5K，日志里只有工具结果剪枝（`compaction/prune`），没有任何摘要压缩。所以先把触发点压到 200K 附近（改模型路由的 `contextWindow`，见 `config/dsh/compaction.reference.yml`），再谈会话纪律。
+编排的第二个成本面不是模型单价，是上下文生命周期。根因在机制层，不在纪律层：DSH 的 `compaction-basic` 默认 `thresholdRatio: 0.8`，按上下文窗口的比例触发；1M 窗口的模型要涨到 ~840K prompt 才压缩，而 Grok/OpenAI 的翻倍档从 200K 就开始了。实测会话正好顶到 840.5K，日志里只有工具结果剪枝（`compaction/prune`），没有任何摘要压缩。所以先把触发点压到 200K 附近（改模型路由的 `contextWindow`，见 [ADR 005：DSH 压缩预算](adr/005-dsh-compaction-budget.md)），再谈会话纪律。
 
 2026-11-19~24 实测（`node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs`）：
 
@@ -52,7 +52,7 @@
 
 | 层 | 位置 | 作用 |
 | --- | --- | --- |
-| 机制 | `config/dsh/compaction.reference.yml` | 压缩触发公式、`contextWindow` 参考值与验证方法。Kitto 不部署，改 profile 的模型路由。 |
+| 机制 | [ADR 005：DSH 压缩预算](adr/005-dsh-compaction-budget.md) | 压缩触发公式、`contextWindow` 参考值与验证方法。Kitto 不部署，改 profile 的模型路由。 |
 | 不变量 | `config/instructions/common.md` →「上下文与成本」 | 压缩阈值、prompt 红线、会话边界、干净上下文、只读聚合、波次规模。所有宿主都拿到。 |
 | DSH 执行面 | `config/dsh/AGENTS.md` →「上下文与成本（执行面）」 | 审计入口、会话日志位置、`subagent` 与 `subagent_fork` 的选择。 |
 | 完整协议 | `skills/context-budget/SKILL.md` | 阈值表、handoff 模板、按收益排序的动作、反模式。 |
@@ -77,7 +77,7 @@ Grok 只在四类场景值得出现：
 
 1. 配置订阅渠道：GPT 走 Codex 登录（`openai-codex`）；opencode-go 在 profile 的 `llm-pi-ai.providers` 下写 `apiKeyEnv: OPENCODE_GO_API_KEY`，路由不带 `models` 时直接服务其内置目录。不配置 `xai` 官方渠道。
 2. 把 `config/dsh/agent-teams.profiles.yml` 的 agent-teams 条目合并到 `~/.dsh/profiles/web/cordis.patch.yml`。同 id 覆盖要保留 `stateDir` 与 `memberProvider`。
-3. 用 `modelOverrides` 给 opencode-go 的常用模型设有效预算（400K 窗口 + 128K 输出 → 压缩触发 ~206K），参考 `config/dsh/compaction.reference.yml`。
+3. 用 `modelOverrides` 给 opencode-go 的常用模型设有效预算（400K 窗口 + 128K 输出 → 压缩触发 ~206K），参考 [ADR 005：DSH 压缩预算](adr/005-dsh-compaction-budget.md)。
 4. 重启 web profile，刷新页面；**新开一个会话**再验收（provider 与 allowlist 都在会话启动时快照）。
 5. 验收：`/agent-teams --profile dev-standard <目标>` 能生成暂存计划；成员卡片显示 provider/model；`agent_teams_status` 能看到 tool policy。
 

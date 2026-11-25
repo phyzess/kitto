@@ -1,4 +1,3 @@
-// Stateful native-manager fixture; never contacts a network or runs a model.
 const fs = require('node:fs');
 const path = require('node:path');
 const name = path.basename(process.argv[1]), args = process.argv.slice(2);
@@ -22,8 +21,6 @@ if (name === 'pi') {
     save(file, data);
   }
 } else if (name === 'codex') {
-  // Read-only MCP probes run with a scratch CODEX_HOME; tests point this at the
-  // real fixture state instead of copying test-only files into production logic.
   const file = process.env.FAKE_CODEX_STATE || path.join(process.env.CODEX_HOME, '_fake-codex.json');
   const data = load(file, { marketplaces: [], installed: [] });
   data.marketplaces ||= [];
@@ -107,12 +104,10 @@ if (name === 'pi') {
   }
 } else if (name === 'dsh') {
   if (args[0] === 'plugin' && args[1] === '--profile' && args[2] === 'desktop' && args[3] === 'version-exemptions') {
-    // Kitto's Desktop probe runs against a scratch DSH_HOME and must never
-    // touch the app-managed profile. npm CLI rejects the reserved profile.
     const delay = Number(process.env.FAKE_DSH_PROBE_DELAY_MS || 0);
     if (delay) {
       const until = Date.now() + delay;
-      while (Date.now() < until) { /* Busy-wait so the parent timeout kills this child. */ }
+      while (Date.now() < until) {  }
     }
     if (process.env.FAKE_DSH_CLI === 'npm') {
       console.error('error: profile "desktop" is managed exclusively by the Electron application');

@@ -23,7 +23,6 @@ export default function kittoScopes(pi) {
     pi.on('resources_discover', async ({ cwd }) => {
       const scopes = await resolveScopes(cwd);
       const skillPaths = [];
-      // Pi uses the first skill with a given name, and gives its existing paths priority.
       for (const { skills } of scopes.toReversed()) {
         if (skills && (await ifPresent(() => stat(skills)))?.isDirectory()) skillPaths.push(skills);
       }
@@ -38,7 +37,6 @@ export default function kittoScopes(pi) {
       const scopes = await resolveScopes(cwd);
       if (!scopes.length) return;
 
-      // Preserve Pi's native context and skip scope files already loaded through another path.
       const seen = new Set(await Promise.all(files.map(async ({ path }) => await ifPresent(() => realpath(path)) ?? path)));
       const directories = await Promise.all(files.map(async ({ path }) => {
         const directory = dirname(path);

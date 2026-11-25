@@ -67,7 +67,6 @@ function release(f, version, operation = 'setup') {
   return (...args) => command(process.execPath, [join(directory, 'bin/kitto.mjs'), operation, ...args], f.env);
 }
 const bootstrapMarkerFor = source => join(source, '.git', 'kitto-bootstrap.json');
-// Give the fixture's own checkout an upstream branch so update may fast-forward it.
 function withRemote(f) {
   const mirror = join(f.temp, 'remote.git');
   good(command('git', ['clone', '--bare', f.source, mirror], f.env));
@@ -78,7 +77,6 @@ function withRemote(f) {
 function commitAll(f, message = 'update') {
   for (const args of [['add', '.'], ['commit', '-m', message]]) good(command('git', args, f.env, f.source));
 }
-// Clone the fixture source into a bare mirror and map the given URLs onto it.
 function mirrorOf(f, ...urls) {
   if (!urls.length) urls = ['https://kitto.invalid/config.git'];
   const mirror = join(f.temp, 'remote.git');
@@ -237,7 +235,6 @@ test('Pi export writes only the Pi addendum back to the source', t => {
   assert.equal(exported, 'Pi instructions from machine\n');
   assert.doesNotMatch(exported, /共享规则|shared-marker/);
 
-  // A machine file that does not start with the current shared layer is refused.
   writeFileSync(deployed, '# legacy full AGENTS\n');
   const result = f.maintain('export', '--apply');
   assert.notEqual(result.status, 0);
@@ -297,7 +294,6 @@ test('DSH desktop setup deploys global rules and skills without pnpm, bundle or 
   mkdirSync(hostSkill, { recursive: true });
   writeFileSync(join(hostSkill, 'SKILL.md'), 'Desktop host skill');
   writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
-  // The app-managed Desktop profile must never need the npm plugin manager.
   writeFileSync(join(f.temp, 'bin/pnpm'), `#!${process.execPath}\nprocess.exit(1);\n`, { mode: 0o755 });
 
   const result = f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source);
@@ -318,7 +314,6 @@ test('DSH desktop setup deploys global rules and skills without pnpm, bundle or 
   good(versions);
   assert.match(versions.stdout, /app-managed/);
 
-  // Removal must not run a native plugin removal for a bundle Kitto never installed.
   good(f.maintain('remove', '--apply'));
   assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).detached, true);
   assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
@@ -426,10 +421,10 @@ test('setup persists code, keeps private assets out, and registers all native in
   assert.equal(existsSync(join(runtime, 'skills')), false);
   const skill = readFileSync(join(runtime, 'integration/skills/kitto/SKILL.md'), 'utf8');
   assert.doesNotMatch(skill, /KITTO_RUNNER/);
-  assert.match(skill, /'\\''/); // A quote in the home path remains shell-safe.
+  assert.match(skill, /'\\''/);
   assert.equal(JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'))).ready, true);
   good(f.maintain('status'));
-  good(f.cli('setup')); // Saved source/hosts reused, no manual clone or flags.
+  good(f.cli('setup'));
   const calls = readFileSync(f.log, 'utf8').trim().split('\n').map(JSON.parse);
   assert(calls.some(c => c.command === 'pi' && c.args[0] === 'install' && c.args[1] === runtime));
   assert(calls.some(c => c.command === 'codex' && c.args.join(' ') === 'plugin add kitto@phyzess-kitto'));
@@ -471,11 +466,9 @@ test('guided setup keeps divergent unowned skills through later Pi syncs', t => 
   assert.deepEqual(readJson(state).keptSkills, { shared: ['example'], pi: ['host-example'] });
   assert.deepEqual(Object.keys(readJson(state).skills), ['managed']);
 
-  // A removed source must not remove the local copy or forget its ownership.
   rmSync(source);
   good(f.maintain('sync', '--apply'));
   assert.deepEqual(readJson(state).keptSkills.shared, ['example']);
-  // A source that briefly matches still cannot turn the local skill into a managed copy.
   writeFileSync(source, 'local shared skill');
   good(f.maintain('sync', '--apply'));
   assert.deepEqual(Object.keys(readJson(state).skills), ['managed']);
@@ -594,8 +587,6 @@ test('kitto update refreshes the runtime copy, deploys the new source and record
   assert.equal(checkpoint.version, '0.1.0-test.1');
   assert.equal(checkpoint.hash, await treeHash(join(home, 'runtime.previous'), true));
   assert(existsSync(join(home, 'runtime.previous/lib/kitto.mjs')));
-  // The refreshed copy is what later Kitto calls use; it cannot replace itself.
-  // Semantics: report the installed version, never a version bump, and write nothing.
   const installed = snapshot(home);
   const refreshed = command(process.execPath, [join(runtime, 'bin/kitto.mjs'), 'update', '--check'], f.env);
   good(refreshed);
@@ -618,7 +609,6 @@ test('a failed deployment after the runtime swap is not verified and stays recov
   const failed = b('--apply');
   assert.notEqual(failed.status, 0);
   assert.match(failed.stderr, /simulated MCP add failure/);
-  // The new runtime is active but not verified: state still names the old one.
   assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.2');
   let state = readJson(statePath);
   assert.equal(state.version, '0.1.0-test.1');
@@ -647,7 +637,6 @@ test('a failed update is never checkpointed and a later update keeps the real ch
   assert.notEqual(b('--apply').status, 0);
   assert.equal(readJson(join(home, 'runtime.previous.json')).version, '0.1.0-test.1');
   delete f.env.FAKE_MCP_FAIL_ADD;
-  // Without the pending marker, this would checkpoint the never-deployed B runtime.
   good(c('--apply'));
   const state = readJson(statePath);
   assert.equal(state.version, '0.1.0-test.3');
@@ -664,7 +653,6 @@ test('an installRuntime failure leaves the verified runtime and state intact', t
   const home = f.env.KITTO_HOME, runtime = join(home, 'runtime'), statePath = join(home, 'state.json');
   withRemote(f);
   const stateBefore = readFileSync(statePath, 'utf8');
-  // The copy stage fails after some files were staged; the live runtime is untouched.
   rmSync(join(f.temp, '0.1.0-test.2/CHANGELOG.md'));
   assert.notEqual(b('--apply').status, 0);
   assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
@@ -685,7 +673,6 @@ test('maintain update fast-forwards and redeploys without replacing its own runt
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'maintain update content');
   commitAll(f, 'maintain config');
   good(command('git', ['push', 'origin', 'main'], f.env, f.source));
-  // Preview from the bundled runner must report the installed version and not write.
   const before = snapshot(home);
   const preview = f.maintain('update');
   good(preview);
@@ -701,9 +688,6 @@ test('maintain update fast-forwards and redeploys without replacing its own runt
 });
 
 test('the installed runtime is recognized through a symlinked KITTO_HOME', t => {
-  // macOS resolves /var through /private/var (and users symlink their home), so
-  // the runtime identity check must compare realpaths, not the spelling used to
-  // launch the entry point.
   const f = fixture(t);
   const alias = join(f.temp, 'home-alias');
   symlinkSync(f.home, alias, 'dir');
@@ -728,7 +712,6 @@ test('the installed runtime is recognized through a symlinked KITTO_HOME', t => 
 
 test('update preview covers the app-managed DSH desktop branch without a dsh CLI', t => {
   const f = fixture(t);
-  // The Desktop profile must need no dsh CLI at all, including during update.
   rmSync(join(f.temp, 'bin/dsh'));
   mkdirSync(join(f.source, 'config/dsh'), { recursive: true });
   writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
@@ -818,8 +801,6 @@ test('kitto update refuses to guess a lost checkout pinned to a tag', t => {
   assert.match(refused.stderr, /new KITTO_HOME/);
   assert.equal(existsSync(managed), false);
 
-  // Without a recorded detached deployment, preview and apply must agree: both
-  // inspect the recorded ref and refuse to guess a tag.
   const state = readJson(statePath);
   delete state.deployed;
   writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n');
@@ -845,12 +826,11 @@ test('kitto update backfills a missing sourceUrl and sourceRef from the bootstra
   const preview = f.cli('update', '--check');
   good(preview);
   assert.match(preview.stdout, /Recovered the configuration source from the bootstrap marker/);
-  assert.equal(readJson(statePath).sourceUrl, undefined); // preview never writes
+  assert.equal(readJson(statePath).sourceUrl, undefined);
   good(f.cli('update', '--apply'));
   assert.equal(readJson(statePath).sourceUrl, url);
   assert.equal(readJson(statePath).sourceRef, 'main');
 
-  // The backfilled values make a later lost-checkout recovery possible.
   rmSync(managed, { recursive: true });
   good(f.cli('update', '--apply'));
   assert.equal(existsSync(join(managed, '.git')), true);
@@ -894,13 +874,12 @@ test('kitto update follows a changed origin and redacts credentials in messages'
   good(preview);
   assert.match(preview.stdout, /source URL changed: https:\/\/kitto\.invalid\/config\.git -> https:\/\/\*\*\*@kitto\.invalid\/config2\.git/);
   assert.doesNotMatch(preview.stdout, /secret/);
-  assert.equal(readJson(statePath).sourceUrl, first); // preview never writes
+  assert.equal(readJson(statePath).sourceUrl, first);
 
   good(f.cli('update', '--apply'));
   assert.equal(readJson(statePath).sourceUrl, second);
   assert.equal(readJson(bootstrapMarkerFor(managed)).url, second);
 
-  // Recovery now clones through the updated URL, not the stale one.
   rmSync(managed, { recursive: true });
   good(f.cli('update', '--apply'));
   assert.equal(existsSync(join(managed, '.git')), true);
@@ -946,7 +925,6 @@ test('kitto update allows a clean local branch that is ahead of its remote', t =
   const head = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout.trim();
   const statePath = join(f.env.KITTO_HOME, 'state.json');
 
-  // A local-only commit must not be mistaken for a diverged remote.
   const preview = f.cli('update', '--check');
   good(preview);
   assert.doesNotMatch(preview.stdout + preview.stderr, /diverged/);
@@ -983,7 +961,6 @@ test('kitto update tolerates state from an older version and explains a missing 
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
   const statePath = join(f.env.KITTO_HOME, 'state.json');
-  // A user-owned checkout has no recoverable URL, matching older state files.
   assert.equal(readJson(statePath).sourceUrl, undefined);
   assert.equal(readJson(statePath).sourceRef, null);
   withRemote(f);
@@ -1058,11 +1035,10 @@ test('failed upgrade retries preserve the working checkpoint, and external setup
   const statePath = join(f.env.KITTO_HOME, 'state.json'), state = readFileSync(statePath, 'utf8');
   good(f.maintain('recover'));
   assert.equal(readFileSync(statePath, 'utf8'), state);
-  // Recovery works even with a missing personal checkout and a broken runner.
   rmSync(f.source, { recursive: true });
   writeFileSync(join(f.env.KITTO_HOME, 'runtime/bin/maintain.mjs'), 'broken syntax !');
   good(f.cli('setup', '--recover', '--dry-run'));
-  assert.notEqual(f.cli('setup', '--recover').status, 0); // Native reconnection can also fail.
+  assert.notEqual(f.cli('setup', '--recover').status, 0);
   assert.equal(readJson(statePath).ready, false);
   assert.equal(readFileSync(checkpoint, 'utf8'), before);
   delete f.env.FAIL_HOST;
@@ -1097,7 +1073,7 @@ test('tampered checkpoint is rejected without changing the active installation',
 test('native removal is previewable and repeatable, preserves personal assets and allows reinstall', t => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'pi,codex,dsh', '--source', f.source));
-  good(f.maintain('sync', '--apply')); // Pi remembers its Kitto source as machine-only.
+  good(f.maintain('sync', '--apply'));
   const codexFile = join(f.env.CODEX_HOME, '_fake-codex.json'), other = readJson(codexFile);
   other.installed.push({ pluginId: 'other@personal', marketplaceName: 'personal' });
   other.marketplaces.push({ name: 'personal', root: '/other' }); writeFileSync(codexFile, JSON.stringify(other));
@@ -1160,7 +1136,6 @@ for (const agent of ['codex', 'dsh']) {
   test(`${agent}-only setup, sync and versions work without unneeded Pi files, Bash or Python`, t => {
     const f = fixture(t);
     if (agent === 'codex') {
-      // Codex MCP sync reads the Pi MCP source, but no Pi settings, rules or tools.
       for (const name of ['settings.json', 'AGENTS.md', 'i-have-adhd-always']) rmSync(join(f.source, `config/pi/${name}`));
     } else rmSync(join(f.source, 'config/pi'), { recursive: true });
     const bin = join(f.temp, 'bin');
@@ -1427,8 +1402,6 @@ test('interactive DSH Desktop setup stays global-only and skips scoped adapters'
   assert(!calls.some(c => c.command === 'pnpm'));
 });
 
-// A test-local PATH with fake hosts and npm only, so `kitto hosts` cannot reach
-// real CLIs or the network. The version file is updated by the fake npm shim.
 function hostsTools(f, { versions = {}, missing = [], id = 'hosts-tools' } = {}) {
   const bin = join(f.temp, id);
   mkdirSync(bin, { recursive: true });
@@ -1612,7 +1585,6 @@ test('kitto hosts leaves the app-managed DSH Desktop CLI to the Desktop app', t 
 });
 
 test('host version comparison keeps hyphenated prereleases intact', () => {
-  // The old split('-', 2) truncated both to "alpha" and reported equality.
   assert.equal(compareVersions('1.0.0-alpha-2', '1.0.0-alpha-10'), 1);
   assert.equal(compareVersions('1.0.0-alpha-10', '1.0.0-alpha-2'), -1);
   assert.equal(compareVersions('1.0.0-rc.1', '1.0.0-rc.2'), -1);

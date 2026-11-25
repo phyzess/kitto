@@ -273,7 +273,6 @@ test('checkout does not execute filters activated only for linked Git directorie
 });
 
 async function cacheOldStat(f, checkout, path, setTime) {
-  // Minimal stat checks ignore ctime and inode, and the old mtime avoids racily-clean handling.
   f.git('config', 'core.trustctime', 'false');
   f.git('config', 'core.checkStat', 'minimal');
   const time = 1000000000;
