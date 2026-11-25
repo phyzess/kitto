@@ -1,54 +1,13 @@
 // @ts-nocheck
-/**
- * openrouter-live — keep pi's OpenRouter model list in step with OpenRouter itself.
- *
- * WHY THIS EXISTS
- * pi's built-in OpenRouter provider can only *filter* the catalog it ships by the
- * key's `/models/user` list; it can never *add* an id the catalog does not know
- * (`personalizeOpenRouterCatalog` ends in a `flatMap` that drops unknown chat ids).
- * A model OpenRouter starts serving between pi.dev catalog regenerations therefore
- * stays invisible until that catalog is regenerated or pi is upgraded.
- *
- * HOW IT WORKS
- * This extension registers a *native* provider for `openrouter`. The model registry
- * prefers a native extension provider over the built-in one, so this file owns the
- * openrouter entry (`ModelRegistry.composeProvider`). It reproduces what the built-in
- * does — merge the bundled catalog with the pi.dev catalog when newer, then filter
- * chat models by the key's `/models/user` list and refresh their context window,
- * output limit and prices — and adds the one thing the built-in cannot do: synthesize
- * entries for key-usable ids that no catalog knows, by inheriting compatibility
- * metadata (`compat`, `thinkingLevelMap`, `inputLimits`, `promptCache`) from the
- * closest same-family catalog model. Image and classifier models pass through
- * untouched, so the built-in generation and classification paths keep working.
- *
- * Refresh runs on the runtime's own schedule — startup, `/model`, `/login`,
- * `pi update --models` — first with the stored credential and `allowNetwork: false`
- * (restore the persisted snapshot, offline-safe), then with the resolved credential
- * and `allowNetwork: true`. No timers, sockets or watchers are started here.
- *
- * ENV SWITCHES
- *   OPENROUTER_LIVE_DISABLE=1          do not register; keep built-in behavior
- *   OPENROUTER_LIVE_SYNTH=off          keep filter + metadata refresh, no synthesis
- *   OPENROUTER_LIVE_REQUIRE_TOOLS=0    also synthesize models without tool calling
- *   OPENROUTER_LIVE_CATALOG_BASE_URL=  override the catalog base URL (default https://pi.dev)
- *
- * LIMITATIONS
- *   - A synthesized model's metadata is inferred. Only ids with a same-family catalog
- *     model are synthesized, and `input` follows the live modalities intersected with
- *     the donor's, so reasoning/image behavior stays as close to the known model as
- *     possible. Unknown families are skipped and only reported.
- *   - Synthesized entries are not refreshed by pi's own catalog pipeline; this file
- *     refreshes them on every network refresh, so prices follow `/models/user`.
- *   - Video/audio modalities and `:batch`/`:free` routing variants are not synthesized.
+/** Keep the native provider's methods and Pi's refresh schedule. Only an exact
+ * Pi catalog entry supplies protocol metadata; /models/user is an entitlement
+ * list with capabilities, prices and limits, not a source of Pi protocols.
  */
-
-import { builtinProviders, getBuiltinClassifierModels, getBuiltinImageModels, getBuiltinModelDataGeneratedAt, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 
 const PROVIDER_ID = "openrouter";
 const DEFAULT_CATALOG_BASE = "https://pi.dev";
 const CATALOG_TIMEOUT_MS = 15000;
 const USER_MODELS_TIMEOUT_MS = 15000;
-const MAX_FAMILY_STRIPS = 3;
 const SYNTH_MODES = new Set(["donor", "off"]);
 
 const DISABLED = process.env.OPENROUTER_LIVE_DISABLE === "1";
@@ -61,207 +20,112 @@ const debug = (...args) => {
   if (DEBUG) console.warn("[openrouter-live]", ...args);
 };
 
-/** Live list owned by this extension: what `getModels()`/`getAllModels()` return. */
-const state = {
-  chat: [],
-  image: [],
-  classifier: [],
-  provenance: new Map(),
-  report: { source: "uninitialized", allowed: 0, matched: 0, synthesized: [], skipped: {} },
-  loadedAt: 0,
-};
-
+const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const isChat = (model) => (model?.type ?? "chat") === "chat";
 const typeKey = (model) => `${model?.type ?? "chat"}\u0000${model?.id}`;
+const positiveInt = (value) => Number.isSafeInteger(value) && value > 0;
+const nonnegative = (value) => Number.isFinite(value) && value >= 0;
+const optionalObject = (value) => value === undefined || isObject(value);
+const optionalStrings = (value) => value === undefined ||
+  (Array.isArray(value) && value.every((item) => typeof item === "string"));
+const CHAT_APIS = new Set(["openai-completions", "anthropic-messages"]);
+const PRICE_FIELDS = ["prompt", "completion", "input_cache_read", "input_cache_write"];
 
-/** Same merge rule as pi: dedupe by model type and id, later entries win. */
-function mergeCatalog(...groups) {
-  const merged = new Map();
-  for (const group of groups) {
-    for (const model of group ?? []) {
-      if (model && typeof model.id === "string") merged.set(typeKey(model), model);
-    }
-  }
+function hasModelIdentity(model) {
+  return isObject(model) && model.provider === PROVIDER_ID && typeof model.id === "string" &&
+    model.id.length > 0 && !/[\s\u0000]/.test(model.id);
+}
+
+function usableCatalogModel(model) {
+  if (!hasModelIdentity(model) || typeof model.baseUrl !== "string" || !URL.canParse(model.baseUrl)) return false;
+  const url = new URL(model.baseUrl);
+  // The catalog chooses a built-in protocol endpoint, not a recipient for the user's credentials.
+  if (url.origin !== "https://openrouter.ai" || url.username || url.password || url.search || url.hash ||
+    !["/api", "/api/v1"].includes(url.pathname)) return false;
+  if (model.type === "image") return model.api === "openrouter-images";
+  if (model.type === "classifier") return model.api === "typesafe-system-one";
+  if (!isChat(model)) return false;
+  if (!CHAT_APIS.has(model.api) || typeof model.name !== "string" || typeof model.reasoning !== "boolean" ||
+    !Array.isArray(model.input) || !model.input.includes("text") ||
+    !model.input.every((item) => item === "text" || item === "image") ||
+    !positiveInt(model.contextWindow) || !positiveInt(model.maxTokens) ||
+    !isObject(model.cost) || !["input", "output", "cacheRead", "cacheWrite"].every((field) => nonnegative(model.cost[field])) ||
+    ![model.compat, model.thinkingLevelMap, model.inputLimits, model.promptCache].every(optionalObject)) return false;
+  return true;
+}
+
+/** Exact precedence: merge by provider, model type and ID, later valid entries win. */
+function mergeCatalog(builtin, remote) {
+  const merged = new Map(builtin.filter(hasModelIdentity).map((model) => [typeKey(model), model]));
+  const valid = remote.filter(usableCatalogModel);
+  if (remote.length > 0 && valid.length === 0) throw new Error("Invalid Pi model catalog entries");
+  for (const model of valid) merged.set(typeKey(model), model);
   return [...merged.values()];
 }
 
-function perMillion(value, fallback) {
-  const perToken = Number.parseFloat(value ?? "");
-  return Number.isFinite(perToken) && perToken >= 0 ? Number((perToken * 1e6).toFixed(6)) : fallback;
+function price(value) {
+  if (typeof value !== "number" && (typeof value !== "string" || !/^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value))) return undefined;
+  return nonnegative(Number(value) * 1_000_000) ? String(value) : undefined;
 }
 
-/** Mirrors pi's `openRouterCost`: negative placeholder prices never become negative. */
-function openRouterCost(pricing) {
-  const base = {
-    input: perMillion(pricing?.prompt, 0),
-    output: perMillion(pricing?.completion, 0),
-    cacheRead: perMillion(pricing?.input_cache_read, 0),
-    cacheWrite: perMillion(pricing?.input_cache_write, 0),
-  };
-  const tiers = (pricing?.overrides ?? []).flatMap((override) => {
-    if (
-      override?.min_prompt_tokens === undefined ||
-      override.utc_start !== undefined ||
-      override.utc_end !== undefined ||
-      override.utc_days !== undefined
-    ) {
-      return [];
-    }
-    return [
-      {
-        inputTokensAbove: override.min_prompt_tokens,
-        input: perMillion(override.prompt, base.input),
-        output: perMillion(override.completion, base.output),
-        cacheRead: perMillion(override.input_cache_read, base.cacheRead),
-        cacheWrite: perMillion(override.input_cache_write, base.cacheWrite),
-      },
-    ];
-  });
-  return tiers.length > 0 ? { ...base, tiers } : base;
+function validatedPricing(raw) {
+  if (!isObject(raw) || price(raw.prompt) === undefined || price(raw.completion) === undefined) return undefined;
+  const rates = (entry) => Object.fromEntries(PRICE_FIELDS.map((key) => [key, price(entry[key])]));
+  const overrides = Array.isArray(raw.overrides) ? raw.overrides.filter((tier) => isObject(tier) &&
+    Number.isSafeInteger(tier.min_prompt_tokens) && tier.min_prompt_tokens >= 0 &&
+    tier.utc_start === undefined && tier.utc_end === undefined && tier.utc_days === undefined)
+    .map((tier) => ({ min_prompt_tokens: tier.min_prompt_tokens, ...rates(tier) })) : [];
+  return { ...rates(raw), overrides };
 }
 
-const liveContextWindow = (entry, fallback) =>
-  entry?.top_provider?.context_length || entry?.context_length || fallback;
-const liveMaxTokens = (entry, fallback) => entry?.top_provider?.max_completion_tokens || fallback;
-
-/** Refresh the fields `/models/user` is authoritative for; keep everything else. */
-function applyLive(model, entry) {
-  return {
-    ...model,
-    contextWindow: liveContextWindow(entry, model.contextWindow),
-    maxTokens: liveMaxTokens(entry, model.maxTokens),
-    cost: entry?.pricing ? openRouterCost(entry.pricing) : model.cost,
-  };
+function applyLive(model, entry, requireTools, openRouterCost) {
+  const inputs = entry.architecture?.input_modalities;
+  const outputs = entry.architecture?.output_modalities;
+  const params = entry.supported_parameters;
+  if (!optionalObject(entry.architecture) || !optionalStrings(inputs) || !optionalStrings(outputs) || !optionalStrings(params)) return null;
+  if ((inputs !== undefined && !inputs.includes("text")) || (outputs !== undefined && !outputs.includes("text"))) return null;
+  if (requireTools && params !== undefined && !params.includes("tools") && !params.includes("tool_choice")) return null;
+  const input = inputs === undefined ? model.input : model.input.filter((item) => inputs.includes(item));
+  const reasoning = model.reasoning && (params === undefined || params.some((name) => REASONING_PARAMS.includes(name)));
+  const contextWindow = [entry.top_provider?.context_length, entry.context_length, model.contextWindow].find(positiveInt);
+  const maxTokens = Math.min(contextWindow, [entry.top_provider?.max_completion_tokens, model.maxTokens].find(positiveInt));
+  const pricing = validatedPricing(entry.pricing);
+  return { ...model, input, reasoning, contextWindow, maxTokens,
+    inputLimits: input.includes("image") ? model.inputLimits : undefined,
+    thinkingLevelMap: reasoning ? model.thinkingLevelMap : undefined,
+    cost: pricing ? openRouterCost(pricing) : model.cost };
 }
 
-/** Progressively drop trailing segments: `deepseek/deepseek-v4.1-flash-1017` → `…-flash`. */
-function familyCandidates(id) {
-  const slash = id.indexOf("/");
-  if (slash < 0) return [];
-  const vendor = id.slice(0, slash);
-  let rest = id.slice(slash + 1);
-  const out = [];
-  for (let i = 0; i < MAX_FAMILY_STRIPS && rest.includes("-"); i++) {
-    rest = rest.replace(/-[^-]+$/, "");
-    if (!rest) break;
-    out.push(`${vendor}/${rest}`);
-  }
-  return out;
-}
-
-function findDonor(id, catalogById) {
-  for (const candidate of familyCandidates(id)) {
-    const donor = catalogById.get(candidate);
-    if (donor && isChat(donor) && donor.api && donor.provider === PROVIDER_ID) return donor;
-  }
-  return undefined;
-}
-
-function supportsReasoning(entry, donor) {
-  const params = entry?.supported_parameters;
-  if (!Array.isArray(params)) return donor.reasoning ?? false;
-  if (params.some((name) => REASONING_PARAMS.includes(name))) return true;
-  return false;
-}
-
-function synthesize(entry, donor) {
-  const reasoning = supportsReasoning(entry, donor);
-  const modalities = entry?.architecture?.input_modalities;
-  const input = Array.isArray(modalities)
-    ? ["text", ...(modalities.includes("image") && (donor.input ?? []).includes("image") ? ["image"] : [])]
-    : donor.input ?? ["text"];
-  return {
-    type: "chat",
-    id: entry.id,
-    name: entry.name ?? donor.name ?? entry.id,
-    api: donor.api,
-    baseUrl: donor.baseUrl,
-    provider: PROVIDER_ID,
-    reasoning,
-    thinkingLevelMap: reasoning ? donor.thinkingLevelMap : undefined,
-    input,
-    inputLimits: input.includes("image") ? donor.inputLimits : undefined,
-    cost: entry.pricing ? openRouterCost(entry.pricing) : donor.cost,
-    promptCache: donor.promptCache,
-    contextWindow: liveContextWindow(entry, donor.contextWindow),
-    maxTokens: liveMaxTokens(entry, donor.maxTokens),
-    compat: donor.compat,
-  };
-}
-
-function chatCapable(entry) {
-  const output = entry?.architecture?.output_modalities;
-  if (Array.isArray(output) && !output.includes("text")) return false;
-  if (!REQUIRE_TOOLS) return true;
-  const params = entry?.supported_parameters;
-  if (!Array.isArray(params)) return true;
-  return params.includes("tools") || params.includes("tool_choice");
-}
-
-/** Build the effective list: catalog ∩ key, refreshed, plus donor-backed additions. */
-function compose(merged, allowed) {
-  const chatCatalog = merged.filter(isChat);
-  const catalogById = new Map(chatCatalog.map((model) => [model.id, model]));
-  const provenance = new Map();
-  const synthesized = [];
-  const skipped = { notInCatalog: 0, noFamily: 0, notChat: 0, routingVariant: 0 };
-  const chat = [];
-
-  for (const model of chatCatalog) {
-    if (!allowed) {
-      chat.push(model);
-      provenance.set(model.id, "catalog");
+function compose(catalog, builtinKeys, allowed, openRouterCost) {
+  const models = [], provenance = new Map(), matchedIds = new Set(), skipped = new Map();
+  for (const model of catalog) {
+    const key = typeKey(model);
+    const bundled = builtinKeys.has(key);
+    if (!isChat(model)) {
+      models.push(model);
+      provenance.set(key, bundled ? "bundled" : "pi.dev (exact ID)");
       continue;
     }
-    const entry = allowed.get(model.id);
-    if (!entry) continue; // the key may not use it — same as the built-in filter
-    chat.push(applyLive(model, entry));
-    provenance.set(model.id, "catalog");
-  }
-
-  if (allowed && SYNTH_MODE === "donor") {
-    for (const [id, entry] of allowed) {
-      if (catalogById.has(id)) continue;
-      if (id.includes(":")) {
-        skipped.routingVariant++;
-        continue;
-      }
-      if (!chatCapable(entry)) {
-        skipped.notChat++;
-        continue;
-      }
-      const donor = findDonor(id, catalogById);
-      if (!donor) {
-        skipped.noFamily++;
-        continue;
-      }
-      chat.push(synthesize(entry, donor));
-      provenance.set(id, `synth:${donor.id}`);
-      synthesized.push({ id, donor: donor.id });
+    matchedIds.add(model.id);
+    if (!bundled && model.id.includes(":")) {
+      if (allowed?.has(model.id)) skipped.set(model.id, "routing variant");
+      continue;
     }
+    const entry = allowed?.get(model.id);
+    if (allowed && !entry) continue;
+    const live = entry ? applyLive(model, entry, !bundled && REQUIRE_TOOLS, openRouterCost) : model;
+    if (!live) {
+      skipped.set(model.id, "unsupported chat modalities or tools");
+      continue;
+    }
+    models.push(live);
+    provenance.set(key, `${bundled ? "bundled" : "pi.dev (exact ID)"}${entry ? " + live metadata" : ""}`);
   }
-
-  return {
-    chat,
-    provenance,
-    report: {
-      source: allowed ? (SYNTH_MODE === "donor" ? "catalog+user+synth" : "catalog+user") : "catalog",
-      allowed: allowed ? allowed.size : 0,
-      matched: chat.length - synthesized.length,
-      synthesized,
-      skipped,
-    },
-  };
-}
-
-function install(models, provenance, report, source) {
-  state.chat = models.filter(isChat);
-  state.image = models.filter((model) => model.type === "image");
-  state.classifier = models.filter((model) => model.type === "classifier");
-  if (provenance) state.provenance = provenance;
-  if (report) state.report = { ...report, source };
-  if (!provenance) state.provenance = new Map(models.map((model) => [model.id, "restored"]));
-  state.loadedAt = Date.now();
+  for (const id of allowed?.keys() ?? []) {
+    if (matchedIds.has(id)) continue;
+    skipped.set(id, id.includes(":") ? "routing variant" : "no exact compatible Pi catalog entry");
+  }
+  return { models: [...models.filter(isChat), ...models.filter((model) => !isChat(model))], provenance, skipped, allowed: allowed?.size ?? null };
 }
 
 async function fetchJson(url, init, signal, timeoutMs) {
@@ -288,8 +152,9 @@ async function fetchUserModels(baseUrl, key, signal) {
   }
   const allowed = new Map();
   for (const entry of body.data) {
-    if (entry && typeof entry.id === "string") allowed.set(entry.id, entry);
+    if (isObject(entry) && typeof entry.id === "string" && entry.id.length > 0 && !/[\s\u0000]/.test(entry.id)) allowed.set(entry.id, entry);
   }
+  if (body.data.length > 0 && allowed.size === 0) throw new Error("Invalid OpenRouter model list entries");
   return allowed;
 }
 
@@ -312,8 +177,10 @@ async function loadCatalog(signal, builtin, builtinGeneratedAt) {
       const newer = builtinGeneratedAt === undefined || (lastModified !== undefined && lastModified > builtinGeneratedAt);
       if (newer) {
         const body = await response.json();
-        const entries = Array.isArray(body) ? body : body?.models ?? Object.values(body ?? {});
-        remote = (Array.isArray(entries) ? entries : []).filter((model) => model && typeof model.id === "string");
+        const entries = Array.isArray(body) ? body : isObject(body) ? body.models ?? body : null;
+        if (!Array.isArray(entries) && !isObject(entries)) throw new Error("Invalid Pi model catalog response");
+        remote = Array.isArray(entries) ? entries : Object.values(entries);
+
       }
     } else if (response.status !== 404 && response.status !== 501) {
       throw new Error(`catalog request failed: ${response.status}`);
@@ -327,152 +194,107 @@ async function loadCatalog(signal, builtin, builtinGeneratedAt) {
 }
 
 export default async function (pi) {
-  debug(`factory: loading (synth=${SYNTH_MODE}, requireTools=${REQUIRE_TOOLS}, catalogBase=${CATALOG_BASE})`);
   if (DISABLED) {
     console.warn("[openrouter-live] disabled via OPENROUTER_LIVE_DISABLE=1");
     return;
   }
-  if (!SYNTH_MODES.has(SYNTH_MODE)) {
-    console.warn(`[openrouter-live] unknown OPENROUTER_LIVE_SYNTH=${SYNTH_MODE}; falling back to "donor"`);
-  }
+  // `donor` is a legacy spelling. Neither mode guesses compatibility or adds
+  // aliases; both continue to refresh exact catalog entries.
+  if (!SYNTH_MODES.has(SYNTH_MODE)) console.warn("[openrouter-live] unknown OPENROUTER_LIVE_SYNTH; using exact catalog entries only");
 
-  let ai;
+  let ai, openRouterCost;
   try {
-    ai = await import("@earendil-works/pi-ai/providers/all");
-  } catch (error) {
-    console.warn(
-      "[openrouter-live] cannot import @earendil-works/pi-ai/providers/all; keeping the built-in OpenRouter provider:",
-      error?.message ?? error,
-    );
+    [ai, { openRouterCost }] = await Promise.all([
+      import("@earendil-works/pi-ai/providers/all"),
+      import("@earendil-works/pi-ai/providers/openrouter-api"),
+    ]);
+  } catch {
+    console.warn("[openrouter-live] Pi provider APIs unavailable; keeping the built-in OpenRouter provider");
     return;
   }
-
   const base = (ai.builtinProviders?.() ?? []).find((provider) => provider.id === PROVIDER_ID);
-  if (!base || typeof base.getModels !== "function" || !base.auth) {
+  if (!base || typeof base.getModels !== "function" || !base.auth || typeof openRouterCost !== "function") {
     console.warn("[openrouter-live] built-in OpenRouter provider not reachable; leaving it in place");
     return;
   }
-
-  const builtin = [
+  const builtin = mergeCatalog([
     ...(ai.getBuiltinModels?.(PROVIDER_ID) ?? []),
     ...(ai.getBuiltinImageModels?.(PROVIDER_ID) ?? []),
     ...(ai.getBuiltinClassifierModels?.(PROVIDER_ID) ?? []),
-  ];
+  ], []);
+  const builtinKeys = new Set(builtin.map(typeKey));
+  const builtinByKey = new Map(builtin.map((model) => [typeKey(model), model]));
   const builtinGeneratedAt = ai.getBuiltinModelDataGeneratedAt?.();
+  let state = { ...compose(builtin, builtinKeys, undefined, openRouterCost), source: "bundled" };
 
   async function refreshModels(context) {
-    const restored = (context.stored?.models ?? []).filter((model) => model?.provider === PROVIDER_ID);
-    debug(`refresh: allowNetwork=${context.allowNetwork} credential=${context.credential?.type ?? "none"} stored=${restored.length}`);
-    if (restored.length > 0) {
-      const published = await context.publish({ update: () => install(restored, undefined, undefined, "restored") });
-      if (!published) return;
-    }
-    if (!context.allowNetwork || context.signal?.aborted) return;
-
-    const catalog = await loadCatalog(context.signal, builtin, builtinGeneratedAt);
-    debug(`catalog: ${catalog === undefined ? "unavailable" : `${catalog.models.length} entries, remote=${catalog.usedRemote}`}`);
-    if (catalog === undefined) {
-      // Keep the previous snapshot instead of regressing to the bundled catalog.
-      if (context.stored) {
-        await context.publish({ persist: { ...context.stored, checkedAt: Date.now() } });
+    if (context.signal?.aborted) return;
+    if (!context.allowNetwork) {
+      if (Array.isArray(context.stored?.models)) {
+        // Old versions persisted inferred aliases; never revive those as exact metadata.
+        const legacy = new Set((Array.isArray(context.stored.synthesized) ? context.stored.synthesized : []).map((entry) => entry?.id));
+        const restored = context.stored.models.flatMap((model) => {
+          if (!hasModelIdentity(model) || (isChat(model) && legacy.has(model.id))) return [];
+          if (usableCatalogModel(model)) return [model];
+          const bundled = builtinByKey.get(typeKey(model));
+          return bundled ? [bundled] : [];
+        });
+        const snapshot = compose(mergeCatalog(restored, []), builtinKeys, undefined, openRouterCost);
+        await context.publish({ update: () => { state = { ...snapshot, source: "restored" }; } });
       }
       return;
     }
-
     const credential = context.credential;
-    const key = credential?.type === "oauth" ? credential.access : credential?.key;
-    let allowed;
-    if (key) {
-      allowed = await fetchUserModels(context.baseUrl ?? base.baseUrl, key, context.signal);
-      if (context.signal?.aborted) return;
-    }
-
-    const composed = compose(catalog.models, allowed);
-    debug(
-      `compose: key-usable=${composed.report.allowed} matched=${composed.report.matched} synthesized=${composed.report.synthesized.length} skipped=${JSON.stringify(composed.report.skipped)}`,
-    );
-    debug(`synthesized: ${composed.report.synthesized.map((item) => `${item.id}<-${item.donor}`).join(", ") || "(none)"}`);
-    const models = [...composed.chat, ...catalog.models.filter((model) => model.type === "image"), ...catalog.models.filter((model) => model.type === "classifier")];
+    const key = credential?.type === "oauth" ? credential.access : credential?.type === "api_key" ? credential.key : undefined;
+    if (!key) return;
+    const catalog = await loadCatalog(context.signal, builtin, builtinGeneratedAt);
+    if (!catalog || context.signal?.aborted) return;
+    const allowed = await fetchUserModels(context.baseUrl ?? base.baseUrl, key, context.signal);
+    if (context.signal?.aborted) return;
+    const snapshot = compose(catalog.models, builtinKeys, allowed, openRouterCost);
+    const source = catalog.usedRemote ? "bundled+pi.dev" : "bundled";
+    debug(`refresh: source=${source} key-usable=${snapshot.allowed ?? "unavailable"} skipped=${snapshot.skipped.size}`);
     await context.publish({
-      persist: {
-        models,
-        checkedAt: Date.now(),
-        catalogLastModified: catalog.lastModified,
-        synthesized: composed.report.synthesized,
-      },
-      update: () =>
-        install(
-          models,
-          composed.provenance,
-          { ...composed.report, source: catalog.usedRemote ? "bundled+pi.dev" : "bundled" },
-          catalog.usedRemote ? "bundled+pi.dev" : "bundled",
-        ),
+      persist: { models: snapshot.models, checkedAt: Date.now(), catalogLastModified: catalog.lastModified },
+      update: () => { state = { ...snapshot, source }; },
     });
   }
 
   try {
-    pi.registerProvider({
-      ...base,
-      getModels: () => state.chat,
-      getAllModels: () => [...state.chat, ...state.image, ...state.classifier],
-      refreshModels,
-    });
-  } catch (error) {
-    console.warn("[openrouter-live] provider registration failed; keeping the built-in provider:", error?.message ?? error);
+    pi.registerProvider({ ...base, getModels: () => state.models.filter(isChat), getAllModels: () => state.models, refreshModels });
+  } catch {
+    console.warn("[openrouter-live] provider registration failed; keeping the built-in provider");
     return;
   }
 
   pi.registerCommand("openrouter-sync", {
-    description: "Refresh the OpenRouter model list now and report synthesized models",
+    description: "Refresh the OpenRouter model list now and report catalog coverage",
     handler: async (_args, ctx) => {
       let errors;
       try {
-        const result = await ctx.modelRegistry.refresh({ providers: [PROVIDER_ID], force: true });
-        errors = result?.errors;
-      } catch (error) {
-        ctx.ui?.notify?.(`OpenRouter refresh failed: ${error?.message ?? error}`, "error");
+        errors = (await ctx.modelRegistry.refresh({ providers: [PROVIDER_ID], force: true }))?.errors;
+      } catch {
+        ctx.ui?.notify?.("OpenRouter refresh failed", "error");
         return;
       }
-      const { report } = state;
-      const skippedTotal = Object.values(report.skipped ?? {}).reduce((sum, count) => sum + count, 0);
       const lines = [
-        `source ${report.source} · ${state.chat.length} chat · ${state.image.length} image · ${state.classifier.length} classifier`,
-        `key-usable ${report.allowed} · from catalog ${report.matched} · synthesized ${report.synthesized.length} · skipped ${skippedTotal}`,
+        `source ${state.source} · ${state.models.filter(isChat).length} chat · ${state.models.filter((m) => m.type === "image").length} image · ${state.models.filter((m) => m.type === "classifier").length} classifier`,
+        `key-usable ${state.allowed ?? "unavailable"} · skipped ${state.skipped.size}`,
       ];
-      for (const item of report.synthesized.slice(0, 10)) lines.push(`  + ${item.id} ← ${item.donor}`);
-      if (report.synthesized.length > 10) lines.push(`  … ${report.synthesized.length - 10} more`);
-      const skipped = Object.entries(report.skipped ?? {}).filter(([, count]) => count > 0);
-      if (skipped.length > 0) lines.push(`  skipped: ${skipped.map(([reason, count]) => `${reason}=${count}`).join(" ")}`);
-      if (errors?.size) lines.push(`  refresh errors: ${[...errors.keys()].join(", ")}`);
-      if (!errors && state.loadedAt === 0) lines.push("  note: no model list yet");
+      for (const [id, reason] of [...state.skipped].slice(0, 10)) lines.push(`  ${id}: ${reason}`);
+      if (errors?.size) lines.push("  refresh failed; keeping the previous list");
       ctx.ui?.notify?.(lines.join("\n"), errors?.size ? "error" : "info");
     },
   });
 
   pi.registerCommand("openrouter-explain", {
-    description: "Show where an OpenRouter model entry comes from (catalog, pi.dev, or synthesized)",
+    description: "Show the exact source of an OpenRouter model entry or why it was skipped",
     handler: async (args, ctx) => {
       const id = (args ?? "").trim();
-      if (!id) {
-        ctx.ui?.notify?.("Usage: /openrouter-explain <model-id>", "error");
-        return;
-      }
-      const model = [...state.chat, ...state.image, ...state.classifier].find((entry) => entry.id === id);
-      if (!model) {
-        ctx.ui?.notify?.(`${id} is not in the current OpenRouter list`, "error");
-        return;
-      }
-      const provenance = state.provenance.get(id) ?? "unknown";
-      const lines = [
-        `${model.id} (${model.type ?? "chat"})`,
-        `source: ${provenance}`,
-        `api: ${model.api} · reasoning: ${model.reasoning ?? false} · input: ${(model.input ?? []).join("+") || "text"}`,
-        `context ${model.contextWindow} · max out ${model.maxTokens} · cost ${JSON.stringify(model.cost)}`,
-      ];
-      if (provenance.startsWith("synth:")) {
-        lines.push(`inherited compat: ${JSON.stringify(model.compat ?? {})}`);
-        lines.push(`inherited thinking: ${JSON.stringify(model.thinkingLevelMap ?? {})}`);
-      }
+      if (!id) return ctx.ui?.notify?.("Usage: /openrouter-explain <model-id>", "error");
+      const models = state.models.filter((model) => model.id === id);
+      if (models.length === 0) return ctx.ui?.notify?.(`${id}: ${state.skipped.get(id) ?? "not in the current OpenRouter list"}`, "error");
+      const lines = models.map((model) => `${model.id} (${model.type ?? "chat"}) · source: ${state.provenance.get(typeKey(model)) ?? state.source} · API: ${model.api}`);
       ctx.ui?.notify?.(lines.join("\n"), "info");
     },
   });
