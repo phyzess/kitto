@@ -1,5 +1,14 @@
 # Kitto
 
+## 0.3.3
+
+- OpenRouter: use exact catalog metadata instead of inferring model capabilities from similar IDs. Validate live metadata and saved snapshots before using them. (#44)
+- Pi: restore native hardware and software cursor rendering, including ANSI styling. Sync replaces the old renderer override. (#45)
+- Hosts: improve DSH installation discovery and compare structured MCP declarations from Codex and DSH. Share host pins and SemVer ordering. (#46)
+- DSH usage: report incomplete totals explicitly and preserve valid records recovered from damaged logs. (#47)
+- JEV: reject conflicting stdin sources before reading input, use the supported DSH credential parser, and omit HTTP error bodies from diagnostics. (#48)
+- CI: install the pinned platform-native pnpm with lifecycle scripts disabled, without a rebuild. (#49)
+
 ## 0.3.2
 
 - Locks: the installation lock (`$KITTO_HOME/.lock`) and the Pi adapter's write lock (`<configuration source>/config/pi/local/.sync-lock`) now record their owner — `owner.json` with pid, host, start time and command, or a `pid` file. A refused acquisition therefore reports whether the holder can still exist: `pid N started … is still running`, or `pid N is no longer running` with the statement that the lock is stale. `--break-lock` on `setup`/`update` clears a lock only when its recorded owner is provably gone and never displaces a live operation; a lock without an owner record (an older Kitto, or a hand-made directory) is left for manual inspection. Held locks are released on `SIGINT`/`SIGTERM`, which bash's `EXIT` trap alone never covered for the Pi adapter.
