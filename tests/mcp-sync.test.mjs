@@ -321,6 +321,9 @@ test('sync preserves unrelated YAML, comments and !!js, then leaves a clean file
   config:
     enabled: !!js process.env.KITTO_INSTRUCTIONS
 `;
+  const profileHome = join(dshHome, 'profiles', 'web');
+  await mkdir(profileHome, { recursive: true });
+  await writeFile(join(profileHome, 'cordis.patch.yml'), '- insert:\n    - id: agent-instructions\n      name: fixture-instructions\n');
   await writeFile(path, before);
 
   const first = await syncDshMcp({ source, dshHome }, { yaml });
