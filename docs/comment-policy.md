@@ -15,21 +15,24 @@ node scripts/check-comments.mjs --inventory worktree
 
 Use the current target branch’s full commit SHA, not an older baseline or a revision chosen from the change. Local lint checks the index and the worktree independently against that commit. The worktree includes Git-visible untracked files; ignored local files and untracked `.agent-teams/` harness state are out of scope. Tracked harness state, unsupported formats and nonregular entries fail. `--head <sha>` compares immutable commits instead; `--pr-head <sha>` requires the head object’s two parents to be the specified base and PR tip in that order.
 
-GitHub Actions compares the checked-out PR merge SHA against the event’s target SHA and a push to `main` against its event predecessor. After the one-time bootstrap, CI takes the checker and package lock from the base’s objects; the checker only reads candidate blobs. Missing, zero, or mismatched revisions do not fall back to `HEAD` or the historical bootstrap. A PR can still propose edits to the workflow wiring itself: use a trusted protected ruleset or require separate maintainer review of gate changes. This repository change does not configure those settings.
+GitHub Actions compares the checked-out PR merge SHA against the event’s target SHA and a push to `main` against its event predecessor. Outside the one-time exception, CI extracts the checker, its imports, the package manifest and lockfile only from the base commit; the checker reads candidate blobs without executing them. Missing, zero, or mismatched revisions do not fall back to `HEAD` or the historical audit base. A PR can still propose edits to the workflow wiring itself: use a trusted protected ruleset or require separate maintainer review of gate changes. This repository change does not configure those settings.
 
 ### First rollout: independent approval required
 
-The original base `4400a587ef93343ec6c5c52d20b7dc8e8468638c` contains no checker. For that base only, the Actions ratchet step explicitly reports that no trusted check ran. Do not merge the rollout until a repository maintainer who did not author it independently reviews the exact candidate under the protected approval process. The maintainer reviews the workflow, checker and its imports, dependency manifest and lockfile, and disposition of original comments before running the reviewed tooling. If the reviewed bytes change, obtain approval again. Routine CI results and a candidate-side lint pass are diagnostic, not approval or trusted ratchet evidence.
+The reviewed target `5368e35ddee521a389e9c676b4edb3929937c8fc` contains no checker. Only `phyzess/kitto` PR [#50](https://github.com/phyzess/kitto/pull/50), from `kitto/comment-ratchet` to `main` in the same repository at that exact target, gets a warning instead of running a trusted ratchet. The step verifies the checked-out merge SHA and its two ordered commit parents against the event base and PR tip. If the target advances before adoption and still lacks the checker, stop and review the new base and its delta; the current exception does not apply.
 
-In a clean checkout of the reviewed candidate, reproduce the check against the immutable pre-rollout commit:
+Before merging the rollout, a maintainer who did not author it must independently review the exact candidate under the protected approval process. Review the workflow, checker and imports, manifest and lockfile, and both the [original](comment-audit.md) and [incremental](comment-audit-main-sync.md) audit records. Use a clean checkout of the reviewed PR merge commit and the actual event PR tip to reproduce the diagnostic:
 
 ```sh
 npm ci --ignore-scripts
 node --test tests/comment-ratchet.test.mjs
-npm run lint:comments -- --base 4400a587ef93343ec6c5c52d20b7dc8e8468638c --head "$(git rev-parse HEAD)"
+npm run lint:comments -- --base 5368e35ddee521a389e9c676b4edb3929937c8fc \
+  --head "$(git rev-parse HEAD)" --pr-head "$REVIEWED_PR_TIP"
 ```
 
-The maintainer should record the candidate commit, base commit, check results, and approval. No protected approval is created by running these commands.
+Record the target, merge commit, PR tip, reviewed tree ID, check results, and approval. Changed candidate bytes require renewed approval. The workflow warning and candidate-side checks are diagnostic; neither grants approval nor establishes trusted ratchet evidence.
+
+The first push to `main` with that exact predecessor fails the ratchet step deliberately: the predecessor has no trusted checker, and a merge or squash does not make the pushed checker an independent verifier of itself. Re-running the push check will not change its predecessor. The maintainer verifies that the landed tree matches the approved tree before relying on its checker for future changes; any discrepancy requires review. The next push or PR whose base includes the reviewed checker uses that base's bytes normally. There is no first-push bypass.
 
 ## Scope and comparison
 

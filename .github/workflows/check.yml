@@ -33,19 +33,39 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]
-          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          valid_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ && "$1" != 0000000000000000000000000000000000000000 ]]; }
+          valid_sha "$BASE_SHA"
+          valid_sha "$HEAD_SHA"
+          test "$(git --no-replace-objects rev-parse --verify HEAD)" = "$HEAD_SHA"
+          test "$(git --no-replace-objects cat-file -t "$BASE_SHA")" = commit
           args=(--base "$BASE_SHA" --head "$HEAD_SHA")
-          if [[ -n "$PR_HEAD_SHA" ]]; then args+=(--pr-head "$PR_HEAD_SHA"); fi
-          if [[ "$BASE_SHA" == 4400a587ef93343ec6c5c52d20b7dc8e8468638c ]]; then
-            printf '%s\n' '::warning::No trusted comment ratchet ran for the first rollout. Protected independent maintainer review of the exact candidate is required before merge.'
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              valid_sha "$PR_HEAD_SHA"
+              test "$(git --no-replace-objects cat-file -t "$PR_HEAD_SHA")" = commit
+              test "$(git --no-replace-objects show --no-patch --format=%P "$HEAD_SHA")" = "$BASE_SHA $PR_HEAD_SHA"
+              args+=(--pr-head "$PR_HEAD_SHA")
+              ;;
+            push) [[ "$GITHUB_REF" == refs/heads/main && -z "$PR_HEAD_SHA" ]] ;;
+            *) exit 1 ;;
+          esac
+          if [[ "$BASE_SHA" == 5368e35ddee521a389e9c676b4edb3929937c8fc && "$GITHUB_REPOSITORY" == phyzess/kitto ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+              printf '%s\n' '::error::The rollout push has no trusted checker at its predecessor. Verify the independently approved candidate against the landed tree; this run does not fall back to the pushed checker.' >&2
+              exit 1
+            fi
+            [[ "$PR_NUMBER" == 50 && "$GITHUB_REF" == refs/pull/50/merge && "$GITHUB_BASE_REF" == main &&
+              "$PR_HEAD_REPOSITORY" == phyzess/kitto && "$GITHUB_HEAD_REF" == kitto/comment-ratchet ]]
+            printf '%s\n' '::warning::No trusted comment ratchet ran for PR #50. Protected independent maintainer review of the exact candidate is required before merge.'
             exit 0
           fi
           tool="$(mktemp -d "$RUNNER_TEMP/kitto-comments.XXXXXX")"
           cleanup() { test -n "$tool" && rm -rf -- "$tool"; }
           trap cleanup EXIT
-          git archive "$BASE_SHA" package.json package-lock.json scripts/check-comments.mjs scripts/comment-ratchet.mjs scripts/comment-ratchet | tar -x -C "$tool"
+          git --no-replace-objects archive "$BASE_SHA" package.json package-lock.json scripts/check-comments.mjs scripts/comment-ratchet.mjs scripts/comment-ratchet | tar -x -C "$tool"
           npm ci --ignore-scripts --prefix "$tool"
           node "$tool/scripts/check-comments.mjs" "${args[@]}"
       - run: bash -n setup.sh && bash -n sync.sh

@@ -1,5 +1,3 @@
-
-
 - id: agent-teams
   config:
     stateDir: .agent-teams
@@ -14,59 +12,76 @@
         allow: [read, glob, grep, bash, web_search, web_fetch]
     profiles:
       dev-standard:
-        description: T1 标准开发：Sol 实现，Luna 验证，Kimi 审查
+        description: T1 标准开发：Sol 实现，DeepSeek Flash 验证，GLM-5.3 审查，DeepSeek Flash 按需批量
         taskPlanning: captain
+        protocol: 审批前按已分派任务的难度和模型支持的档位设置成员思考强度，不按角色固定档位。
         members:
           - name: implementer
             role: 实现
             provider: openai-codex
             model: gpt-6.2-sol
-            reasoning_effort: high
+          - name: batch
+            role: 批量与扫描（按需）
+            provider: opencode-go
+            model: deepseek-v4.1-flash
+            fallback:
+              provider: opencode-go
+              model: glm-5.3-flash
           - name: verifier
             role: 验证
             provider: opencode-go
-            model: gpt-6-luna
-            reasoning_effort: medium
+            model: deepseek-v4.1-flash
+            fallback:
+              provider: opencode-go
+              model: glm-5.3-flash
           - name: reviewer
             role: 审查
             provider: opencode-go
-            model: kimi-k3.1-pro
-            reasoning_effort: high
+            model: glm-5.3
             tool_policy: read-only
+            fallback:
+              provider: opencode-go
+              model: kimi-k3.1-pro
         reviewPolicy:
           codeMaxRounds: 2
           maxRepairAttempts: 2
           requiredReviewers: [reviewer]
       dev-hard:
-        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，Luna 验证
+        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，DeepSeek Flash 验证，DeepSeek Flash 按需批量
         taskPlanning: captain
+        protocol: 审批前按已分派任务的难度和模型支持的档位设置成员思考强度，不按角色固定档位。
         members:
           - name: architect
             role: 方案
             provider: openai-codex
             model: gpt-6.2-astra
-            reasoning_effort: high
             tool_policy: read-only
           - name: implementer
             role: 实现
             provider: openai-codex
             model: gpt-6.2-sol
-            reasoning_effort: high
           - name: longrun
             role: 长跑
             provider: openai-codex
             model: gpt-6.2-sol
-            reasoning_effort: high
+          - name: batch
+            role: 批量与扫描（按需）
+            provider: opencode-go
+            model: deepseek-v4.1-flash
+            fallback:
+              provider: opencode-go
+              model: glm-5.3-flash
           - name: verifier
             role: 验证
             provider: opencode-go
-            model: gpt-6-luna
-            reasoning_effort: medium
+            model: deepseek-v4.1-flash
+            fallback:
+              provider: opencode-go
+              model: glm-5.3-flash
           - name: reviewer
             role: 审查
             provider: opencode-go
             model: grok-4.7
-            reasoning_effort: high
             tool_policy: read-only
             fallback:
               provider: opencode-go

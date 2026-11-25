@@ -1,6 +1,6 @@
 # Kitto comment audit
 
-Baseline: `4400a587ef93343ec6c5c52d20b7dc8e8468638c`. Counts below describe the cleanup, not a baseline to reuse for future PRs. The two original Actions heredoc comments are included; their owner moved the same commands to [the native CI installer](../scripts/ci-install-native.mjs). The audit also decouples legacy sync help from source positions while preserving its output; the open drafts do not change the other shortcuts.
+Baseline: `4400a587ef93343ec6c5c52d20b7dc8e8468638c`. These historical counts describe the original cleanup through PR tip `08268a407ab28995cd07ea209df2b9db28f3bddb`, not a baseline to reuse for future PRs. See the [incremental main-sync audit](comment-audit-main-sync.md) for later upstream changes. The two original Actions heredoc comments are included; their owner moved the same commands to [the native CI installer](../scripts/ci-install-native.mjs). The audit also decouples legacy sync help from source positions while preserving its output; the open drafts do not change the other shortcuts.
 
 | Disposition | Original tokens | Treatment |
 | --- | ---: | --- |
@@ -35,14 +35,16 @@ The three compaction pointer edits have zero line delta. Net change attributable
 
 ## Recompute
 
-Run from the repository root after installing the lockfile dev tools as described in the [comment policy](comment-policy.md). The reconstruction compares ledger identities to both inventories and measures removed physical lines rather than equating token count with line count:
+Run from the repository root after installing the lockfile dev tools as described in the [comment policy](comment-policy.md). Reconstruct both historical snapshots from Git objects; the current branch may contain later changes:
 
 ```sh
 BASE=4400a587ef93343ec6c5c52d20b7dc8e8468638c
+ORIGINAL_PR=08268a407ab28995cd07ea209df2b9db28f3bddb
 T=$(mktemp -d)
 trap 'rm -rf -- "${T:?}"' EXIT
 node scripts/check-comments.mjs --inventory "$BASE" > "$T/before.json"
-node scripts/check-comments.mjs --inventory worktree > "$T/after.json"
+node scripts/check-comments.mjs --inventory "$ORIGINAL_PR" > "$T/after.json"
+git show "$ORIGINAL_PR:sync.sh" > "$T/sync.sh"
 python3 - "$T" <<'PY'
 import collections, json, re, subprocess, sys
 from pathlib import Path
@@ -83,7 +85,7 @@ for path in old.keys() | new.keys():
     comment_lines = set(old[path]['commentOnlyLines'])
     expected = {l for a, b in deleted for l in range(a, b + 1)} & comment_lines
     inline += sum(not comment_lines.intersection(range(a, b + 1)) for a, b in deleted)
-    diff = subprocess.check_output(['git', 'diff', '--no-renames', '--unified=0', before['snapshot'], '--', path], text=True)
+    diff = subprocess.check_output(['git', 'diff', '--no-renames', '--unified=0', before['snapshot'], after['snapshot'], '--', path], text=True)
     removed_old_lines = {l for a, n in re.findall(r'^@@ -(\d+)(?:,(\d+))? ', diff, re.M)
                          for l in range(int(a), int(a) + int(n or '1'))}
     assert expected == comment_lines & removed_old_lines, path
@@ -95,7 +97,7 @@ for path in old.keys() | new.keys():
         help_text = b''.join(original.splitlines(keepends=True)[1:25])
         literal_help = help_text.count(b'\n')
         for flag in ('-h', '--help'):
-            help_run = subprocess.run(['bash', 'sync.sh', 'status', flag], capture_output=True, check=True)
+            help_run = subprocess.run(['bash', str(root / 'sync.sh'), 'status', flag], capture_output=True, check=True)
             assert help_run.stdout == help_text and not help_run.stderr, flag
     if path != '.github/workflows/check.yml':
         local.add(path)

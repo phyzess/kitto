@@ -10,10 +10,12 @@ import { composeInstructions } from '../lib/host-config.mjs';
 import { compareVersions } from '../lib/hosts.mjs';
 import { hosts, meetsBaseline, parseOptions, replaceDirectory, treeHash } from '../lib/kitto.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
+import { waitForPublish } from '../scripts/release.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const cliTimeout = 180_000;
 function command(cmd, args, env, cwd = root) {
-  return spawnSync(cmd, args, { env, cwd, encoding: 'utf8', timeout: 60_000 });
+  return spawnSync(cmd, args, { env, cwd, encoding: 'utf8', timeout: cliTimeout });
 }
 function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), "kitto's test "));
@@ -524,7 +526,7 @@ test('lock rejects concurrent mutation and dirty source rejects update', t => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
   mkdirSync(join(f.env.KITTO_HOME, '.lock'));
-  assert.match(f.maintain('sync', '--apply').stderr, /Another Kitto operation/);
+  assert.match(f.maintain('sync', '--apply').stderr, /exists without an owner record/);
   rmSync(join(f.env.KITTO_HOME, '.lock'), { recursive: true });
   writeFileSync(join(f.source, 'uncommitted.txt'), 'work');
   assert.match(f.maintain('update', '--apply').stderr, /local changes/);
@@ -1319,7 +1321,7 @@ test('interactive CLI previews and applies bundled Pi and Codex setup for future
     env: f.env,
     cwd: root,
     encoding: 'utf8',
-    timeout: 60_000,
+    timeout: cliTimeout,
     input: ['pi,codex', '2', f.source, 'n', workspaceParent, '1', '2', ''].join('\n'),
   });
   good(result);
@@ -1385,7 +1387,7 @@ test('interactive DSH Desktop setup stays global-only and skips scoped adapters'
   writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
   writeFileSync(join(f.temp, 'bin/pnpm'), `#!${process.execPath}\nprocess.exit(1);\n`, { mode: 0o755 });
   const result = spawnSync(process.execPath, [join(root, 'bin/kitto.mjs'), 'setup', '--interactive'], {
-    env: f.env, cwd: root, encoding: 'utf8', timeout: 60_000,
+    env: f.env, cwd: root, encoding: 'utf8', timeout: cliTimeout,
     input: ['dsh', 'desktop', '2', f.source, 'n', '', '2'].join('\n'),
   });
   good(result);
@@ -1731,4 +1733,112 @@ test('the maintenance runner exposes the same explicit host policy', t => {
   good(result);
   assert.match(result.stdout, /codex: current 0\.169\.0; Kitto baseline 0\.170\.0/);
   assert.match(result.stdout, /check only; no writes/);
+});
+
+test('a host below the tested baseline warns and keeps deploying the other hosts', t => {
+  const f = fixture(t);
+  f.env.FAKE_HOST_VERSIONS = JSON.stringify({ codex: '0.167.1' });
+  const result = f.cli('setup', '--agents', 'pi,codex', '--source', f.source);
+  good(result);
+  assert.match(result.stderr, /kitto: codex: 0\.167\.1 is older than the tested baseline 0\.170\.0/);
+  assert.match(result.stderr, /continuing and skipping the steps this CLI cannot support/);
+  assert.match(readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8'), /Pi instructions/);
+  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  assert.equal(state.ready, true);
+  assert.deepEqual(state.agents, ['pi', 'codex']);
+  assert(callsOf(f).some(c => c.command === 'codex' && c.args[0] === 'plugin' && c.args.includes('add')));
+});
+
+test('a host without the plugin subcommand skips only its native integration', t => {
+  const f = fixture(t);
+  f.env.FAKE_HOST_NO_HELP = 'codex';
+  const result = f.cli('setup', '--agents', 'pi,codex', '--source', f.source);
+  good(result);
+  assert.match(result.stderr, /this codex CLI has no plugin subcommand/);
+  assert.match(readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8'), /Pi instructions/);
+  assert(!callsOf(f).some(c => c.command === 'codex' && c.args[0] === 'plugin' && !c.args.includes('--help')));
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+});
+
+test('--require-baseline makes an untested host version fatal again', t => {
+  const f = fixture(t);
+  f.env.FAKE_HOST_VERSIONS = JSON.stringify({ codex: '0.167.1' });
+  const failed = f.cli('setup', '--agents', 'pi,codex', '--source', f.source, '--require-baseline');
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /codex: 0\.167\.1 is older than the tested baseline 0\.170\.0/);
+  assert.equal(existsSync(join(f.env.KITTO_HOME, 'state.json')), false);
+  assert.equal(existsSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md')), false);
+});
+
+test('a stale lock reports its owner and --break-lock clears both locks', t => {
+  const f = fixture(t);
+  const dead = spawnSync(process.execPath, ['-e', '']).pid;
+  const lock = join(f.env.KITTO_HOME, '.lock');
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: dead, startedAt: '2026-01-01T00:00:00.000Z', command: 'setup --agents pi' }));
+  mkdirSync(join(f.source, 'config/pi/local/.sync-lock'), { recursive: true });
+  writeFileSync(join(f.source, 'config/pi/local/.sync-lock/pid'), `${dead}\n`);
+
+  const blocked = f.cli('setup', '--agents', 'pi', '--source', f.source);
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr, new RegExp(`is a stale lock: pid ${dead}`));
+  assert.match(blocked.stderr, /--break-lock/);
+
+  const released = f.cli('setup', '--agents', 'pi', '--source', f.source, '--break-lock');
+  good(released);
+  assert.match(released.stdout, new RegExp(`removed stale lock .*\\(pid ${dead} is no longer running\\)`));
+  assert.match(released.stdout, new RegExp(`removed stale sync lock .*\\(pid ${dead} is no longer running\\)`));
+  assert.equal(existsSync(lock), false);
+  assert.equal(existsSync(join(f.source, 'config/pi/local/.sync-lock')), false);
+  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+});
+
+test('a live lock is never displaced, even with --break-lock', t => {
+  const f = fixture(t);
+  const lock = join(f.env.KITTO_HOME, '.lock');
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), command: 'setup --agents pi' }));
+
+  const blocked = f.cli('setup', '--agents', 'pi', '--source', f.source, '--break-lock');
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr, new RegExp(`Another Kitto operation holds .*: pid ${process.pid}`));
+  assert.match(blocked.stderr, /Wait for it to finish/);
+  assert.equal(existsSync(join(lock, 'owner.json')), true);
+});
+
+test('a slow python3 shim warns instead of stranding the deployment', t => {
+  const f = fixture(t);
+  const real = command('bash', ['-c', 'python3 -c "import sys; print(sys.executable)"'], f.env).stdout.trim();
+  assert(real, 'the fixture needs a real python3 to delegate to');
+  writeFileSync(join(f.temp, 'bin/python3'),
+    `#!${process.execPath}\nrequire(${JSON.stringify(join(root, 'tests/helpers/slow-python.cjs'))});\n`, { mode: 0o755 });
+  f.env.REAL_PYTHON = real;
+
+  const result = f.cli('setup', '--agents', 'pi', '--source', f.source);
+  good(result);
+  assert.match(result.stderr, /python3 did not answer within 8s/);
+  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  assert.equal(state.ready, true);
+  assert.equal(state.pendingRuntime, undefined);
+});
+
+test('release verification polls npm before reporting a result', () => {
+  const reads = [undefined, undefined, undefined, 'sha512-abc'];
+  let slept = 0;
+  const attempt = waitForPublish('@phyzess/kitto@0.3.2', 'sha512-abc', () => reads.shift(),
+    { attempts: 5, delayMs: 15_000, sleep: ms => { slept += ms; } });
+  assert.equal(attempt, 4);
+  assert.equal(slept, 45_000);
+});
+
+test('release verification rejects contents that differ from the tarball', () => {
+  assert.throws(() => waitForPublish('@phyzess/kitto@0.3.2', 'sha512-abc', () => 'sha512-other',
+    { attempts: 5, sleep: () => {} }), /is on npm with different contents/);
+});
+
+test('release verification gives up with the expected integrity', () => {
+  let calls = 0;
+  assert.throws(() => waitForPublish('@phyzess/kitto@0.3.2', 'sha512-abc', () => { calls += 1; },
+    { attempts: 3, delayMs: 1, sleep: () => {} }), /after 3 attempts.*sha512-abc/);
+  assert.equal(calls, 3);
 });

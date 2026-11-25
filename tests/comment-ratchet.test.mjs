@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { parse } from 'yaml';
 import { command, formatFor, inspect, nativeParser } from '../scripts/comment-ratchet.mjs';
 import { compare, repository } from '../scripts/comment-ratchet/snapshots.mjs';
 
@@ -195,21 +196,120 @@ test('snapshots bind the push ancestor and the two PR parents, and inspect index
   assert.throws(() => inventory('worktree'), /Only regular files/u);
 });
 
-test('bootstrap reports independent review without invoking the candidate checker or installer', () => {
+function ratchetStep() {
   const text = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
-  const match = text.match(/\n      - name: Check comment ratchet or report required bootstrap review\n(?:[^\n]*\n)*?        run: \|\n((?: {10}[^\n]*\n)+)/u);
-  assert.ok(match);
-  const script = match[1].replace(/^ {10}/gmu, '');
-  const spies = 'npm() { exit 71; }; node() { exit 72; }; tar() { exit 73; };\n';
-  const head = command('git', ['rev-parse', 'HEAD']).toString().trim();
-  const result = spawnSync('bash', ['-euo', 'pipefail', '-c', spies + script], {
-    env: { ...process.env, BASE_SHA: genesis, HEAD_SHA: head, PR_HEAD_SHA: '' }, encoding: 'utf8', timeout: 10_000,
+  const step = parse(text).jobs.test.steps.find(step => step.name === 'Check comment ratchet or report required bootstrap review');
+  assert.equal(step?.shell, 'bash');
+  assert.equal(typeof step.run, 'string');
+  return step;
+}
+
+function runRatchetStep(cwd, prefix, env) {
+  return spawnSync('bash', ['-euo', 'pipefail', '-c', `${prefix}\n${ratchetStep().run}`], {
+    cwd, env: { ...process.env, RUNNER_TEMP: cwd, ...env }, encoding: 'utf8', timeout: 10_000,
   });
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /No trusted comment ratchet ran.*Protected independent maintainer review.*required before merge/u);
-  assert.doesNotMatch(result.stdout, /Comment ratchet passed/u);
-  assert.match(script, /git archive "\$BASE_SHA" package\.json package-lock\.json/u);
-  assert.match(script, /node "\$tool\/scripts\/check-comments\.mjs"/u);
+}
+
+const adoptionBase = '5368e35ddee521a389e9c676b4edb3929937c8fc';
+const adoptionWarning = /No trusted comment ratchet ran for PR #50.*Protected independent maintainer review.*required before merge/u;
+
+test('only the pinned PR and its exact event parents get the first-rollout warning', t => {
+  const { cwd } = fixture(t);
+  const head = 'a'.repeat(40), tip = 'b'.repeat(40), other = 'c'.repeat(40);
+  const env = {
+    BASE_SHA: adoptionBase, HEAD_SHA: head, PR_HEAD_SHA: tip, PR_NUMBER: '50', PR_HEAD_REPOSITORY: 'phyzess/kitto',
+    GITHUB_EVENT_NAME: 'pull_request', GITHUB_REPOSITORY: 'phyzess/kitto', GITHUB_REF: 'refs/pull/50/merge',
+    GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'kitto/comment-ratchet', FIXTURE_PARENTS: `${adoptionBase} ${tip}`,
+  };
+  const spies = `npm() { exit 71; }; node() { exit 72; }; tar() { exit 73; }
+    git() {
+      test "$1" = --no-replace-objects || return 75
+      case "$2" in
+        rev-parse) printf '%s\\n' '${head}' ;;
+        cat-file) case "$4" in '${adoptionBase}'|'${tip}'|'${genesis}') printf '%s\\n' commit ;; *) return 76 ;; esac ;;
+        show) test "$5" = '${head}' && printf '%s\\n' "$FIXTURE_PARENTS" ;;
+        archive) printf '%s\\n' 'fixture archive called' >&2; return 74 ;;
+        *) return 75 ;;
+      esac
+    }`;
+  const run = overrides => runRatchetStep(cwd, spies, { ...env, ...overrides });
+  const allowed = run({});
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.match(allowed.stdout, adoptionWarning);
+  assert.doesNotMatch(allowed.stdout + allowed.stderr, /archive called|Comment ratchet passed/u);
+  const negatives = [
+    ['another PR', { PR_NUMBER: '51', GITHUB_REF: 'refs/pull/51/merge' }],
+    ['another checkout ref', { GITHUB_REF: 'refs/pull/50/head' }],
+    ['another target branch', { GITHUB_BASE_REF: 'release' }],
+    ['another source branch', { GITHUB_HEAD_REF: 'other' }],
+    ['another repository', { GITHUB_REPOSITORY: 'fork/kitto' }],
+    ['a foreign PR head', { PR_HEAD_REPOSITORY: 'fork/kitto' }],
+    ['wrong checkout SHA', { HEAD_SHA: other }],
+    ['wrong head parent', { FIXTURE_PARENTS: `${adoptionBase} ${other}` }],
+    ['reversed parents', { FIXTURE_PARENTS: `${tip} ${adoptionBase}` }],
+    ['extra parent', { FIXTURE_PARENTS: `${adoptionBase} ${tip} ${other}` }],
+    ['unavailable PR head', { PR_HEAD_SHA: other, FIXTURE_PARENTS: `${adoptionBase} ${other}` }],
+    ['unavailable base', { BASE_SHA: other, FIXTURE_PARENTS: `${other} ${tip}` }],
+    ['empty base', { BASE_SHA: '' }],
+    ['zero base', { BASE_SHA: '0'.repeat(40) }],
+  ];
+  for (const [label, variables] of negatives) {
+    const result = run(variables);
+    assert.ok(result.status > 0, `${label}: ${result.stderr}`);
+    assert.doesNotMatch(result.stdout + result.stderr, adoptionWarning, label);
+  }
+  const old = run({ BASE_SHA: genesis, FIXTURE_PARENTS: `${genesis} ${tip}` });
+  assert.ok(old.status > 0, old.stderr);
+  assert.match(old.stderr, /fixture archive called/u);
+  assert.doesNotMatch(old.stdout, adoptionWarning);
+  const firstPush = run({ GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', PR_HEAD_SHA: '' });
+  assert.equal(firstPush.status, 1, firstPush.stderr);
+  assert.match(firstPush.stderr, /rollout push has no trusted checker at its predecessor/u);
+  assert.doesNotMatch(firstPush.stdout + firstPush.stderr, /archive called|No trusted comment ratchet ran for PR #50|Comment ratchet passed/u);
+});
+
+test('normal PRs and main pushes run only the trusted base package, checker and imports', t => {
+  const { cwd, git, commit } = fixture(t);
+  const checker = `import { lock } from './comment-ratchet/snapshots.mjs';
+    import { implementation } from './comment-ratchet.mjs';
+    console.log(JSON.stringify([lock, implementation, ...process.argv.slice(2)]));\n`;
+  const lockfile = JSON.stringify({ marker: 'trusted lock' });
+  const trustedFiles = {
+    'package.json': JSON.stringify({ name: 'trusted-tool', type: 'module' }),
+    'package-lock.json': lockfile,
+    'scripts/check-comments.mjs': checker,
+    'scripts/comment-ratchet.mjs': 'export const implementation = "trusted implementation";\n',
+    'scripts/comment-ratchet/snapshots.mjs': `import { readFileSync } from 'node:fs';
+      export const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url))).marker;\n`,
+  };
+  mkdirSync(join(cwd, 'scripts/comment-ratchet'), { recursive: true });
+  for (const [path, bytes] of Object.entries(trustedFiles)) writeFileSync(join(cwd, path), bytes);
+  git(['add', '--', ...Object.keys(trustedFiles)]);
+  const parent = commit('export {};\n');
+  const makeCommit = (...parents) => git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+    'commit-tree', git(['write-tree']), ...parents.flatMap(parent => ['-p', parent]), '-m', 'Fixture']);
+  const base = makeCommit(parent);
+  for (const path of Object.keys(trustedFiles)) writeFileSync(join(cwd, path), 'candidate must not execute\n');
+  git(['add', '--', ...Object.keys(trustedFiles)]);
+  const tip = makeCommit(base);
+  const head = makeCommit(base, tip);
+  git(['update-ref', 'HEAD', head]);
+  const spies = `npm() {
+    [[ "$#" == 4 && "$1" == ci && "$2" == --ignore-scripts && "$3" == --prefix ]]
+    test "$(<"$4/package.json")" = '${trustedFiles['package.json']}'
+    test "$(<"$4/package-lock.json")" = '${lockfile}'
+  }`;
+  const env = { BASE_SHA: base, HEAD_SHA: head, GITHUB_REPOSITORY: 'phyzess/kitto' };
+  for (const [event, ref, pr] of [['pull_request', 'refs/pull/51/merge', tip], ['push', 'refs/heads/main', '']]) {
+    const result = runRatchetStep(cwd, spies, { ...env, GITHUB_EVENT_NAME: event, GITHUB_REF: ref, PR_HEAD_SHA: pr });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), ['trusted lock', 'trusted implementation', '--base', base, '--head', head,
+      ...(pr ? ['--pr-head', pr] : [])]);
+  }
+  const missing = runRatchetStep(cwd, spies, { ...env, BASE_SHA: parent, GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', PR_HEAD_SHA: '' });
+  assert.ok(missing.status > 0, missing.stderr);
+  assert.match(missing.stderr, /pathspec.*did not match/u);
+  assert.equal(missing.stdout, '');
 });
 
 test('missing parser fails, and the original workflow is auditable at the fixed bootstrap', () => {

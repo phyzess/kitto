@@ -64,22 +64,23 @@
 
 两个订阅覆盖全部角色：GPT（`openai-codex`）承担方案与实现，opencode-go 承担批量、验证与审查；deepseek 官方 API 与 xAI 官方 API 都按量计费，不进日常流程。
 
-Grok 只在四类场景值得出现：
+日常批量、扫描和验证先用 DeepSeek V4.1 Flash，备选 GLM-5.3-Flash；T1 审查优先 GLM-5.3。需要 GPT 时用自有订阅，不自动改走 Go 的 GPT。
+
+Grok 留给三类困难任务：
 
 1. **T2 高风险审查**（鉴权/支付/并发/迁移）——换模型的独立判断，单次只审 diff，走 opencode-go 的 `grok-4.7`（$2/$6，缓存 $0.50，计入 Go 额度）。
 2. **第三意见**——GPT 与审查模型结论冲突，或两轮修复仍失败。
-3. **领域强项**——EE/硬件/协议、法律与医疗文档（Grok 4.7 的 EEBench 64%、Harvey 19.6%）。
-4. **额度兜底**——GPT 订阅限流时的长任务。
+3. **复杂领域攻坚**——例如硬件、协议的疑难分析。额度不足本身不构成升级到 Grok 的理由。
 
 不建议让它承接日常实现或长跑：AA Coding Agent Index 它排第 4，低于 GPT-6 Astra；单任务输出 token 约是 GPT-6 Astra 的 3 倍。同档还有 `kimi-k3.1-pro`（$2/$10）与 `deepseek-v4-pro`（$1.74/$3.48），按任务挑。
 
 ## DSH 侧落地
 
 1. 配置订阅渠道：GPT 走 Codex 登录（`openai-codex`）；opencode-go 在 profile 的 `llm-pi-ai.providers` 下写 `apiKeyEnv: OPENCODE_GO_API_KEY`，路由不带 `models` 时直接服务其内置目录。不配置 `xai` 官方渠道。
-2. 把 `config/dsh/agent-teams.profiles.yml` 的 agent-teams 条目合并到 `~/.dsh/profiles/web/cordis.patch.yml`。同 id 覆盖要保留 `stateDir` 与 `memberProvider`。
+2. 把 `config/dsh/agent-teams.profiles.yml` 的 agent-teams 条目合并到 `~/.dsh/profiles/web/cordis.patch.yml`。同 id 覆盖要保留 `stateDir` 与 `memberProvider`；子 agent 的 `allowedModels` 保留自有 GPT，排除 Go 的 GPT 路由。
 3. 用 `modelOverrides` 给 opencode-go 的常用模型设有效预算（400K 窗口 + 128K 输出 → 压缩触发 ~206K），参考 [ADR 005：DSH 压缩预算](adr/005-dsh-compaction-budget.md)。
 4. 重启 web profile，刷新页面；**新开一个会话**再验收（provider 与 allowlist 都在会话启动时快照）。
-5. 验收：`/agent-teams --profile dev-standard <目标>` 能生成暂存计划；成员卡片显示 provider/model；`agent_teams_status` 能看到 tool policy。
+5. 验收：`/agent-teams --profile dev-standard <目标>` 能生成暂存计划。队长按实际任务为成员选思考强度；审批前可在成员卡片核对 provider/model/effort，或用 `agent_teams_status` 检查 tool policy。
 
 任务 worktree 的创建与交还走 `kitto-worktree` skill 的预览/确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 

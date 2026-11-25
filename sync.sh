@@ -74,16 +74,29 @@ TMP="$(mktemp -d)"
 LOCK=""
 cleanup() {
     rm -rf "$TMP"
-    [ -z "$LOCK" ] || rmdir "$LOCK"
+    [ -z "$LOCK" ] || rm -rf "$LOCK"
 }
 trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 if [ "$DRY" = 0 ] && [[ "$CMD" =~ ^(pull|push|deps)$ ]]; then
     mkdir -p "$LOCAL"
     if ! mkdir "$LOCAL/.sync-lock" 2>/dev/null; then
-        fail "另一个同步操作正在运行；若进程已退出，请检查后移除 $LOCAL/.sync-lock"
+        holder=""
+        if [ -f "$LOCAL/.sync-lock/pid" ]; then
+            holder="$(cat "$LOCAL/.sync-lock/pid" 2>/dev/null)"
+        fi
+        if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+            fail "另一个同步操作仍在运行（pid $holder）。等它结束后重试。"
+        elif [ -n "$holder" ]; then
+            fail "残留的同步锁：pid $holder 已退出。重跑命令并加 --break-lock 自动清理，或 rm -rf $LOCAL/.sync-lock"
+        else
+            fail "$LOCAL/.sync-lock 存在但没有 pid 记录（旧版 Kitto 留下的）。确认没有进程在写后 rm -rf $LOCAL/.sync-lock"
+        fi
         exit 1
     fi
     LOCK="$LOCAL/.sync-lock"
+    printf '%s\n' "$$" > "$LOCK/pid"
 fi
 
 run() {
