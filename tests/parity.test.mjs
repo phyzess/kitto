@@ -40,7 +40,7 @@ TOKEN = "fixture-must-not-leak"
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 assert.deepEqual(process.argv.slice(2), ['mcp', 'list', '--json']);
-assert.equal(process.cwd(), process.env.HOME);
+assert.equal(fs.realpathSync(process.cwd()), fs.realpathSync(process.env.HOME));
 assert.equal(process.env.HOME, process.env.CODEX_HOME);
 assert.equal(fs.statSync(process.cwd()).mode & 0o777, 0o700);
 assert.deepEqual(fs.readdirSync(process.env.CODEX_HOME), ['config.toml']);
