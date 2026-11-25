@@ -9,6 +9,7 @@
 # 重启 web profile 后，在新会话中运行 /agent-teams --profile dev-standard <目标>。
 #
 # batch 只按需派发；Grok 只给攻坚，不作为日常验证或 GPT 限流的兜底。
+# 模板只预设成员路由；强度由队长在审批前按任务设置。
 # 如审查回退到与实现同款的 GPT，标记为同模型复核，不算独立审查。
 # toolPolicies 是工具可见性，不是 OS 沙箱；bash 仍可在允许后写文件。
 - id: agent-teams
@@ -25,35 +26,32 @@
         allow: [read, glob, grep, bash, web_search, web_fetch]
     profiles:
       dev-standard:
-        description: T1 标准开发：Sol 实现，GLM Flash 验证，GLM-5.3 审查，DeepSeek Flash 按需批量
+        description: T1 标准开发：Sol 实现，DeepSeek Flash 验证，GLM-5.3 审查，DeepSeek Flash 按需批量
         taskPlanning: captain
+        protocol: 审批前按已分派任务的难度和模型支持的档位设置成员思考强度，不按角色固定档位。
         members:
           - name: implementer
             role: 实现
             provider: openai-codex
             model: gpt-6.2-sol
-            reasoning_effort: high
           - name: batch
             role: 批量与扫描（按需）
             provider: opencode-go
             model: deepseek-v4.1-flash
-            reasoning_effort: low
             fallback:
               provider: opencode-go
               model: glm-5.3-flash
           - name: verifier
             role: 验证
             provider: opencode-go
-            model: glm-5.3-flash
-            reasoning_effort: low
+            model: deepseek-v4.1-flash
             fallback:
               provider: opencode-go
-              model: deepseek-v4.1-flash
+              model: glm-5.3-flash
           - name: reviewer
             role: 审查
             provider: opencode-go
             model: glm-5.3
-            reasoning_effort: high
             tool_policy: read-only
             fallback:
               provider: opencode-go
@@ -63,46 +61,41 @@
           maxRepairAttempts: 2
           requiredReviewers: [reviewer]
       dev-hard:
-        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，GLM Flash 验证，DeepSeek Flash 按需批量
+        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，DeepSeek Flash 验证，DeepSeek Flash 按需批量
         taskPlanning: captain
+        protocol: 审批前按已分派任务的难度和模型支持的档位设置成员思考强度，不按角色固定档位。
         members:
           - name: architect
             role: 方案
             provider: openai-codex
             model: gpt-6.2-astra
-            reasoning_effort: high
             tool_policy: read-only
           - name: implementer
             role: 实现
             provider: openai-codex
             model: gpt-6.2-sol
-            reasoning_effort: high
           - name: longrun
             role: 长跑
             provider: openai-codex
             model: gpt-6.2-sol
-            reasoning_effort: high
           - name: batch
             role: 批量与扫描（按需）
             provider: opencode-go
             model: deepseek-v4.1-flash
-            reasoning_effort: low
             fallback:
               provider: opencode-go
               model: glm-5.3-flash
           - name: verifier
             role: 验证
             provider: opencode-go
-            model: glm-5.3-flash
-            reasoning_effort: low
+            model: deepseek-v4.1-flash
             fallback:
               provider: opencode-go
-              model: deepseek-v4.1-flash
+              model: glm-5.3-flash
           - name: reviewer
             role: 审查
             provider: opencode-go
             model: grok-4.7
-            reasoning_effort: high
             tool_policy: read-only
             fallback:
               provider: opencode-go

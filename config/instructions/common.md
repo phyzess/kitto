@@ -63,7 +63,7 @@ Pi、Codex、DSH 共用这些约定；宿主的工具差异放在各自的 adden
 - 需要 GPT 时走自有 GPT 订阅，不自动回退到 opencode-go 的 GPT：方案与需求用高端档，常规实现与长时自主用主力档。
 - opencode-go 按任务难度和吞吐量分档：
   - 批量、机械改动、长跑扫描：DeepSeek V4.1 Flash → GLM-5.3-Flash → 其他可用 Flash。
-  - 常规验证与门禁：GLM-5.3-Flash → DeepSeek V4.1 Flash；需要更强判断时升 GLM-5.3 或自有 GPT。
+  - 常规验证与门禁：DeepSeek V4.1 Flash → GLM-5.3-Flash；需要更强判断时升 GLM-5.3 或自有 GPT。
   - T1 审查：GLM-5.3 → Kimi K3.1 Pro。
   - T2 攻坚、高风险审查与第三意见：按需用 Grok 4.7，备选 Kimi K3 系列或 DeepSeek V4 Pro；不派给日常批量、扫描或验证。
 - 不走 deepseek 官方 API 与 xAI 官方 API：两者按量计费，不由已付订阅覆盖；同款模型走 opencode-go 即可。

@@ -64,7 +64,7 @@
 
 两个订阅覆盖全部角色：GPT（`openai-codex`）承担方案与实现，opencode-go 承担批量、验证与审查；deepseek 官方 API 与 xAI 官方 API 都按量计费，不进日常流程。
 
-日常批量、扫描和验证先用 DeepSeek V4.1 Flash 或 GLM-5.3-Flash，T1 审查优先 GLM-5.3。需要 GPT 时用自有订阅，不自动改走 Go 的 GPT。
+日常批量、扫描和验证先用 DeepSeek V4.1 Flash，备选 GLM-5.3-Flash；T1 审查优先 GLM-5.3。需要 GPT 时用自有订阅，不自动改走 Go 的 GPT。
 
 Grok 留给三类困难任务：
 
@@ -80,7 +80,7 @@ Grok 留给三类困难任务：
 2. 把 `config/dsh/agent-teams.profiles.yml` 的 agent-teams 条目合并到 `~/.dsh/profiles/web/cordis.patch.yml`。同 id 覆盖要保留 `stateDir` 与 `memberProvider`；子 agent 的 `allowedModels` 保留自有 GPT，排除 Go 的 GPT 路由。
 3. 用 `modelOverrides` 给 opencode-go 的常用模型设有效预算（400K 窗口 + 128K 输出 → 压缩触发 ~206K），参考 `config/dsh/compaction.reference.yml`。
 4. 重启 web profile，刷新页面；**新开一个会话**再验收（provider 与 allowlist 都在会话启动时快照）。
-5. 验收：`/agent-teams --profile dev-standard <目标>` 能生成暂存计划；成员卡片显示 provider/model；`agent_teams_status` 能看到 tool policy。
+5. 验收：`/agent-teams --profile dev-standard <目标>` 能生成暂存计划。队长按实际任务为成员选思考强度；审批前可在成员卡片核对 provider/model/effort，或用 `agent_teams_status` 检查 tool policy。
 
 任务 worktree 的创建与交还走 `kitto-worktree` skill 的预览/确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 
