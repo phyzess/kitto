@@ -21,6 +21,10 @@ const help = `Kitto — portable personal agent configuration
               [--routing-boundary personal|company|custom|skip] [--routing-routes PROVIDER/MODEL,...]
   kitto route preflight|reselect|audit --input FILE
                                Offline DSH routing advice; never dispatches or reads credentials
+  kitto route permit|record-quota|release-pool --input FILE --operator
+                               Stage a native permit or record verified shared Go evidence
+  kitto route migrate --home DIRECTORY [--apply-fixture|--rollback-fixture]
+                               Preview migration; only isolated fixtures can be changed
   kitto route go-metadata --input FILE --allow-network
                                Collect authorized read-only Go metadata; never dispatches
   kitto setup --break-lock            Continue after a provably abandoned lock (setup/update)

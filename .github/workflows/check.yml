@@ -83,3 +83,22 @@ jobs:
         run: |
           export PATH="$RUNNER_TEMP/kitto-hosts/node_modules/.bin:$PATH"
           node --test tests/scope-codex.test.mjs tests/scope-dsh.test.mjs
+  native-routing:
+    name: Verify native DSH Web routing (0.2.2-rc.5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.node-version'
+      - name: Install exact DSH and run credential-free routing fixtures
+        shell: bash
+        run: |
+          scratch="$(mktemp -d "${RUNNER_TEMP:?}/kitto-dsh-routing.XXXXXX")"
+          mkdir "$scratch/home"
+          env -i PATH="$PATH" HOME="$scratch/home" npm install --prefix "$scratch" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.5
+          install="$scratch/node_modules/@deepseek-ai/dsh"
+          env -i PATH="$PATH" HOME="$scratch/home" KITTO_TEST_DSH_INSTALL="$install" node --test tests/dsh-routing.test.mjs

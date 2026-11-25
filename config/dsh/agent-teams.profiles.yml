@@ -11,7 +11,7 @@
       dev-standard:
         description: T1 标准开发：Sol 实现，DeepSeek Flash 验证，GLM-5.3 审查，DeepSeek Flash 按需批量
         taskPlanning: captain
-        protocol: 审批前逐个运行 kitto route；核实有效 fallback 均关闭、账号与额度已授权，并按任务和模型支持设置档位。
+        protocol: Teams 不受 Kitto 执行门禁保护；审批前逐个离线预检，核实所有继承层的有效 fallback、账号、额度及精确档位，不能确认就停派。
         members:
           - name: implementer
             role: 实现
@@ -37,7 +37,7 @@
       dev-hard:
         description: T2 攻坚参考：按任务预检选路，确认独立审查和 Native fallback 已关闭
         taskPlanning: captain
-        protocol: 审批前逐个运行 kitto route；核实有效 fallback 均关闭、账号与额度已授权，并按任务和模型支持设置档位。
+        protocol: Teams 不受 Kitto 执行门禁保护；审批前逐个离线预检，核实所有继承层的有效 fallback、账号、额度及精确档位，不能确认就停派。
         members:
           - name: architect
             role: 方案

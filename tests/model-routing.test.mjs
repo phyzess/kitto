@@ -9,6 +9,8 @@ import { adviseRoute, auditReview, classifyRoutingFailure } from '../lib/model-r
 import { estimateGoFraction, goMeter, goModel, normalizeGoCharge } from '../lib/go-allowance.mjs';
 import { setRoutingBoundary } from '../lib/routing-policy.mjs';
 import { parseOptions } from '../lib/kitto.mjs';
+import { issueRoutePermit, ROUTING_HOST_VERSION } from '../integration/dsh-routing.mjs';
+import { createRoutingStore } from '../lib/routing-state.mjs';
 
 const now = Date.parse('2026-11-25T12:00:00Z');
 const stamp = new Date(now).toISOString();
@@ -152,25 +154,25 @@ test('unsupported efforts, unavailable routes, unknown models and unapproved pre
   assert.equal(advise(request).route.reasoning_effort, 'default');
 });
 
-test('failure classifications preserve Go pool hold and require write checkpoints', () => {
+test('only one read-only reselection can choose another already approved route', () => {
   const request = fixture([flash, glmFlash, sol], { effects: 'write' });
-  request.failure = { route: flash, status: 429 };
-  assert.equal(advise(request, state(), 'reselect').reason, 'write-checkpoint-required');
-  request.failure.checkpointConfirmed = true;
+  request.failure = { route: flash, status: 429, checkpointConfirmed: true };
+  assert.equal(advise(request, state(), 'reselect').reason, 'manual-new-work-item-required');
+  request.task.effects = 'read';
   let result = advise(request, state(), 'reselect');
   assert.equal(result.failureClass, 'go-pool-quota');
-  assert.equal(result.route.model, sol.model);
+  assert.equal(result.status, 'stop');
   assert.ok(reasons(result).includes('go-pool-quota'));
   request.attempted = [{ ...flash, status: 429 }];
-  request.failure = { route: sol, kind: 'timeout', checkpointConfirmed: true };
-  assert.equal(advise(request, state(), 'reselect').status, 'stop');
+  request.failure = { route: sol, kind: 'timeout' };
+  assert.equal(advise(request, state(), 'reselect').reason, 'reselection-limit-reached');
   delete request.attempted;
-  request.failure = { route: flash, kind: 'model-rate-limit', status: 429, checkpointConfirmed: true };
-  request.host.routes = [glmFlash];
-  request.task.effort = ['medium', 'low'];
+  request.failure = { route: glmFlash, kind: 'model-rate-limit', status: 429 };
+  request.host.routes = [flash];
+  request.task.effort = ['high', 'low'];
   result = advise(request, state(), 'reselect');
   assert.equal(result.failureClass, 'route');
-  assert.equal(result.route.reasoning_effort, 'medium');
+  assert.equal(result.route.reasoning_effort, 'high');
   assert.equal(classifyRoutingFailure({ status: 403 }, flash), 'configuration');
   assert.equal(classifyRoutingFailure({ status: 503 }, flash), 'transient');
   assert.equal(classifyRoutingFailure({ status: 500 }, flash), 'unknown');
@@ -185,42 +187,37 @@ test('built-in short names cannot inherit a lower tier from a same-family catalo
   assert.deepEqual(reasons(advise(fixture([external]))), ['premium-not-approved']);
 });
 
-test('quota history freezes other Go models for native and custom provider IDs', () => {
+test('one quota failure freezes other models for native and custom provider IDs', () => {
   for (const previous of [flash, { ...flash, provider: 'my-go-alias' }]) {
     const request = fixture([previous, glmFlash, sol]);
     request.host.routes = [glmFlash, sol];
-    request.failure = { route: sol, kind: 'timeout' };
     for (const cause of [{ kind: 'go-pool-quota' }, { status: 429 }]) {
-      request.attempted = [{ ...previous, ...cause }];
+      request.failure = { route: previous, ...cause };
       const result = advise(request, state(), 'reselect');
       assert.equal(result.status, 'stop');
       assert.ok(reasons(result).includes('go-pool-quota'));
     }
     for (const override of [{ upstream: undefined }, { account: undefined }, { upstream: 'openrouter' }, { account: 'other' }]) {
-      request.attempted = [{ ...previous, kind: 'go-pool-quota', ...override }];
-      assert.equal(advise(request, state(), 'reselect').reason, 'attempt-history-unverified');
+      request.failure = { route: { ...previous, ...override }, kind: 'go-pool-quota' };
+      assert.equal(advise(request, state(), 'reselect').reason, 'failed-route-unverified');
     }
-    request.attempted = [{ ...previous, status: 429 }];
+    request.failure = { route: previous, status: 429 };
     request.host.routes.push({ ...previous, account: 'new-binding' });
-    assert.equal(advise(request, state(), 'reselect').reason, 'attempt-history-unverified');
-    request.attempted = [];
-    request.failure = { route: { ...sol, account: undefined }, kind: 'timeout' };
     assert.equal(advise(request, state(), 'reselect').reason, 'failed-route-unverified');
   }
 });
 
-test('third attempt retains account authentication failures across provider aliases', () => {
+test('authentication failures block aliases and a reselection cannot switch account boundary', () => {
   const blockedAlias = { ...claude, provider: 'second-claude-alias', model: 'different-short-name' };
   const healthy = { ...claude, provider: 'other-claude-account', account: 'other-company-account' };
   const request = fixture([claude, blockedAlias, sol, healthy], { role: 'implement' });
   request.failure = { route: claude, status: 403 };
-  assert.equal(advise(request, state(), 'reselect').route.provider, sol.provider);
-  request.attempted = [{ ...claude, status: 403 }];
-  request.failure = { route: sol, status: 503 };
-  request.host.routes = [blockedAlias, sol, healthy];
   const result = advise(request, state(), 'reselect');
   assert.equal(result.route.provider, healthy.provider);
   assert.equal(result.rejected.find(item => item.provider === blockedAlias.provider).reason, 'failed-upstream-account');
+  assert.equal(result.rejected.find(item => item.provider === sol.provider).reason, 'reselection-escalation');
+  request.attempted = [{ ...claude, status: 403 }];
+  assert.equal(advise(request, state(), 'reselect').reason, 'reselection-limit-reached');
   request.attempted[0].account = undefined;
   assert.equal(advise(request, state(), 'reselect').reason, 'attempt-history-unverified');
 });
@@ -264,7 +261,7 @@ test('native capability evidence cannot invent Teams availability or bypass fall
   }
 });
 
-test('quality reselection needs a higher tier and distinct review requires actual identities', () => {
+test('quality failure requires human review and independence requires actual identities', () => {
   const request = fixture([sol, claude, glm, grok], { role: 'review' });
   request.task.implementers = [{ provider: 'cross-provider', canonicalModel: sol.canonicalModel },
     { canonicalModel: 'anthropic/claude-opus-5-5' }];
@@ -274,11 +271,11 @@ test('quality reselection needs a higher tier and distinct review requires actua
   assert.ok(reasons(result).includes('same-family'));
   assert.equal(auditReview(request.task.implementers, claude).independent, false);
   request.failure = { route: glm, kind: 'quality' };
-  assert.equal(advise(request, state(), 'reselect').reason, 'external-review-pending');
+  assert.equal(advise(request, state(), 'reselect').reason, 'manual-failure-review-required');
   request.task.authorized[3].premium = true;
   result = advise(request, state(), 'reselect');
   assert.equal(result.failureClass, 'quality');
-  assert.equal(result.route.model, grok.model);
+  assert.equal(result.reason, 'manual-failure-review-required');
   request.task.implementers = [{ canonicalModel: 'unverified-model' }];
   assert.equal(advise(request).reason, 'implementation-identity-unverified');
 });
@@ -344,4 +341,81 @@ test('full setup persists only an explicit local boundary and dry-run leaves sta
   assert.equal(skipped.routingBoundary.mode, 'skip');
   assert.deepEqual(skipped.futureLocalField, { keep: true });
   assert.equal(existsSync(join(env.DSH_HOME, 'cordis.patch.yml')), false);
+});
+
+
+test('Go permit rejects an exact authorization split from its verified pool', t => {
+  const home = mkdtempSync(join(tmpdir(), 'kitto-approval-split-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const dshHome = join(home, 'dsh');
+  mkdirSync(dshHome);
+  const saved = { ...state(), dshHome }, pool = 'verified-pool';
+  const request = fixture([{ ...grok, pool }]);
+  Object.assign(request.host, { version: ROUTING_HOST_VERSION, session: 'fixture-session', spawnVerified: true, effectiveFallbacks: [] });
+  Object.assign(request.task, { id: 'verify-fixture', budget: { maxAdditionalCashUsd: 0, maxMonthlyGoFraction: 1 } });
+  request.go.pool = pool;
+  request.dispatch = { source: 'operator-verified', project: home, callerCwd: home, cwd: home };
+  const approve = { ...request.task.authorized[0], premium: true };
+  const issue = () => issueRoutePermit({ state: saved, home: dshHome, request, store: createRoutingStore(home), now });
+  for (const override of [{ account: 'other' }, { accountType: 'company' }, { billing: 'subscription' },
+    { data: 'personal' }, { canonicalModel: 'xai/other' }, { premium: false }]) {
+    request.task.authorized = [{ ...approve, pool: 'wrong-pool' }, { ...approve, ...override, pool }];
+    assert.throws(issue, /Dispatch preflight stopped/);
+  }
+  request.task.authorized = [{ ...approve, pool }];
+  assert.equal(issue().status, 'permit-issued');
+});
+
+test('reselection bounds same-tier Go cost using evidence and the supplied task cap', () => {
+  const request = fixture();
+  request.failure = { route: flash, kind: 'model-rate-limit' };
+  const result = () => advise(request, state(), 'reselect');
+  assert.ok(reasons(result()).includes('reselection-go-cost-escalation'));
+  request.failure.route = glmFlash;
+  assert.equal(result().route.model, flash.model);
+  request.task.budget = { maxAdditionalCashUsd: 0, maxMonthlyGoFraction: 0.000001 };
+  assert.ok(reasons(result()).includes('go-exceeds-approved-budget'));
+  request.task.budget.maxMonthlyGoFraction = 0.001;
+  assert.equal(result().route.model, flash.model);
+  request.go.catalog.data[1].cost.text.output.price = 'invalid';
+  assert.ok(reasons(result()).includes('reselection-go-cost-unverified'));
+  request.task.budget.maxAdditionalCashUsd = -1;
+  assert.equal(result().reason, 'invalid-task-budget');
+});
+
+test('CLI preflight and reselect cannot use Go without a stable shared pool binding', t => {
+  const home = mkdtempSync(join(tmpdir(), 'kitto-shared-route-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const saved = { ...state(), dshHome: join(home, 'dsh') };
+  const [statePath, input] = ['state.json', 'input.json'].map(name => join(home, name));
+  writeFileSync(statePath, JSON.stringify(saved));
+  const request = fixture([glmFlash, flash]);
+  const observedAt = new Date().toISOString(), resetsAt = new Date(Date.now() + 3600_000).toISOString();
+  request.host.observedAt = request.go.observedAt = request.go.catalogObservedAt = observedAt;
+  for (const window of Object.values(request.go.usage)) window.resetsAt = resetsAt;
+  const cli = (operation, status) => {
+    writeFileSync(input, JSON.stringify(request));
+    const output = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url)), 'route', operation, '--input', input],
+      { env: { ...process.env, KITTO_HOME: home, DSH_HOME: saved.dshHome, DSH_PROFILE: 'web' }, encoding: 'utf8', timeout: 5000 });
+    assert.equal(output.status, status, output.stderr);
+    return JSON.parse(output.stdout);
+  };
+  assert.ok(reasons(cli('preflight', 2)).includes('go-pool-unverified'));
+  request.failure = { route: glmFlash, kind: 'model-rate-limit' };
+  assert.ok(reasons(cli('reselect', 2)).includes('go-pool-unverified'));
+  const own = fixture([sol]);
+  request.host.routes = [...request.host.routes, ...own.host.routes];
+  request.task.authorized.push(...own.task.authorized);
+  assert.equal(cli('preflight', 0).route.model, sol.model);
+  assert.equal(cli('reselect', 2).reason, 'no-eligible-route');
+  const independent = { ...router, accountType: 'personal', tier: 0 };
+  request.host.routes.push(independent);
+  request.task.authorized.push({ ...independent, data: 'public' });
+  assert.equal(cli('reselect', 0).route.provider, independent.provider);
+  request.host.routes.pop();
+  request.task.authorized.pop();
+  request.go.pool = 'verified-pool';
+  request.host.routes = request.host.routes.map(row => row.upstream === 'opencode-go' ? { ...row, pool: request.go.pool } : row);
+  request.task.authorized = request.task.authorized.map(row => row.upstream === 'opencode-go' ? { ...row, pool: request.go.pool } : row);
+  assert.equal(cli('reselect', 0).route.model, flash.model);
 });

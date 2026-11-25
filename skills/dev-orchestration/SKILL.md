@@ -49,9 +49,9 @@ description: 开发任务编排：当用户要求实现功能、修复 bug、重
 规则：
 
 - 按实际生效的规范模型 ID 和家族核对审查独立性；换 provider 但仍是同模型或同家族，不算独立。没有合格审查者按第 8 节待外审。
-- 分级、故障归因和增派决策默认使用本地证据。独立外部决策脚本不受预检限制；未知、公司或未经独立批准的场景不调用。
+- 分级、故障归因和增派决策默认使用本地证据。直接 JEV 不进受控路由，保持关闭。
 - 项目自己的 AGENTS、工单状态与评审门禁优先于本 skill；项目要求 ready 或负责人确认时，停在那一层。
-- DSH 选路、换路或审查前，用 [`kitto route`](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md) 核对设备、账号、用途、额度和有效档位。预检只是建议；确认 AgentTeams 无有效 fallback 后才派发。
+- DSH 选路、换路或审查前，用 [`kitto route`](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md) 核对设备、账号、用途、额度和有效档位。预检只给建议；受控 `subagent` 还需操作者许可与原生审批。AgentTeams 不受执行门禁保护，不能确认所有继承层无有效 fallback 就停派。
 - provider 与 allowlist 在会话启动时快照：改完路由要新开会话，旧会话里不要规划新路由的成员。
 - 验证者只收集证据，不改产品代码；修复归实现者。
 - 同一文件同一时间只允许一个写入者；并行任务 inScope 不相交。

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { registerArchiveReview } from './dsh-archive-review.mjs';
 import { registerRouteEvidence } from './dsh-route-evidence.mjs';
+import { registerDshRouting } from './dsh-routing.mjs';
 
 export const name = 'phyzess-kitto';
 export const inject = ['skills'];
@@ -21,4 +22,5 @@ export function apply(ctx, config) {
   }));
   registerArchiveReview(ctx, config?.archiveReview);
   if (config?.routeEvidence === true) registerRouteEvidence(ctx);
+  if (config?.routeDispatch === true) registerDshRouting(ctx);
 }
