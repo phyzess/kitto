@@ -18,6 +18,11 @@ const help = `Kitto — portable personal agent configuration
               [--dsh-profile PROFILE] [--install-agents] [--dry-run]
               [--require-baseline]
               [--include-private|--no-include-private]
+              [--routing-boundary personal|company|custom|skip] [--routing-routes PROVIDER/MODEL,...]
+  kitto route preflight|reselect|audit --input FILE
+                               Offline DSH routing advice; never dispatches or reads credentials
+  kitto route go-metadata --input FILE --allow-network
+                               Collect authorized read-only Go metadata; never dispatches
   kitto setup --break-lock            Continue after a provably abandoned lock (setup/update)
   kitto setup --recover [--dry-run]   Restore the last working Kitto code
   kitto update [--check|--apply] [--include-private|--no-include-private]
@@ -193,6 +198,10 @@ try {
     } else await worktreeCommand(args);
   }
   else if (command === 'scope') await scopeCommand(args);
+  else if (command === 'route') {
+    const { routeCommand } = await import('../lib/routing-command.mjs');
+    await routeCommand(args);
+  }
   else if (command === 'update') {
     if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) console.log(help);
     else await update(args);

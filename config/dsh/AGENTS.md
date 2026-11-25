@@ -7,21 +7,14 @@
 ### 编排执行面（AgentTeams）
 
 - 分级与门禁按共享规则「开发任务编排」；T0 不建队，T1/T2 用 AgentTeams。
-- 建队入口：`agent_teams_create({ description: <目标>, approval: "required" })`；配置了模板时优先 `/agent-teams --profile dev-standard <目标>` 或 `dev-hard`。没有模板时用 `plan.members` 内联，并显式传 `provider` + `model`。
-- 路由（provider/model）：
-  | 角色 | provider | model |
-  | --- | --- | --- |
-  | 方案 | openai-codex | gpt-6.2-astra |
-  | 实现/长跑 | openai-codex | gpt-6.2-sol |
-  | 批量、机械、扫描、常规验证 | opencode-go | deepseek-v4.1-flash → glm-5.3-flash |
-  | T1 审查 | opencode-go | glm-5.3 → kimi-k3.1-pro（只审 diff） |
-  | T2 攻坚、审查、第三意见 | opencode-go | grok-4.7 → kimi-k3.1-pro；按需选 deepseek-v4-pro |
+- 选路、故障换路或独立审查时，先按 [Kitto 本机路由预检](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md) 运行 `kitto route`。用本会话 `list_subagent_models` 逐个校验候选，启用原生观察器时用 `kitto_route_evidence` 导出。Go 元数据只在操作者明确授权后单独采集；未确认设备、账号、用途或额度时停派。预检不拦截宿主。
+- 建队用 `agent_teams_create({ description: <目标>, approval: "required" })`。命名模板只是参考，审批前按预检结果核对每个成员的显式 `provider` + `model`。如果不能确认成员、profile 和全局 fallback 都无效（包括内联计划的继承），停止派发；不要靠切换入口绕过。
 - 思考强度按任务选，不从角色或模型名推断。用 `list_subagent_models` 查该路由支持的档位：机械操作、已知命令和证据收集用 `low`；一般实现或需要选测试用 `medium`（有则用）或 `default`；疑难归因、高风险审查用 `high`。最高档只在强度不足且错判代价高时升级。
 - 命名模板不固定强度。队长按任务分配，在审批前用 `agent_teams_edit_plan` 的 `update_member.reasoning_effort` 选档；内联计划或普通子 agent 可在派发时直接传。AgentTeams 中，想用模型默认档时显式传 `default`，避免同路由继承队长强度。若同一角色的任务确实需要不同档位，分派给对应档位的成员，不改正在执行的成员。
 - `batch` 成员只在有独立批量任务时派发，不占默认验证或审查角色。需要 GPT 时选 `openai-codex`，不自动切到 Go GPT。
 - opencode-go 是订阅渠道（`https://opencode.ai/inference/go`）：路由不带 `models` 时直接服务其内置目录；用 `modelOverrides` 把有效预算压到 400K（压缩触发 ~206K），`hy3` 留作 120K 短上下文批量档。
 - 不走 `deepseek-official` 与 `xai` 官方渠道：两者都按量计费。需要 Grok 时用 opencode-go 的 `grok-4.7`。
-- 一次性判定走 JEV：`node ~/.agents/skills/jev-decide/scripts/jev.mjs --state @state.md --questions @q.json`。`noul` 是/否、`choice` 多选一、`score` 档位；用于开分级、失败归因、finding 分档、要不要加第三意见。端点是 Go 渠道 `/inference/go/systemone/v1/systemone`，`jev-1.14` 与两种 decision 模型都计入 Go 额度；换成不带 `/go/` 的路径就变成 Console 按量计费。state 放摘要，不放源码与私有样本。
+- 分级与故障归因默认用本地证据。独立 JEV 脚本不经过路由预检：公司、未知及其他未另行获批的场景使用本地判定。
 - provider 与 allowlist 在会话启动时快照：改完配置要新开会话才生效；旧会话里不要规划新路由的成员，也不要把“配置已改”当作可用。
 - 独立 worktree 的创建与交还按 `kitto-worktree` skill 的预览与确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 - 质量任务用 `kind=requirements/implementation/verification/review/integration`；implementation/repair 必须带 `verify`；review 必须 `verdict=pass` 才解锁下游。

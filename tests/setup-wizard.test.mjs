@@ -75,7 +75,7 @@ test('wizard can apply the same plan after preview in one invocation', async () 
 
 test('wizard requests pnpm installation for full local DSH setup', async () => {
   const environment = { available: ['dsh'], serviceActive: false, pnpmAvailable: false };
-  const allowed = await wizard('\n\n1\ny\n\n\n1\n0\n', environment);
+  const allowed = await wizard('\n\n1\ny\n\n\nskip\n1\n0\n', environment);
   assert.match(allowed.text, /允许补装 pnpm/);
   assert.equal(allowed.plans[0].installAgents, true);
   assert.equal(allowed.plans[0].source, undefined);
@@ -83,6 +83,22 @@ test('wizard requests pnpm installation for full local DSH setup', async () => {
   const declined = await wizard('\n\n1\nn\n3\n\n\n1\n0\n', environment);
   assert.equal(declined.plans[0].installAgents, false);
   assert.equal(declined.plans[0].source, false);
+});
+
+test('wizard confirms personal, company, custom, or skipped routing only for full local DSH', async () => {
+  const environment = { available: ['dsh'], serviceActive: false, pnpmAvailable: true };
+  for (const mode of ['personal', 'company', 'custom', 'skip']) {
+    const routes = mode === 'custom' ? 'company-claude/sonnet,corp-router/anthropic/claude-sonnet\n' : '';
+    const result = await wizard(`\n\n1\n\n\n${mode}\n${routes}1\n2\n`, environment);
+    assert.match(result.text, /确认本机模型路由边界/);
+    assert.equal(result.plans.length, 2);
+    assert.equal(result.plans[0].routingBoundary, mode);
+    assert.equal(result.plans[1].routingRoutes, routes ? routes.trim() : undefined);
+    assert.deepEqual(result.plans[1], { ...result.plans[0], dryRun: false });
+  }
+  const scoped = await wizard('\n\n3\n\n1\n0\n', environment);
+  assert.doesNotMatch(scoped.text, /确认本机模型路由边界/);
+  assert.equal(scoped.plans[0].routingBoundary, undefined);
 });
 
 test('wizard accepts the app-managed DSH desktop profile without asking for pnpm', async () => {
