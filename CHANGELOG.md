@@ -1,5 +1,12 @@
 # Kitto
 
+## 0.3.4
+
+- DSH routing: add offline preflight, bounded read-only reselection and reviewer independence checks. On DSH Web `0.2.2-rc.5`, operators can opt in to a one-use permit for the default native `subagent` spawn path. Native approval and allowlist checks still apply; failures are not replayed.
+- Go quota: hold a verified paid pool across local sessions and processes after an operator records a verified quota failure. A hold needs an authoritative reset or explicit reauthorization; a model switch or elapsed time does not clear it.
+- Migration: preview managed changes and identify fallback settings for manual review without editing the active profile. Apply and rollback are available only for isolated fixtures.
+- CI: add a credential-free native fixture gate for the exact `0.2.2-rc.5` routing path. The general `0.2.2-rc.2` host baseline is unchanged. The gate uses fixture inference and activation services; it does not cover AgentTeams approval or recovery, `subagent_fork`, workflows, or direct API/JEV calls.
+
 ## 0.3.3
 
 - OpenRouter: use exact catalog metadata instead of inferring model capabilities from similar IDs. Validate live metadata and saved snapshots before using them. (#44)

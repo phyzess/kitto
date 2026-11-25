@@ -82,7 +82,7 @@ Grok 不是默认首选；获得本任务的高端档明确批准且额度足够
 
 任务 worktree 的创建与交还走 `kitto-worktree` skill 的预览/确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 
-Go 不可用时，用 `kitto route reselect` 比较仍获批且独立的路由；没有合格审查者则保持「待外部审查」，同模型复核不能代签。
+Go 不可用时，`kitto route reselect` 只对只读任务比较仍获批且独立的路由，不自动重发。Teams 的审批及恢复仍是人工门禁；仅 [受控原生 subagent](model-routing.md) 使用一次性许可和共享额度状态。没有合格审查者则保持「待外部审查」，同模型复核不能代签。
 
 ## Pi / Codex
 

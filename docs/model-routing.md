@@ -1,12 +1,27 @@
-# 本机模型路由预检
+# 本机模型路由
 
-`kitto route` 是 **离线建议**，不是 DSH 的授权、拦截、计费保证或自动换路。支持完成 Kitto 完整本机安装的 DSH 普通 `subagent`（有路由选择字段）及 AgentTeams 的派发前检查。Pi、Codex、DSH Desktop、独立 fork、服务账号、仅 scope 安装、父会话和直接 API/JEV 调用不在此执行面。预检和换路仍然离线。可按下文显式导出同会话宿主证据，或单独授权读取 Go 元数据；不支持自动探测、JEV 门禁或运行中的热换路。
+`kitto route preflight`、`reselect` 和 `audit` 都是**离线建议**。唯一受控派发是经操作者显式启用的 **DSH Web 0.2.2-rc.5、完整本机安装、默认独立 spawn `subagent`**。它在原生模型预检和 activation 之前加门禁，不替换 DSH 派发器，不调用推理 API。
+
+**未保护**：AgentTeams（含另装的 `@nanmicoder/dsh-agent-teams` 0.1.31、Web 审批、恢复、retry、reassign、邮件唤醒）、`subagent_fork`、workflow 子调用、父会话、非默认 spawn/工具别名、Pi、Codex、Desktop、服务账号、仅 scope 安装及直接 API/JEV。都不接受为受控派发；宿主上的这些入口本身不会被 Kitto 禁用。直接 JEV 不经过门禁，保持关闭，分级与归因使用本地证据。
 
 ## 确认设备并迁移
 
 1. 在目标机器、目标账号上运行 `kitto setup --interactive`，在完整本机 DSH 安装中选 `personal`、`company`、`custom` 或 `skip`。已有安装也可用 `kitto setup --routing-boundary company`，先加 `--dry-run` 看预览；`custom` 同时指定 `--routing-routes PROVIDER/MODEL[,PROVIDER/MODEL]`。选择 `skip` 会停用本机的确认；非交互 setup 不传选项则保留原状态。预览、scope、Desktop 和服务账号安装不会创建可用的个人确认。
 2. 确认只留在本机 Kitto `state.json`，绑定账号、设备标识与 DSH profile。保留已有状态，不写凭据、共享源、DSH profile 或 allowlist。旧安装、不可读、损坏或绑定不匹配一律停派。不要从另一设备复制确认。
 3. 在 DSH 原生设置里配置企业允许的上游、模型、账号和数据策略。已合并过 [模板](../config/dsh/agent-teams.profiles.yml) 的，**手工处理旧的有效 `fallback`**：成员 → profile → 全局，后一级仍可能被继承；不要把省略 YAML 字段误当成移除已有值。重启对应 profile 后新开会话，核验原生解析的计划；不能确认 fallback 已关闭就停派，内联计划也不例外。保留本机 AGENTS 自定义块；人工移除其中与新判断冲突的高端优先、自审或 JEV 默认调用。
+
+### 一次性迁移预览
+
+运行 `kitto route migrate --home /absolute/dsh-home`。只读显示 `AGENTS.md` Kitto 托管标记内拟插入的确切行、原生 patch 里疑似 `fallback` 的行号，以及仍需人工处理的项目。它不会打印本机自定义块、凭据或 patch 原值，不解析 YAML 合并/继承，且从不宣称 fallback 已清空。先审阅结果，再在受控变更流程中同步托管规则并按下文设置插件；不覆盖本地账号、provider、patch 其他项或凭据。
+
+`--apply-fixture` / `--rollback-fixture` 仅用于 `mktemp -d` 新建的 `kitto-route-fixture-*` 隔离临时目录，拒绝默认、环境选中或 Kitto 绑定的活跃 home。夹具写入只增删精确标记块，检测漂移，重复执行无变化；撤销真实部署需操作者关闭 `routeDispatch`、重启、验证原生配置，不能用夹具命令改活跃 profile。不要为了撤销启用而删除共享额度状态。
+
+### 原生 `subagent` 一次性许可
+
+1. 操作者核实 exact Web 版本和 home、默认非继承 spawn（`modelSelection` 已启用、无 alias/tool override）、无任何有效回退，服务支持并确实会展示本次工具请求的一次性批准。取得主会话的原生 ID、初始项目及当前 cwd；派发目录须在该项目内。修改现有 `phyzess-kitto` 插件行的 `config: { routeDispatch: true }`（保留其他字段），重启并开新会话。`routeDispatch` 默认关闭，版本/profile 不支持时不挂门禁；启用后此工具无许可时拒绝，不降级。`routeEvidence` 可独立启用导出。
+2. 先按下文准备离线输入，在同一会话用 `list_subagent_models` 查询精确候选。操作者额外填 `host.version: "0.2.2-rc.5"`、`host.surface: "subagent"`、`host.session`、`host.spawnVerified: true`、`host.effectiveFallbacks: []`；以及 `dispatch: { "source":"operator-verified", "project":"/real/project", "callerCwd":"/real/project", "cwd":"/real/project" }`。填精确 `task.id`（无空格任务 ID）及 `task.budget: { "maxAdditionalCashUsd":0, "maxMonthlyGoFraction":0 }`；Go 的比例须明确批准并高于零，实际估算不得超过它。Go 另在 `go.pool`、拟选 `host.routes[]` 和对应 `task.authorized[]` 填同一个已核验的逻辑池 ID。使用稳定的订阅/成员共享身份，不用模型、provider 别名或 session 作池 ID，不用真实用户标识/凭据。Kitto 无法从 DSH 推断账号或原生连接器实际计费，操作者必须验证它们及数据授权；不能核实则不发许可。
+3. 在可信的本机终端保存无正文、无凭据的私有 JSON（权限 0600），执行 `kitto route permit --input FILE --operator`。它只生成短时许可（至多两分钟），不启动子代理。按原样使用返回的 `native` 参数，另向原生 `subagent` 提供任务正文；在原生批准界面审核该次精确工作、数据和参数后一次性批准。不由模型自行发许可，亦不在不可信的同 UID / 任意 shell 环境打开本功能。Kitto 不读取正文；任务意图与数据分类仍由操作者审核，不是子代理的文件/网络沙箱。
+4. 原生权限、批准、模型 allowlist、取消或其他 guard 可否决。许可在原生工具体之前消耗；取消、崩溃或结果不明时先人工检查，不凭同一个许可重发。正常激活只证明原生工具返回预期 activation，不证明真实结算、任务完成或首个模型请求后的路线。审查前另外核实实际实现模型与审查模型（`kitto route audit`），未知则外审待定。
 
 ## 采集宿主证据（可选）
 
@@ -75,5 +90,6 @@
 
 - [Go Usage limits](https://opencode.ai/docs/console/go/#usage-limits) 的 5 小时窗口从首笔开始、上限是月额度的 20%；周窗口是 50%，周一 00:00 UTC 重置；月窗口是 100%，按付费周期重置。取三个窗口中最小的月额度剩余，并留下 1 个显示百分点给整数精度。已到重置时间必须重新读，不能把旧值当 0%。meter 或宿主能力证据超过 5 分钟失效，目录超过 24 小时失效。缺失、部分、错误、过期或耗尽均不会选 Go；这只是快照，不能预留额度。
 - 估计以 `go.monthly_usage[plan]` 为分母；使用官方文本输入/输出价格、最贵的缓存写入/上下文档和峰值 multiplier 保守估计，不计算非文本用量。已有请求可选填 `go.lastRequest: { model, usage }`（`usage` 含 [官方 `opencode`](https://opencode.ai/docs/console/api/inference/#cost)，不传正文）。计入比例优先用 `opencode.allowance / monthly_usage[plan]`；没有 `allowance` 才以 `opencode.list_cost` 报估计；二者不代表池余额，也不以 `usage.cost: 0` 代替额度。当前不从响应滚动更新 meter。
-- `reselect` 用同一份结构，增加 `failure: { route: { provider, model, upstream, account }, kind, status }`。使用已确认的 `kind`：`go-pool-quota`、`model-unavailable`、`model-rate-limit`、`authorization`、`configuration`、`network`、`timeout`、`upstream-unavailable`、`quality`；只有 HTTP 状态时就只填 `status`。Go 的不明 429 按共享额度停用整个 Go 池；只有确证模型专属限流才标 `model-rate-limit`。配置或认证错误不在同账号/上游内切模型；未归因的错误停派；质量换路只能选择经批准的更高档。每轮把失败追加到 `attempted: [{provider, model, upstream, account, kind, status}]`。从当时核验的原生路由记录填写精确绑定，保留对应的 `task.authorized` 项；现有宿主快照若仍列出该路由，账号必须已核验且与记录一致。证据缺失、冲突或故障无法归因就停派。整个换路链累计共享池冻结及配置/鉴权失败的 `upstream/account`；同一账号的不同 provider 别名用同一逻辑名，不能改标签清除故障。修复后重新核验，并由操作者批准新一轮工作。
-- 写任务故障先停止，检查部分副作用、锁、和当前 diff，把可继续的步骤写成**新的工作项**。操作者核实并授权后才填 `failure.checkpointConfirmed: true` 再选，不重发原指令。额度耗尽时等重置并刷新，同 Go 池换模型不会恢复；没有独立合格路由时停派或等待外审。
+- 受控派发的 paid-Go 已确认 quota 故障，由操作者对照同一次**已激活**许可和原生结构化证据后记录：`kitto route record-quota --input FILE --operator`，输入 `{ "attempt":"kr-…", "route":{"provider":"…","model":"…","upstream":"opencode-go","account":"…"}, "pool":"…", "code":"ACCOUNT_QUOTA", "observedAt":"<实际 UTC>", "source":"operator-verified-native-failure", "quotaScope":"paid-go-pool" }`。亦接受已核实为池额度的 `QUOTA` 或 `RATE_LIMIT`；HTTP 429、错误文本、工具故障或未激活许可不能独自写入共享状态。Kitto 不从会话日志或恢复事件尝试关联账号。状态在同一 Kitto home 下跨会话/进程共享；不同设备不会同步。
+- 共享 hold 不因本机时间或 `Retry-After` 自行消失。依据已验证权威重置或操作者重新授权，运行 `kitto route release-pool --input FILE --operator`，输入 `{ "pool":"…", "afterAttempt":"kr-…", "source":"authoritative-reset", "observedAt":"<实际 UTC>" }`；显式重新授权用 `operator-reauthorization`，且不替代最新 meter。释放只对应 `afterAttempt`；另一尝试的同刻或乱序故障会重新冻结该池，后续释放必须晚于已知的最新故障或释放时间。残留锁不按时间自动移除。损坏、未来时间或残留锁仅对相应 Go 池拒绝，操作者先确认没有并发事务再核对/修复状态，不删除 hold 来绕过。其他已获批非 Go 路由及本地任务不受影响。只读、预算、额度与状态检查发生在 activation 前，不是配额预留、进行中请求取消、硬 token 限额、跨工具全局预算或现金保证。
+- `reselect` 使用同一份输入及 `failure: { route: { provider, model, upstream, account }, kind, status }`。一次只对已核验只读任务给建议：不升级 tier、premium、现金计费或账号边界；不从独立订阅升级到使用 Go 池。Go 不明 429 仅在本次建议内按池故障处理，不写共享状态。配置/鉴权错误排除同上游和账号别名；未知、质量故障、已有失败历史或写任务停下，由操作者检查并另立任务。`reselect` 从不签发许可，也不自动启动、恢复或重发。没有合格审查者时保持待外审。
