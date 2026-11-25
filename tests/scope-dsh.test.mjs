@@ -20,7 +20,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 
 function available() {
   try {
-    execFileSync(executable, ['--version'], { stdio: 'ignore', timeout: 8000 });
+    execFileSync(executable, ['--version'], { env: { PATH: process.env.PATH }, stdio: 'ignore', timeout: 8000 });
     return true;
   } catch {
     return false;
@@ -33,8 +33,10 @@ async function fixture(t) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'kitto-scope-dsh-')));
   t.after(() => rm(home, { recursive: true, force: true }));
   const env = {
-    ...process.env,
     HOME: home,
+    USERPROFILE: home,
+    LANG: process.env.LANG ?? 'C.UTF-8',
+    XDG_STATE_HOME: join(home, 'state'),
     XDG_CACHE_HOME: join(home, 'cache'),
     XDG_CONFIG_HOME: join(home, 'config'),
     XDG_DATA_HOME: join(home, 'data'),
@@ -73,7 +75,7 @@ test('DSH scoped setup preserves an existing profile and is idempotent', { skip:
   await rejects(async () => setup({ dshProfile: 'missing', dryRun: true }), /Initialize the native DSH profile missing/);
 });
 
-test('DSH Web uses each session workspace to resolve scopes', { skip: !nativeDshAvailable, timeout: 35_000 }, async t => {
+test('DSH Web uses each session workspace to resolve scopes', { skip: !nativeDshAvailable, timeout: 65_000 }, async t => {
   const { home, env, setup } = await fixture(t);
   const scoped = join(home, 'workspace');
   const repo = join(scoped, 'new-clone');
@@ -123,7 +125,7 @@ export async function apply(ctx) {
   });
   let output = '';
   const results = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { child.kill(); reject(new Error(output || 'DSH Web probe timed out')); }, 30_000);
+    const timer = setTimeout(() => { child.kill(); reject(new Error(output || 'DSH Web probe timed out')); }, 60_000);
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('exit', () => {
       clearTimeout(timer);

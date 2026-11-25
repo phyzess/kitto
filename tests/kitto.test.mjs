@@ -1618,6 +1618,42 @@ test('host version comparison keeps hyphenated prereleases intact', () => {
   assert.equal(compareVersions('1.0.0-rc.1', '1.0.0-rc.2'), -1);
   assert.equal(compareVersions('0.2.2-rc.3', '0.2.2-rc.1'), 1);
   assert.equal(compareVersions('1.0.0', '1.0.0-rc.9'), 1);
+  assert.equal(compareVersions('1.0.0-9007199254740992', '1.0.0-9007199254740993'), -1);
+  assert.equal(compareVersions('9007199254740992.0.0', '9007199254740993.0.0'), -1);
+  assert.equal(compareVersions('1.0.0+first', '1.0.0+second'), 0);
+  assert.equal(meetsBaseline(' v1.0.0+build ', '1.0.0'), true);
+  for (const malformed of ['1.0', '01.0.0', '1.0.0-alpha..2', '1.0.0-01', '1.0.0+build.', '1.0.0_foo']) {
+    assert.equal(compareVersions(malformed, '1.0.0'), null, malformed);
+    assert.equal(meetsBaseline(malformed, '1.0.0'), false, malformed);
+  }
+});
+
+test('kitto hosts refuses malformed version output and malformed exact pins', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.5.2-alpha..2' } });
+  const invalid = tools.run('hosts', '--version', '1.5.2-alpha..2');
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /exact semantic version/);
+  const unreadable = tools.run('hosts', '--apply');
+  assert.notEqual(unreadable.status, 0);
+  assert.match(unreadable.stderr, /Cannot read the current version/);
+  assert.equal(tools.installs().length, 0);
+});
+
+test('setup accepts a newer host but rejects it as the result of a pinned install', t => {
+  const f = fixture(t);
+  const tools = hostsTools(f, { missing: ['pi', 'npm'] });
+  const marker = join(tools.bin, 'installed');
+  writeFileSync(join(tools.bin, 'pi'), `#!${process.execPath}\nif (!require('node:fs').existsSync(${JSON.stringify(marker)})) process.exit(1);\nconsole.log('pi 1.5.3');\n`, { mode: 0o755 });
+  writeFileSync(join(tools.bin, 'npm'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, process.argv.slice(2).join(' '));\n`, { mode: 0o755 });
+  const module = new URL('../lib/kitto.mjs', import.meta.url).href;
+  const invoke = body => command(process.execPath, ['--input-type=module', '-e', `import { checkSelectedHosts, installMissingHosts } from ${JSON.stringify(module)}; ${body}`], tools.env);
+  const installed = invoke("installMissingHosts(['pi'])");
+  assert.notEqual(installed.status, 0);
+  assert.match(installed.stderr, /reports 1\.5\.3 instead of 1\.5\.2/);
+  assert.equal(readFileSync(marker, 'utf8'), 'install --global @earendil-works/pi-coding-agent@1.5.2');
+  good(invoke("checkSelectedHosts(['pi'], false)"));
 });
 
 test('kitto hosts treats a mixed-case Desktop profile as app-managed', t => {
@@ -1723,6 +1759,35 @@ test('kitto hosts leaves a newer host alone and does not suggest an apply', t =>
   assert.match(applied.stdout, /Nothing to change/);
   assert.equal(tools.installs().length, 0);
   assert.equal(tools.calls().some(call => call.command === 'npm'), false);
+});
+
+test('public and maintenance hosts distinguish equivalent precedence from an exact build pin', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const tools = hostsTools(f, { versions: { pi: '1.5.2+local' } });
+  const maintain = (...args) => command(process.execPath,
+    [join(f.env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args], tools.env);
+  for (const run of [tools.run, maintain]) {
+    const check = run('hosts', '--check');
+    good(check);
+    assert.match(check.stdout, /same precedence as the baseline, but different build metadata/);
+    assert.doesNotMatch(check.stdout, /newer than the baseline|Preview only/);
+    const apply = run('hosts', '--apply');
+    good(apply);
+    assert.match(apply.stdout, /same precedence as the baseline, but different build metadata/);
+    assert.match(apply.stdout, /Summary: updated none; unchanged pi/);
+  }
+  assert.equal(tools.calls().some(call => call.command === 'npm'), false);
+
+  tools.env.HOSTS_NPM_NOOP = '1';
+  const mismatch = maintain('hosts', '--version', '1.5.2', '--apply');
+  assert.notEqual(mismatch.status, 0);
+  assert.match(mismatch.stderr, /reports 1\.5\.2\+local instead of 1\.5\.2/);
+  delete tools.env.HOSTS_NPM_NOOP;
+  const pinned = tools.run('hosts', '--version', '1.5.2', '--apply');
+  good(pinned);
+  assert.match(pinned.stdout, /verified pi 1\.5\.2\b/);
+  assert.equal(tools.installs().length, 2);
 });
 
 test('kitto hosts warns in check mode when --version is not the validated baseline', t => {
