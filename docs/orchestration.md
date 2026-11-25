@@ -11,7 +11,7 @@
 | 共享 skill | `skills/dev-orchestration/SKILL.md` | 完整 playbook：DAG 模板、任务合同、证据、升级、反模式。部署到 `~/.agents/skills`。 |
 | 共享 skill（成本） | `skills/context-budget/SKILL.md` | 上下文阈值、handoff 模板、审计用法与反模式。 |
 | 审计脚本 | `skills/context-budget/scripts/dsh-usage.mjs` | 只读扫 `$DSH_HOME/sessions`，出模型/项目/天/会话四张表与扇出、分位数。随 skill 一起部署。 |
-| 结构化判定 | `skills/jev-decide/SKILL.md` + `scripts/jev.mjs` | 用 System One 决策模型做一次性判定（分级、归因、要不要加人），返回概率而不是正文；端点在 Go 渠道，计入订阅额度。 |
+| 本机路由预检 | [Kitto 本机模型路由](model-routing.md) | 核对设备、账号、现有路由、额度与独立性；不执行推理。分级与归因默认使用本地证据。 |
 | DSH 原生配置（压缩） | [ADR 005：DSH 压缩预算](adr/005-dsh-compaction-budget.md) | 压缩触发点参考值；Kitto 不部署，改模型路由的 `contextWindow`。 |
 | DSH 原生配置 | `config/dsh/agent-teams.profiles.yml` | AgentTeams 的 `profiles` 与 `toolPolicies` 参考片段。Kitto 不部署，需手工合并到 profile patch。 |
 
@@ -62,11 +62,9 @@
 
 ## Grok 的取舍
 
-两个订阅覆盖全部角色：GPT（`openai-codex`）承担方案与实现，opencode-go 承担批量、验证与审查；deepseek 官方 API 与 xAI 官方 API 都按量计费，不进日常流程。
+先按 [设备与任务授权](model-routing.md) 过滤：个人订阅不是公司设备的默认路由，按量计费不作兜底。批量、扫描和验证选择满足能力下限的低消耗档；审查先确保实际模型和家族独立。
 
-日常批量、扫描和验证先用 DeepSeek V4.1 Flash，备选 GLM-5.3-Flash；T1 审查优先 GLM-5.3。需要 GPT 时用自有订阅，不自动改走 Go 的 GPT。
-
-Grok 留给三类困难任务：
+Grok 不是默认首选；获得本任务的高端档明确批准且额度足够后，才在下列场景考虑：
 
 1. **T2 高风险审查**（鉴权/支付/并发/迁移）——换模型的独立判断，单次只审 diff，走 opencode-go 的 `grok-4.7`（$2/$6，缓存 $0.50，计入 Go 额度）。
 2. **第三意见**——GPT 与审查模型结论冲突，或两轮修复仍失败。
@@ -84,7 +82,7 @@ Grok 留给三类困难任务：
 
 任务 worktree 的创建与交还走 `kitto-worktree` skill 的预览/确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 
-opencode-go 不可用时：审查降到 GPT 档，报告注明「同模型复核，未换模型」；长跑默认就是 GPT Sol。
+Go 不可用时，用 `kitto route reselect` 比较仍获批且独立的路由；没有合格审查者则保持「待外部审查」，同模型复核不能代签。
 
 ## Pi / Codex
 

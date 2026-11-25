@@ -4,9 +4,6 @@
     memberProvider: spawn
     memberMaxDepth: 0
     maxMembers: 8
-    fallback:
-      provider: openai-codex
-      model: gpt-6.2-sol
     toolPolicies:
       read-only:
         allow: [read, glob, grep, bash, web_search, web_fetch]
@@ -14,7 +11,7 @@
       dev-standard:
         description: T1 标准开发：Sol 实现，DeepSeek Flash 验证，GLM-5.3 审查，DeepSeek Flash 按需批量
         taskPlanning: captain
-        protocol: 审批前按已分派任务的难度和模型支持的档位设置成员思考强度，不按角色固定档位。
+        protocol: 审批前逐个运行 kitto route；核实有效 fallback 均关闭、账号与额度已授权，并按任务和模型支持设置档位。
         members:
           - name: implementer
             role: 实现
@@ -24,37 +21,28 @@
             role: 批量与扫描（按需）
             provider: opencode-go
             model: deepseek-v4.1-flash
-            fallback:
-              provider: opencode-go
-              model: glm-5.3-flash
           - name: verifier
             role: 验证
             provider: opencode-go
             model: deepseek-v4.1-flash
-            fallback:
-              provider: opencode-go
-              model: glm-5.3-flash
           - name: reviewer
             role: 审查
             provider: opencode-go
             model: glm-5.3
             tool_policy: read-only
-            fallback:
-              provider: opencode-go
-              model: kimi-k3.1-pro
         reviewPolicy:
           codeMaxRounds: 2
           maxRepairAttempts: 2
           requiredReviewers: [reviewer]
       dev-hard:
-        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，DeepSeek Flash 验证，DeepSeek Flash 按需批量
+        description: T2 攻坚参考：按任务预检选路，确认独立审查和 Native fallback 已关闭
         taskPlanning: captain
-        protocol: 审批前按已分派任务的难度和模型支持的档位设置成员思考强度，不按角色固定档位。
+        protocol: 审批前逐个运行 kitto route；核实有效 fallback 均关闭、账号与额度已授权，并按任务和模型支持设置档位。
         members:
           - name: architect
             role: 方案
             provider: openai-codex
-            model: gpt-6.2-astra
+            model: gpt-6.2-sol
             tool_policy: read-only
           - name: implementer
             role: 实现
@@ -68,27 +56,18 @@
             role: 批量与扫描（按需）
             provider: opencode-go
             model: deepseek-v4.1-flash
-            fallback:
-              provider: opencode-go
-              model: glm-5.3-flash
           - name: verifier
             role: 验证
             provider: opencode-go
             model: deepseek-v4.1-flash
-            fallback:
-              provider: opencode-go
-              model: glm-5.3-flash
           - name: reviewer
             role: 审查
             provider: opencode-go
-            model: grok-4.7
+            model: glm-5.3
             tool_policy: read-only
-            fallback:
-              provider: opencode-go
-              model: kimi-k3.1-pro
         reviewPolicy:
           requirementsMinRounds: 1
           requirementsMaxRounds: 2
-          codeMaxRounds: 3
-          maxRepairAttempts: 3
+          codeMaxRounds: 2
+          maxRepairAttempts: 2
           requiredReviewers: [reviewer]
