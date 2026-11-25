@@ -4,25 +4,13 @@
 # Kitto 只管理 AGENTS.md 与 skills；DSH 的 profile 配置由本机原生维护，
 # 这份文件是跨机器复用的源。
 #
-# 顺序：
-# 1. 先配置 Grok 路由（推荐用「设置 → 模型 → 添加模型提供商 → 自定义模型 API」，
-#    由界面校验后写入；下表是同样的配置，便于新机器手工合并）。
-# 2. 再把 - id: agent-teams 条目合并进去。同 id 覆盖会替换整个 config，
-#    必须保留 stateDir 与 memberProvider。
-# 3. 重启 web profile 后，在聊天里用 /agent-teams --profile dev-standard <目标>，
-#    或让队长调用 agent_teams_create({ profile: "dev-standard", approval: "required" })。
+# 先确认 openai-codex 与 opencode-go 路由可用，再合并 agent-teams 条目。
+# 同 id 覆盖会替换整个 config，须保留 stateDir、memberProvider 等本机设置。
+# 重启 web profile 后，在新会话中运行 /agent-teams --profile dev-standard <目标>。
 #
-# 注意：toolPolicies 是工具可见性，不是 OS 沙箱；bash 仍可在允许后写文件。
-# 两个订阅渠道：GPT（openai-codex）承担方案与实现，opencode-go 承担验证与审查。
-# Grok 只出现在 dev-hard 的 reviewer（T2 审查），走 opencode-go 而不是 xAI 官方计费；
-# dev-standard 的审查用 Kimi K3.1 Pro，与 GPT 实现是不同模型。
-# opencode-go 不可用时，审查与验证按 fallback 用 GPT 档，队长在报告里注明「同模型复核，未换模型」。
-# 第三意见按需用 agent_teams_add_member 临时加入。
-
-# --- 1. Grok 路由：追加到现有 - id: llm-pi-ai 的 providers 下，不要整段覆盖 ---
-# xAI 官方渠道不再配置（按量计费）。需要 Grok 时用 opencode-go 的 `grok-4.7`。
-
-# --- 2. 团队模板 ---
+# batch 只按需派发；Grok 只给攻坚，不作为日常验证或 GPT 限流的兜底。
+# 如审查回退到与实现同款的 GPT，标记为同模型复核，不算独立审查。
+# toolPolicies 是工具可见性，不是 OS 沙箱；bash 仍可在允许后写文件。
 - id: agent-teams
   config:
     stateDir: .agent-teams
@@ -37,7 +25,7 @@
         allow: [read, glob, grep, bash, web_search, web_fetch]
     profiles:
       dev-standard:
-        description: T1 标准开发：Sol 实现，Luna 验证，Kimi 审查
+        description: T1 标准开发：Sol 实现，GLM Flash 验证，GLM-5.3 审查，DeepSeek Flash 按需批量
         taskPlanning: captain
         members:
           - name: implementer
@@ -45,23 +33,37 @@
             provider: openai-codex
             model: gpt-6.2-sol
             reasoning_effort: high
+          - name: batch
+            role: 批量与扫描（按需）
+            provider: opencode-go
+            model: deepseek-v4.1-flash
+            reasoning_effort: low
+            fallback:
+              provider: opencode-go
+              model: glm-5.3-flash
           - name: verifier
             role: 验证
             provider: opencode-go
-            model: gpt-6-luna
-            reasoning_effort: medium
+            model: glm-5.3-flash
+            reasoning_effort: low
+            fallback:
+              provider: opencode-go
+              model: deepseek-v4.1-flash
           - name: reviewer
             role: 审查
             provider: opencode-go
-            model: kimi-k3.1-pro
+            model: glm-5.3
             reasoning_effort: high
             tool_policy: read-only
+            fallback:
+              provider: opencode-go
+              model: kimi-k3.1-pro
         reviewPolicy:
           codeMaxRounds: 2
           maxRepairAttempts: 2
           requiredReviewers: [reviewer]
       dev-hard:
-        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，Luna 验证
+        description: T2 攻坚：Astra 方案，Sol 实现/长跑，Grok 审查，GLM Flash 验证，DeepSeek Flash 按需批量
         taskPlanning: captain
         members:
           - name: architect
@@ -80,11 +82,22 @@
             provider: openai-codex
             model: gpt-6.2-sol
             reasoning_effort: high
+          - name: batch
+            role: 批量与扫描（按需）
+            provider: opencode-go
+            model: deepseek-v4.1-flash
+            reasoning_effort: low
+            fallback:
+              provider: opencode-go
+              model: glm-5.3-flash
           - name: verifier
             role: 验证
             provider: opencode-go
-            model: gpt-6-luna
-            reasoning_effort: medium
+            model: glm-5.3-flash
+            reasoning_effort: low
+            fallback:
+              provider: opencode-go
+              model: deepseek-v4.1-flash
           - name: reviewer
             role: 审查
             provider: opencode-go

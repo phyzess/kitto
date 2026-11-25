@@ -60,14 +60,12 @@ Pi、Codex、DSH 共用这些约定；宿主的工具差异放在各自的 adden
 
 模型分工（宿主提供多路由时）：
 
-- 主力是 GPT 订阅：方案、实现、长时自主都用 GPT 档，边际成本为零。
-- 子 agent 从 GPT 与 opencode-go 两个订阅渠道按任务挑，不限家族：
-  - 方案与需求：GPT 高端档。
-  - 实现：GPT 主力档。
-  - 批量、机械改动、长跑扫描：opencode-go 的 $0.12–0.15/M 档（DeepSeek V4.1 Flash、GLM-5.3-Flash、Qwen3.8-Flash、MiMo-V2.6-Flash）。
-  - 验证与门禁：opencode-go 的 GPT-6 Luna 或 Claude Haiku 5.5（均 $0.10/$0.50）。
-  - T1 审查：opencode-go 的 Kimi K3.1 Pro 或 GLM-5.3。
-  - T2 审查与第三意见：opencode-go 的 Grok 4.7、Kimi K3 或 DeepSeek V4 Pro。
+- 需要 GPT 时走自有 GPT 订阅，不自动回退到 opencode-go 的 GPT：方案与需求用高端档，常规实现与长时自主用主力档。
+- opencode-go 按任务难度和吞吐量分档：
+  - 批量、机械改动、长跑扫描：DeepSeek V4.1 Flash → GLM-5.3-Flash → 其他可用 Flash。
+  - 常规验证与门禁：GLM-5.3-Flash → DeepSeek V4.1 Flash；需要更强判断时升 GLM-5.3 或自有 GPT。
+  - T1 审查：GLM-5.3 → Kimi K3.1 Pro。
+  - T2 攻坚、高风险审查与第三意见：按需用 Grok 4.7，备选 Kimi K3 系列或 DeepSeek V4 Pro；不派给日常批量、扫描或验证。
 - 不走 deepseek 官方 API 与 xAI 官方 API：两者按量计费，不由已付订阅覆盖；同款模型走 opencode-go 即可。
 - 一次性判定（开分级、失败归因、要不要加人）先问 `jev-decide` 拿概率再拍板，别只凭印象。
 - 审查者必须与实现者不是同一个模型，且不改代码，只交 verdict 与 findings。

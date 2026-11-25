@@ -13,10 +13,11 @@
   | --- | --- | --- | --- |
   | 方案 | openai-codex | gpt-6.2-astra | high |
   | 实现/长跑 | openai-codex | gpt-6.2-sol | high |
-  | 批量、机械、扫描 | opencode-go | deepseek-v4.1-flash / glm-5.3-flash / qwen3.8-flash | low |
-  | 验证与门禁 | opencode-go | gpt-6-luna / claude-haiku-5-5 | medium |
-  | T1 审查 | opencode-go | kimi-k3.1-pro（fallback glm-5.3） | high（只审 diff） |
-  | T2 审查、第三意见 | opencode-go | grok-4.7 / kimi-k3 / deepseek-v4-pro | high（只审 diff） |
+  | 批量、机械、扫描 | opencode-go | deepseek-v4.1-flash → glm-5.3-flash | low |
+  | 常规验证与门禁 | opencode-go | glm-5.3-flash → deepseek-v4.1-flash | low |
+  | T1 审查 | opencode-go | glm-5.3 → kimi-k3.1-pro | high（只审 diff） |
+  | T2 攻坚、审查、第三意见 | opencode-go | grok-4.7 → kimi-k3.1-pro；按需选 deepseek-v4-pro | high |
+- `batch` 成员只在有独立批量任务时派发，不占默认验证或审查角色。需要 GPT 时选 `openai-codex`，不自动切到 Go GPT。
 - opencode-go 是订阅渠道（`https://opencode.ai/inference/go`）：路由不带 `models` 时直接服务其内置目录；用 `modelOverrides` 把有效预算压到 400K（压缩触发 ~206K），`hy3` 留作 120K 短上下文批量档。
 - 不走 `deepseek-official` 与 `xai` 官方渠道：两者都按量计费。需要 Grok 时用 opencode-go 的 `grok-4.7`。
 - 一次性判定走 JEV：`node ~/.agents/skills/jev-decide/scripts/jev.mjs --state @state.md --questions @q.json`。`noul` 是/否、`choice` 多选一、`score` 档位；用于开分级、失败归因、finding 分档、要不要加第三意见。端点是 Go 渠道 `/inference/go/systemone/v1/systemone`，`jev-1.14` 与两种 decision 模型都计入 Go 额度；换成不带 `/go/` 的路径就变成 Console 按量计费。state 放摘要，不放源码与私有样本。
