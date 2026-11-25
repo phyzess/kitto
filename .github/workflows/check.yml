@@ -49,7 +49,7 @@ jobs:
               test "$(git --no-replace-objects show --no-patch --format=%P "$HEAD_SHA")" = "$BASE_SHA $PR_HEAD_SHA"
               args+=(--pr-head "$PR_HEAD_SHA")
               ;;
-            push) [[ "$GITHUB_REF" == refs/heads/main && -z "$PR_HEAD_SHA" ]] ;;
+            push) [[ "$GITHUB_REF" == refs/heads/main && -z "$PR_HEAD_SHA" ]] || exit 1 ;;
             *) exit 1 ;;
           esac
           if [[ "$BASE_SHA" == 5368e35ddee521a389e9c676b4edb3929937c8fc && "$GITHUB_REPOSITORY" == phyzess/kitto ]]; then
@@ -58,7 +58,7 @@ jobs:
               exit 1
             fi
             [[ "$PR_NUMBER" == 50 && "$GITHUB_REF" == refs/pull/50/merge && "$GITHUB_BASE_REF" == main &&
-              "$PR_HEAD_REPOSITORY" == phyzess/kitto && "$GITHUB_HEAD_REF" == kitto/comment-ratchet ]]
+              "$PR_HEAD_REPOSITORY" == phyzess/kitto && "$GITHUB_HEAD_REF" == kitto/comment-ratchet ]] || exit 1
             printf '%s\n' '::warning::No trusted comment ratchet ran for PR #50. Protected independent maintainer review of the exact candidate is required before merge.'
             exit 0
           fi
