@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Read-only DSH usage audit: token volume and cost shape per model, session and day.
-// Source of truth: $DSH_HOME/sessions/<project>/<session>/session.v4.jsonl.zstd,
-// where every assistant/message record carries a `usage` block.
 import { spawn } from 'node:child_process';
 import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -162,7 +159,6 @@ async function readSession(file) {
   child.once('error', error => { spawnError = error; });
   const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
 
-  // Split on raw LF before decoding so a bad UTF-8 sequence affects only its record.
   const pending = [];
   let streamFailed = false;
   try {
@@ -179,7 +175,6 @@ async function readSession(file) {
   } catch { streamFailed = true; }
   if (pending.length) collectRecord(session, Buffer.concat(pending), false);
 
-  // stdout may end before zstd reports a checksum failure or exits on a signal.
   const { code, signal } = await closed;
   session.missingDecompressor = spawnError?.code === 'ENOENT';
   session.decompressionFailed = Boolean(spawnError || streamFailed || code !== 0 || signal);

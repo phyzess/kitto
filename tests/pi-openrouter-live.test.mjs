@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
-// Pi 1.5.2 public Provider and RefreshModelsContext contract. The test owns all
-// provider operations, credentials, catalog responses and persistence.
 const providerModule = '@earendil-works/pi-ai/providers/';
 const fixtureKey = Symbol.for('kitto.openrouter.fixture');
 const extension = new URL('../config/pi/extensions/openrouter-live.ts', import.meta.url);

@@ -68,7 +68,6 @@ async function installationFor(entry) {
       }
     }
   } catch {
-    // Invalid manifests and broken entries are not valid package anchors.
   }
   throw unidentified('its executable does not match the bin in an @deepseek-ai/dsh package');
 }
@@ -86,7 +85,6 @@ async function runtimeInstallation() {
       }
     }
   } catch {
-    // Do not fall back to another installation on a stale runtime anchor.
   }
   throw unidentified('DSH_INSTALL_DIR is not a verified @deepseek-ai/dsh package');
 }
@@ -102,8 +100,6 @@ export async function dshExecutable() {
   if (!launcher) throw new DshNotInstalledError();
   const mise = await onPath('mise');
   let entry = launcher.path;
-  // mise's native shims are links or hard links to its executable. A directory
-  // named "shims" is not evidence that an arbitrary launcher belongs to mise.
   if (mise && mise.info.dev === launcher.info.dev && mise.info.ino === launcher.info.ino) {
     const result = spawnSync(mise.path, ['which', 'dsh'], {
       encoding: 'utf8', timeout: 8000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'],
@@ -120,8 +116,6 @@ async function importFromInstallation({ dir }, name) {
   try {
     const require = createRequire(join(dir, 'package.json'));
     const resolved = await realpath(require.resolve(name));
-    // require.resolve also searches NODE_PATH and Node's global lookup roots.
-    // Accept only this package's normal node_modules/hoisting chain.
     for (let parent = dir; ; parent = dirname(parent)) {
       const dependency = await realpath(join(parent, 'node_modules', name)).catch(error => {
         if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
@@ -130,7 +124,6 @@ async function importFromInstallation({ dir }, name) {
       if (parent === dirname(parent)) break;
     }
   } catch {
-    // Dependency errors can contain loader output. Report only the package name.
   }
   throw new Error(`Cannot load ${name} from the selected DSH installation.`);
 }

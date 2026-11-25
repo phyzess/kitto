@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,29 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const registry = 'https://registry.npmjs.org/';
 const packageName = '@phyzess/kitto';
 const registryArgs = [`--registry=${registry}`, `--@phyzess:registry=${registry}`];
+const verifyAttempts = 24;
+const verifyDelayMs = 15_000;
+
+function waitSync(ms) {
+  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export function waitForPublish(spec, integrity, read, { attempts = verifyAttempts, delayMs = verifyDelayMs, sleep = waitSync } = {}) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const found = read();
+    if (found === integrity) {
+      if (attempt > 1) console.log(`${spec} is served by npm (verified on attempt ${attempt}).`);
+      return attempt;
+    }
+    if (found !== undefined) throw new Error(`${spec} is on npm with different contents (${found}); expected ${integrity}.`);
+    if (attempt < attempts) {
+      console.log(`Waiting for npm to serve ${spec} (attempt ${attempt}/${attempts})…`);
+      sleep(delayMs);
+    }
+  }
+  throw new Error(`${spec} was published but npm still does not serve it after ${attempts} attempts. `
+    + `The tarball integrity is ${integrity}; rerun from this commit to verify or resume.`);
+}
 
 function run(command, args, cwd = root, capture = false) {
   const result = spawnSync(command, args, {
@@ -116,27 +139,31 @@ function release(version, publish) {
     if (existing === undefined) {
       console.log(`Origin tag ${tag} exists. If npm publishing fails, rerun from this commit.`);
       run('npm', ['publish', tarball, '--access=public', '--tag=latest', '--ignore-scripts', '--dry-run=false', '--force=false', ...registryArgs], temp);
-      if (npmView(spec, 'dist.integrity', temp) !== packed.integrity) {
-        throw new Error(`Cannot verify ${spec} on npm yet. Rerun from this commit to verify or resume.`);
-      }
+      waitForPublish(spec, packed.integrity, () => npmView(spec, 'dist.integrity', temp));
     }
     console.log(`Released ${spec} at ${tag} (${commit}).`);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
 }
+function invokedDirectly() {
+  try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); }
+  catch { return false; }
+}
 
-try {
-  const [version, option, ...extra] = process.argv.slice(2);
-  const usage = 'Usage: npm run release -- <major.minor.patch> [--publish]';
-  if (version === '--help' && !option) console.log(usage);
-  else {
-    if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version ?? '') ||
-        !version.split('.').every(part => Number.isSafeInteger(Number(part))) ||
-        (option !== undefined && option !== '--publish') || extra.length) throw new Error(usage);
-    release(version, option === '--publish');
+if (invokedDirectly()) {
+  try {
+    const [version, option, ...extra] = process.argv.slice(2);
+    const usage = 'Usage: npm run release -- <major.minor.patch> [--publish]';
+    if (version === '--help' && !option) console.log(usage);
+    else {
+      if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version ?? '') ||
+          !version.split('.').every(part => Number.isSafeInteger(Number(part))) ||
+          (option !== undefined && option !== '--publish') || extra.length) throw new Error(usage);
+      release(version, option === '--publish');
+    }
+  } catch (error) {
+    console.error(`Release failed: ${error.message}`);
+    process.exitCode = 1;
   }
-} catch (error) {
-  console.error(`Release failed: ${error.message}`);
-  process.exitCode = 1;
 }

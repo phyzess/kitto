@@ -20,7 +20,6 @@ function sandbox(t) {
   const agent = join(home, 'agent');
   mkdirSync(join(agent, 'extensions'), { recursive: true });
   const synced = join(agent, 'extensions/thin-cursor.ts');
-  // The Pi sync adapter overwrites this exact filename, rather than pruning old files.
   writeFileSync(synced, 'throw new Error("stale editor should be replaced");');
   copyFileSync(extension, synced);
   return { home, agent, synced };

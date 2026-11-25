@@ -8,7 +8,6 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { codexMcpNames } from '../lib/parity.mjs';
 
-// Invoked separately after installing the pinned hosts. No login or model calls.
 const root = fileURLToPath(new URL('../', import.meta.url));
 const nativeBin = process.env.KITTO_NATIVE_BIN;
 test('native Pi/Codex/DSH installation, version change, recovery, detach and reinstall', { skip: !nativeBin, timeout: 240_000 }, t => {
@@ -59,7 +58,6 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   const codexServers = () => JSON.parse(run('codex', ['mcp', 'list', '--json']));
   const codexNames = () => codexServers().map(server => server.name).sort();
   const codexServer = name => codexServers().find(server => server.name === name);
-  // Pre-seed a personal server with the same name as a Kitto source server.
   mkdirSync(env.CODEX_HOME, { recursive: true });
   run('codex', ['mcp', 'add', 'shared-fixture', '--', 'user-shared-mcp']);
   assert.deepEqual(codexNames(), ['shared-fixture']);
@@ -75,7 +73,6 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.equal(codexConfigHash(), configHashAfterSetup);
   assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
-  // A source transport change is an update, not a second add.
   writeFileSync(join(source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: {
     ...kittoMcp,
     'kitto-fixture': { command: 'kitto-fixture-mcp', args: ['serve', '--updated'] },

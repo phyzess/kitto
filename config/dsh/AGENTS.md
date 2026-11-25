@@ -8,15 +8,17 @@
 
 - 分级与门禁按共享规则「开发任务编排」；T0 不建队，T1/T2 用 AgentTeams。
 - 建队入口：`agent_teams_create({ description: <目标>, approval: "required" })`；配置了模板时优先 `/agent-teams --profile dev-standard <目标>` 或 `dev-hard`。没有模板时用 `plan.members` 内联，并显式传 `provider` + `model`。
-- 路由（provider/model/effort）：
-  | 角色 | provider | model | effort |
-  | --- | --- | --- | --- |
-  | 方案 | openai-codex | gpt-6.2-astra | high |
-  | 实现/长跑 | openai-codex | gpt-6.2-sol | high |
-  | 批量、机械、扫描 | opencode-go | deepseek-v4.1-flash / glm-5.3-flash / qwen3.8-flash | low |
-  | 验证与门禁 | opencode-go | gpt-6-luna / claude-haiku-5-5 | medium |
-  | T1 审查 | opencode-go | kimi-k3.1-pro（fallback glm-5.3） | high（只审 diff） |
-  | T2 审查、第三意见 | opencode-go | grok-4.7 / kimi-k3 / deepseek-v4-pro | high（只审 diff） |
+- 路由（provider/model）：
+  | 角色 | provider | model |
+  | --- | --- | --- |
+  | 方案 | openai-codex | gpt-6.2-astra |
+  | 实现/长跑 | openai-codex | gpt-6.2-sol |
+  | 批量、机械、扫描、常规验证 | opencode-go | deepseek-v4.1-flash → glm-5.3-flash |
+  | T1 审查 | opencode-go | glm-5.3 → kimi-k3.1-pro（只审 diff） |
+  | T2 攻坚、审查、第三意见 | opencode-go | grok-4.7 → kimi-k3.1-pro；按需选 deepseek-v4-pro |
+- 思考强度按任务选，不从角色或模型名推断。用 `list_subagent_models` 查该路由支持的档位：机械操作、已知命令和证据收集用 `low`；一般实现或需要选测试用 `medium`（有则用）或 `default`；疑难归因、高风险审查用 `high`。最高档只在强度不足且错判代价高时升级。
+- 命名模板不固定强度。队长按任务分配，在审批前用 `agent_teams_edit_plan` 的 `update_member.reasoning_effort` 选档；内联计划或普通子 agent 可在派发时直接传。AgentTeams 中，想用模型默认档时显式传 `default`，避免同路由继承队长强度。若同一角色的任务确实需要不同档位，分派给对应档位的成员，不改正在执行的成员。
+- `batch` 成员只在有独立批量任务时派发，不占默认验证或审查角色。需要 GPT 时选 `openai-codex`，不自动切到 Go GPT。
 - opencode-go 是订阅渠道（`https://opencode.ai/inference/go`）：路由不带 `models` 时直接服务其内置目录；用 `modelOverrides` 把有效预算压到 400K（压缩触发 ~206K），`hy3` 留作 120K 短上下文批量档。
 - 不走 `deepseek-official` 与 `xai` 官方渠道：两者都按量计费。需要 Grok 时用 opencode-go 的 `grok-4.7`。
 - 一次性判定走 JEV：`node ~/.agents/skills/jev-decide/scripts/jev.mjs --state @state.md --questions @q.json`。`noul` 是/否、`choice` 多选一、`score` 档位；用于开分级、失败归因、finding 分档、要不要加第三意见。端点是 Go 渠道 `/inference/go/systemone/v1/systemone`，`jev-1.14` 与两种 decision 模型都计入 Go 额度；换成不带 `/go/` 的路径就变成 Console 按量计费。state 放摘要，不放源码与私有样本。
@@ -30,7 +32,7 @@
 ### 上下文与成本（执行面）
 
 - **压缩是主控项**：触发点 = `min(thresholdRatio × contextWindow, contextWindow − maxTokens − headroomTokens)`，默认 `thresholdRatio: 0.8`、`headroomTokens: 65536`，`contextWindow`/`maxTokens` 来自模型路由。按模型真实容量配 1M 窗口时触发点被推到 ~840K，实测会话就涨到了 840K prompt，44% 的请求落在 >200K 的翻倍档。
-- 调阈值走**模型路由**：在 `llm-pi-ai` 里把模型的 `contextWindow` 降到有效预算（如 `400000` + `maxTokens: 128000` → 触发点 ~206K）。改 preset 的 `compaction-basic` 是另一条路，但 Web 不编辑 preset，按行 id 覆盖会整表替换（实测 354 → 322 个节点），只剩整份冻结 `plugins` 一个选项，代价是 DSH 升级后新插件被静默遮蔽。参考值见 `config/dsh/compaction.reference.yml`。
+- 调阈值走**模型路由**：在 `llm-pi-ai` 里把模型的 `contextWindow` 降到有效预算（如 `400000` + `maxTokens: 128000` → 触发点 ~206K）。改 preset 的 `compaction-basic` 是另一条路，但 Web 不编辑 preset，按行 id 覆盖会整表替换（实测 354 → 322 个节点），只剩整份冻结 `plugins` 一个选项，代价是 DSH 升级后新插件被静默遮蔽。参考值见 Kitto 仓库的 [ADR 005：DSH 压缩预算](https://github.com/phyzess/kitto/blob/main/docs/adr/005-dsh-compaction-budget.md)。
 - 审计入口：`node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs`。只读扫描 `$DSH_HOME/sessions`，按模型、会话、天输出 token 与折算成本；`--project` 做路径前缀过滤，`--days` 限窗口。
 - 会话日志：`$DSH_HOME/sessions/<项目>/<会话 id>/session.v4.jsonl.zstd`。每条 `assistant/message` 带 `usage`（`inputTokens`、`cacheReadTokens`、`outputTokens`），模型 id 在 `message.source`；压缩与剪枝是 `compaction/*` 事件。以此为唯一事实来源，不靠估算。
 - 子 agent 默认 `subagent`（干净上下文）；`subagent_fork` 只在需要延续判断时使用。一个成员同一时间一个任务，波次任务数超过 3 个拆波。

@@ -1,4 +1,3 @@
-// Test-only host/npm shim for `kitto hosts`. Never contacts a network.
 const fs = require('node:fs');
 const path = require('node:path');
 const name = path.basename(process.argv[1]), args = process.argv.slice(2);

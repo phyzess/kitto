@@ -288,6 +288,17 @@ npx --yes @phyzess/kitto@latest hosts --host codex --version 0.170.0 --apply
 - 若 npm 不可用、宿主版本无法读取，或安装后的版本与目标不一致，命令会明确失败；失败不会写 `state.json`。
 - 升级完成后重启对应宿主，让新 CLI 生效。
 
+### 宿主版本不是 setup 的前置条件
+
+`setup` 和 `update` 不会因为某个宿主的 CLI 低于基线而中止，也不会让一个过期的宿主挡住其他宿主：
+
+- 版本低于基线时打印警告，继续部署规则、skills 和其余宿主；该 CLI 缺少的子命令（例如旧 Codex 没有 `plugin`）会被逐项探测，只跳过对应的原生注册，并说明跳过了什么。
+- 读了版本号但无法解析、或 `--version` 失败时，同样只是警告，并把该宿主的原生集成标记为未验证。
+- 二进制不存在仍然是错误（`--install-agents` 可补装），因为此时没有任何可部署的路径。
+- 需要发布验证那种严格语义时，给 `setup`/`update` 加 `--require-baseline`：低于基线恢复为致命错误，且在任何写入之前失败。
+
+基线因此只是「Kitto 验证过的版本」和 `kitto hosts --apply` 的安装目标，不再是写入前提。
+
 需要复现某次配置时，在 setup 命令末尾加 `--ref <已存在的-tag>`。Kitto 创建的配置仓库可以用同一参数切换到另一个 tag；自己提供的本地仓库用 Git 切换。状态中的 `deployed` 表示上次成功部署的提交，`checkout` 表示源目录当前的提交。检查上游工具版本时，可以直接说“用 Kitto 在线检查已启用工具的版本”。
 
 ## CodeGraph 索引与工作区权限
@@ -301,6 +312,18 @@ Kitto 也会检查已登记工作区是否对当前账号可写。只读工作�
 首次 setup 遇到配置冲突时，修正冲突后重跑原命令。加 `--dry-run` 可先看操作预览；对于尚未下载的远端配置，预览仅显示安装步骤。
 
 如果升级后维护 skill 无法运行，在首页的安装命令末尾加 `--recover --dry-run` 查看恢复计划，再用 `--recover` 执行。恢复会切回之前验证过的 Kitto 程序并重新连接宿主。个人配置的历史版本通过 Git 恢复。
+
+### 被中断的运行、残留锁与未验证的 runtime
+
+`setup`/`update` 的写入由 `$KITTO_HOME/.lock` 串行化，Pi 适配器另有一把 `<配置源>/config/pi/local/.sync-lock`。两把锁都记录持有者（`owner.json` 或 `pid` 文件），所以续跑时能直接判断持有者是否还在：
+
+- 持有者仍在运行：报 `Another Kitto operation holds …: pid N started …`，等它结束再重试。
+- 持有者已退出：报这是 `stale lock` 并给出 pid；加 `--break-lock` 重跑即可清除。它**只清理可证明已退出的锁**，进程还活着时一律拒绝。
+- 旧版 Kitto 留下的锁没有 owner 记录，`--break-lock` 不碰，需要人工确认后删除。
+
+正常退出以及 `SIGINT`/`SIGTERM` 都会释放锁，只有 `SIGKILL` 或断电才会留下残留。部署中途失败时 runtime 会停在未验证状态（`state.json` 的 `pendingRuntime`）：重跑同一条 `update --apply` 完成，或用 `setup --recover` 回到上一份已验证的 runtime，命令会直接提示。
+
+Python 探测超时也不会再中止部署：pyenv、asdf、mise 这类 shim 首次调用可能超过 8 秒，Kitto 只警告并继续，真实结果由 Pi 适配器报告。缺解释器或版本低于 3.10 仍然在写入前就失败。
 
 需要解除集成时，可以在 agent 里说“用 Kitto 预览解除集成”。解除 DSH 时会同时删除 `$DSH_HOME/cordis.patch.yml` 中 Kitto 自有的 `kitto-mcp-*` 行，保留其它内容；patch 无法安全解析时保留文件并警告，不阻塞解除。解除后仍保留个人配置、共享 skills 和宿主 CLI。
 
@@ -316,6 +339,8 @@ Kitto 也会检查已登记工作区是否对当前账号可写。只读工作�
    ```
 
 如果 tag 已推送、npm 发布中断，回到同一个提交并用同一工具链重跑第二条。远端 tag 指向同一提交时可以继续发布。npm 上已有同版本时，脚本核对包的完整性摘要，吻合便视为已发布。
+
+发布后的校验会轮询 registry（最多 24 次、每次 15 秒，约 6 分钟），因为 npm 确认 publish 之后还需要一段时间才对外提供该版本；只读一次会把成功的发布误报成 `Cannot verify`。拿到与本地 tarball 相同的 `dist.integrity` 即通过，读到不同的摘要则立刻失败。
 
 需要让某台机器复现这一版时，可以把程序和配置都固定到该版本：
 

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# One public setup entry: delegate to the Kitto JS setup command.
-# sync.sh is an internal Pi adapter and is never called from here.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,8 +32,6 @@ HELP
     esac
 done
 
-# --force keeps its historical non-interactive meaning. Scan first so a trailing
-# --force also suppresses a preceding --interactive. Warn exactly once.
 force_seen=0
 for arg in "$@"; do
     case "$arg" in
@@ -47,7 +43,6 @@ if [ "$force_seen" = 1 ]; then
         $'\033[0;33m' $'\033[0m' >&2
 fi
 
-# Keep every argument except the deprecated flag; --force disables the wizard.
 args=()
 for arg in "$@"; do
     case "$arg" in
@@ -57,7 +52,6 @@ for arg in "$@"; do
     esac
 done
 
-# Install the wizard UI only for an actual interactive terminal run.
 wizard=0
 if [ "$force_seen" = 0 ]; then
     if [ "${#args[@]}" -eq 0 ]; then
@@ -71,11 +65,8 @@ if [ "$wizard" = 1 ] && [ -t 0 ] && [ -t 1 ] && [ ! -d "$SCRIPT_DIR/node_modules
     npm install --prefix "$SCRIPT_DIR" --ignore-scripts --no-audit --no-fund
 fi
 
-# Bash 3.2 (macOS) rejects expanding an empty array under `set -u`.
 if [ "${#args[@]}" -eq 0 ]; then
     if [ "$force_seen" = 1 ]; then
-        # bin/kitto.mjs starts the wizard when stdin and stdout are TTYs. Detach
-        # stdin so the deprecated --force stays non-interactive in a terminal.
         exec node "$SCRIPT_DIR/bin/kitto.mjs" setup </dev/null
     fi
     exec node "$SCRIPT_DIR/bin/kitto.mjs" setup

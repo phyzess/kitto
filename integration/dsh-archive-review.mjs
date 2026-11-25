@@ -10,8 +10,6 @@ const messages = {
 export function registerArchiveReview(ctx, enabled) {
   if (enabled !== true) return;
   ctx.inject(['profileContext', 'tools', 'workspaceRegistry', 'sessionPersistence'], (host) => {
-    // DSH_PROFILE and DSH_INSTALL_DIR are projected into tool shell calls;
-    // plugin activation must use the launcher's actual profile service instead.
     const { name, installAnchor } = host.profileContext;
     if (name !== 'web' || typeof installAnchor !== 'string' || !isAbsolute(installAnchor)) return;
     const require = createRequire(installAnchor);
@@ -36,8 +34,6 @@ export function registerArchiveReview(ctx, enabled) {
       async execute(args, exec) {
         if (exec.signal.aborted) return 'unavailable';
         try {
-          // The durable archive set is the source of truth after reload and unarchive.
-          // Do not cache notifications or append to a conversation from a host event.
           const prior = host.workspaceRegistry.archivedSessionIds;
           if (!Array.isArray(prior)) return 'unavailable';
           const headers = (await host.sessionPersistence.list())

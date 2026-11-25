@@ -276,20 +276,14 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
         out.write_text('# Shared\n')
         self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
-        # Deleting the trailing shared section (including its leading blank
-        # line) must not turn old shared rules into an addendum.
         truncated = self.base / 'common-truncated.md'
         truncated.write_text('# Shared\n')
         out.write_text(helper.compose_agents('# Shared\n\n## Tail\n\n- two\n', '## Host\n\n- host\n'))
         self.assertEqual(helper.cmd_extract_agents([str(out), str(truncated), str(extracted)]), 1)
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
-        # A composition made before the boundary existed is refused, not split
-        # by prefix.
         out.write_text('# Shared\n\n- one\n\n## Host\n\n- two\n')
         self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
-        # A legacy source may copy a whole file, but never one that carries the
-        # shared-layer boundary.
         out.write_text('# Legacy\n')
         self.assertEqual(helper.cmd_legacy_agents([str(out), str(extracted)]), 0)
         self.assertEqual(extracted.read_text(), '# Legacy\n')

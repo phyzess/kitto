@@ -34,7 +34,7 @@ Invest effort in proportion to the bug's impact and uncertainty. Try alternative
 7. **Property / fuzz loop.** If the bug is "sometimes wrong output", run 1000 random inputs and look for the failure mode.
 8. **Bisection harness.** If the bug appeared between two known states (commit, dataset, version), automate "boot at state X, check, repeat" so you can `git bisect run` it.
 9. **Differential loop.** Run the same input through old-version vs new-version (or two configs) and diff outputs.
-10. **HITL bash script.** Last resort. If a human must click, drive _them_ with `scripts/hitl-loop.template.sh` so the loop is still structured. Captured output feeds back to you.
+10. **HITL Bash script.** Use only when reproduction requires a human action. Copy [the template](scripts/hitl-loop.template.sh) to a temporary file and replace the sample `step` and `capture` calls between the two helper definitions and the final `printf` block. Run the copy with `bash` in a terminal the user can interact with: they follow each `step` and press Enter, then answer each `capture` prompt. Keep the final `KEY=VALUE` output as the feedback signal; never ask the user to enter secrets.
 
 Build the right feedback loop, and the bug is 90% fixed.
 

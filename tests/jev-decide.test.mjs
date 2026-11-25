@@ -103,7 +103,6 @@ test('rejects double stdin immediately with the pipe still open', async t => {
   let stderr = '';
   child.stdout.on('data', chunk => { stdout += chunk; });
   child.stderr.on('data', chunk => { stderr += chunk; });
-  // Do not send data or EOF. The child must exit while the pipe is open.
   const [code, signal] = await once(child, 'close');
   assert.equal(signal, null);
   assert.equal(code, 2);

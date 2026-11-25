@@ -316,7 +316,6 @@ test('scoped setup refuses the app-managed DSH desktop profile and never writes 
   assert.notEqual(service.status, 0);
   assert.match(service.stderr, /cannot be configured for a system service/);
 
-  // Other hosts still get their scoped setup; only the app-managed profile is skipped.
   const mixed = runScope(env, 'setup', '--global', '--agents', 'pi,dsh', '--dsh-profile', 'desktop');
   assert.equal(mixed.status, 0, mixed.stderr);
   assert.match(mixed.stderr, /skipping the DSH desktop profile/);

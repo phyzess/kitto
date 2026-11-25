@@ -22,7 +22,6 @@ function fixture(t, { zstd = true } = {}) {
   const bin = join(home, 'bin');
   mkdirSync(bin);
   if (zstd) {
-    // A deterministic decompressor stand-in: fixtures contain simulated stdout.
     writeFileSync(join(bin, 'zstd'), `#!/bin/sh
 exec '${process.execPath.replaceAll("'", "'\\''")}' "$0.cjs" "$@"
 `, { mode: 0o755 });

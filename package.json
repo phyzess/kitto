@@ -1,6 +1,6 @@
 {
   "name": "@phyzess/kitto",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Portable personal configuration for Pi, Codex and DeepSeek Harness",
   "type": "module",
   "bin": { "kitto": "bin/kitto.mjs" },
@@ -9,7 +9,9 @@
   "repository": { "type": "git", "url": "git+https://github.com/phyzess/kitto.git" },
   "files": ["bin/*.mjs", "lib/*.mjs", "lib/*.py", "integration/", "sync.sh", "CHANGELOG.md"],
   "dependencies": { "@clack/prompts": "1.9.0" },
+  "devDependencies": { "@ast-grep/cli": "0.43.0", "yaml": "2.9.1" },
   "scripts": {
+    "lint:comments": "node scripts/check-comments.mjs",
     "test": "node --test tests/kitto.test.mjs tests/worktree-*.test.mjs tests/codegraph.test.mjs tests/parity.test.mjs tests/codex-mcp.test.mjs tests/mcp-sync.test.mjs tests/scope*.test.mjs tests/setup-wizard.test.mjs",
     "prepublishOnly": "npm test && python3 -m unittest discover -s tests -v",
     "release": "node scripts/release.mjs"

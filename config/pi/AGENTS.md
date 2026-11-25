@@ -2,6 +2,8 @@
 
 Pi 的 `i-have-adhd` 扩展默认常开（`$PI_CODING_AGENT_DIR/.i-have-adhd-always`，配置目录默认 `~/.pi/agent`）；扩展不可用时按共享规则的会话开始说明手动加载。
 
+光标不可见、要关闭细光标或调整 OpenRouter 目录时，见 [Pi 内置扩展的配置、限制与关闭方式](https://github.com/phyzess/kitto/blob/main/docs/pi.md#pi-extensions)。
+
 ### Pi 能力适配
 
 配置在 `$PI_CODING_AGENT_DIR/mcp.json`（默认 `~/.pi/agent/mcp.json`）；涉及 wiki/Confluence/Jira/GitLab 时先检查 `/mcp` 的实际连接状态，再决定是否使用，不要仅按配置文件推断可用。

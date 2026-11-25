@@ -1,11 +1,11 @@
-// Stateful native-manager fixture; never contacts a network or runs a model.
 const fs = require('node:fs');
 const path = require('node:path');
 const name = path.basename(process.argv[1]), args = process.argv.slice(2);
-const versions = { pi: '1.5.2', codex: '0.170.0', dsh: '0.2.2-rc.3', pnpm: '12.21.0', codegraph: '1.6.4' };
+const versions = { pi: '1.5.2', codex: '0.170.0', dsh: '0.2.2-rc.3', pnpm: '12.21.0', codegraph: '1.6.4',
+  ...JSON.parse(process.env.FAKE_HOST_VERSIONS || '{}') };
 fs.appendFileSync(process.env.CALL_LOG, JSON.stringify({ command: name, args }) + '\n');
 if (args.includes('--version')) { console.log(versions[name]); process.exit(); }
-if (args.includes('--help')) process.exit();
+if (args.includes('--help')) process.exit(process.env.FAKE_HOST_NO_HELP === name ? 1 : 0);
 if (process.env.FAIL_HOST === name && args.includes(process.env.FAIL_ACTION || 'add') &&
     (!process.env.FAIL_STAGE || args.includes(process.env.FAIL_STAGE))) process.exit(9);
 function load(file, fallback) { return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)) : fallback; }
@@ -22,8 +22,6 @@ if (name === 'pi') {
     save(file, data);
   }
 } else if (name === 'codex') {
-  // Read-only MCP probes run with a scratch CODEX_HOME; tests point this at the
-  // real fixture state instead of copying test-only files into production logic.
   const file = process.env.FAKE_CODEX_STATE || path.join(process.env.CODEX_HOME, '_fake-codex.json');
   const data = load(file, { marketplaces: [], installed: [] });
   data.marketplaces ||= [];
@@ -107,12 +105,10 @@ if (name === 'pi') {
   }
 } else if (name === 'dsh') {
   if (args[0] === 'plugin' && args[1] === '--profile' && args[2] === 'desktop' && args[3] === 'version-exemptions') {
-    // Kitto's Desktop probe runs against a scratch DSH_HOME and must never
-    // touch the app-managed profile. npm CLI rejects the reserved profile.
     const delay = Number(process.env.FAKE_DSH_PROBE_DELAY_MS || 0);
     if (delay) {
       const until = Date.now() + delay;
-      while (Date.now() < until) { /* Busy-wait so the parent timeout kills this child. */ }
+      while (Date.now() < until) {  }
     }
     if (process.env.FAKE_DSH_CLI === 'npm') {
       console.error('error: profile "desktop" is managed exclusively by the Electron application');

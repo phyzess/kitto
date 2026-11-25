@@ -1,8 +1,4 @@
 // @ts-nocheck
-/** Keep the native provider's methods and Pi's refresh schedule. Only an exact
- * Pi catalog entry supplies protocol metadata; /models/user is an entitlement
- * list with capabilities, prices and limits, not a source of Pi protocols.
- */
 
 const PROVIDER_ID = "openrouter";
 const DEFAULT_CATALOG_BASE = "https://pi.dev";
@@ -39,7 +35,6 @@ function hasModelIdentity(model) {
 function usableCatalogModel(model) {
   if (!hasModelIdentity(model) || typeof model.baseUrl !== "string" || !URL.canParse(model.baseUrl)) return false;
   const url = new URL(model.baseUrl);
-  // The catalog chooses a built-in protocol endpoint, not a recipient for the user's credentials.
   if (url.origin !== "https://openrouter.ai" || url.username || url.password || url.search || url.hash ||
     !["/api", "/api/v1"].includes(url.pathname)) return false;
   if (model.type === "image") return model.api === "openrouter-images";
@@ -54,7 +49,6 @@ function usableCatalogModel(model) {
   return true;
 }
 
-/** Exact precedence: merge by provider, model type and ID, later valid entries win. */
 function mergeCatalog(builtin, remote) {
   const merged = new Map(builtin.filter(hasModelIdentity).map((model) => [typeKey(model), model]));
   const valid = remote.filter(usableCatalogModel);
@@ -136,7 +130,6 @@ async function fetchJson(url, init, signal, timeoutMs) {
   return response;
 }
 
-/** `/models/user` — the key's usable list. `null` means "do not filter" (as pi does). */
 async function fetchUserModels(baseUrl, key, signal) {
   const response = await fetchJson(
     `${baseUrl.replace(/\/+$/, "")}/models/user`,
@@ -158,7 +151,6 @@ async function fetchUserModels(baseUrl, key, signal) {
   return allowed;
 }
 
-/** Bundled catalog merged with the pi.dev catalog, gated like pi gates it. */
 async function loadCatalog(signal, builtin, builtinGeneratedAt) {
   let remote = [];
   let lastModified;
@@ -198,8 +190,6 @@ export default async function (pi) {
     console.warn("[openrouter-live] disabled via OPENROUTER_LIVE_DISABLE=1");
     return;
   }
-  // `donor` is a legacy spelling. Neither mode guesses compatibility or adds
-  // aliases; both continue to refresh exact catalog entries.
   if (!SYNTH_MODES.has(SYNTH_MODE)) console.warn("[openrouter-live] unknown OPENROUTER_LIVE_SYNTH; using exact catalog entries only");
 
   let ai, openRouterCost;
@@ -231,7 +221,6 @@ export default async function (pi) {
     if (context.signal?.aborted) return;
     if (!context.allowNetwork) {
       if (Array.isArray(context.stored?.models)) {
-        // Old versions persisted inferred aliases; never revive those as exact metadata.
         const legacy = new Set((Array.isArray(context.stored.synthesized) ? context.stored.synthesized : []).map((entry) => entry?.id));
         const restored = context.stored.models.flatMap((model) => {
           if (!hasModelIdentity(model) || (isChat(model) && legacy.has(model.id))) return [];
