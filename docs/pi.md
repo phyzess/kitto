@@ -82,6 +82,13 @@ Pi 模型认证通常由 Pi 的 `auth.json` 管理；如果改用环境变量，
 
 只对某个项目启用的服务器，可参考 [项目 MCP 模板](../config/pi/mcp.per-project.example.json)，把需要的条目写到项目的 `.pi/mcp.json`。
 
+## 光标样式
+
+Kitto 不再替换 Pi 的编辑器。已有安装同步后，同名 `thin-cursor.ts` 会覆盖旧扩展；重启 Pi 生效。无需删除文件或重新安装。选区等反色样式由 Pi 原样渲染。
+
+- Kitto 仍默认设置 `showHardwareCursor: true`。如需竖条光标，在终端配置中选择竖条样式；硬件光标的外观由终端决定，Kitto 不强制改形状。
+- 如希望 Pi 绘制软件光标，在 `config/pi/local/settings.json` 中设 `"showHardwareCursor": false` 后同步。只有未设置此项时，Pi 才以 `PI_HARDWARE_CURSOR=1` 作为启用硬件光标的后备方式。
+
 ## sync.sh（内部适配器，兼容用）
 
 `sync.sh` 是 `lib/kitto.mjs` 中 `syncCommand` 调用的 **Pi 私有适配器**，不是公开入口。正常安装和同步请使用 `kitto setup`，或在 Kitto 会话里让维护 skill 执行 sync。直接运行 `bash sync.sh` 会打印 deprecated 警告，并在没有显式 opt-in 时跳过共享 skills：

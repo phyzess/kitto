@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, cpSync, rmSync, ex
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { codexMcpNames } from '../lib/parity.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const nativeBin = process.env.KITTO_NATIVE_BIN;
@@ -186,4 +187,21 @@ test('native hosts load and remove reference-only MCP credentials', { skip: !nat
   const dumpAfter = run('dsh', ['web', '--dump-config']);
   assert.doesNotMatch(dumpAfter, /kitto-mcp-|credential:KITTO_TEST_TOKEN/);
   assert.doesNotMatch(readFileSync(join(env.DSH_HOME, 'cordis.patch.yml'), 'utf8'), /kitto-mcp-/);
+});
+
+test('native Codex lists enabled TOML declarations in an isolated parity probe', { skip: !nativeBin }, async t => {
+  const home = mkdtempSync(join(tmpdir(), 'kitto-native-codex-parity-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const config = join(home, 'config.toml');
+  const text = `[mcp_servers.alpha] # bare table
+command = "fixture-must-not-run"
+[mcp_servers."dot.name"] # quoted table
+command = "fixture-must-not-run"
+[mcp_servers.muted]
+command = "fixture-must-not-run"
+enabled = false
+`;
+  writeFileSync(config, text);
+  assert.deepEqual(await codexMcpNames(home, { codex: resolve(nativeBin, 'codex') }), ['alpha', 'dot.name']);
+  assert.equal(readFileSync(config, 'utf8'), text);
 });

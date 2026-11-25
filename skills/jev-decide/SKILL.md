@@ -29,6 +29,8 @@ node ~/.agents/skills/jev-decide/scripts/jev.mjs --state "只改 docs/README.md�
   --questions '{"env":{"type":"noul","instructions":"这次失败更像环境问题而不是改动引起的吗？"}}'
 ```
 
+`--state` 和 `--questions` 都接受内联值、`@文件` 或 `@-`。只给其中一项用 `@-`（stdin），另一项用内联值或 `@文件`；两项都用 `@-` 会立即以状态码 `2` 退出。
+
 问句示例（一个请求里可以问多个，JEV 并行评估）：
 
 ```json
@@ -71,5 +73,5 @@ node ~/.agents/skills/jev-decide/scripts/jev.mjs --state "只改 docs/README.md�
 - 端点用 Go 渠道：`https://opencode.ai/inference/go/systemone/v1/systemone`，`jev-1.14`、`gpt-6-luna-decision`、`gemini-decision-1` 都从这里走，计入 Go 订阅额度（返回里 `billing_source: "go"`）。
 - 同一模型走 `https://opencode.ai/inference/systemone/v1/systemone` 则是 Console 按量计费，余额为零时返回 402。用错端点会误以为「Go 不覆盖 System One」。
 - `jev-1.13-free` 免费，但数据条款不承诺零留存，只用来做无敏感信息的判定。
-- 凭据：`$OPENCODE_API_KEY` 或 `$OPENCODE_GO_API_KEY`，DSH 上回退读 `$DSH_HOME/.credentials.yaml` 的 `refs` 块。
+- 凭据优先级：环境变量 `OPENCODE_API_KEY` → 环境变量 `OPENCODE_GO_API_KEY` → DSH v1 `refs.OPENCODE_API_KEY` → `refs.OPENCODE_GO_API_KEY`。DSH 回退使用 `DSH_INSTALL_DIR` 指向的宿主自带解析器，读取 `$DSH_HOME/.credentials.yaml`（未设 `DSH_HOME` 时用 `~/.dsh/.credentials.yaml`）；文件须为不超过 1 MiB 的普通文件，POSIX 上须由当前用户独占权限（例如 `0600`）。找不到宿主或安全的存储时，显式设置环境变量。
 - 请求必须带产品 User-Agent，否则被网关以 Cloudflare 1010 拒绝；脚本已固定该 header。

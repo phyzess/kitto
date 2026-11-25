@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-import readline from 'node:readline';
+import { join, resolve } from 'node:path';
 
 const MODELS = {
   'openai-codex/gpt-6.2-sol': { at: 272_000, base: [2, 0.1, 10], long: [4, 0.2, 15] },
@@ -21,7 +20,9 @@ const USAGE = `Usage: dsh-usage.mjs [--home DIR] [--project PREFIX] [--days N] [
   --json          print the aggregate as JSON instead of tables
   --price ...     override or add a price in USD per 1M tokens:
                   fresh input, cached input, output [+ long-context trio] [@threshold].
-                  Example: --price openai-codex/gpt-6.2-sol=2,0.1,10@272000`;
+                  Example: --price openai-codex/gpt-6.2-sol=2,0.1,10@272000
+
+Exit codes: 0 complete, 1 partial (recoverable usage reported), 2 fatal.`;
 
 function fail(message) {
   console.error(`dsh-usage: ${message}`);
@@ -68,59 +69,116 @@ async function listSessionFiles(sessionsRoot) {
   const files = [];
   let projects;
   try { projects = await readdir(sessionsRoot, { withFileTypes: true }); }
-  catch { return files; }
+  catch (error) {
+    if (error.code === 'ENOENT') return files;
+    throw error;
+  }
   for (const project of projects) {
     if (!project.isDirectory()) continue;
     const projectDir = join(sessionsRoot, project.name);
-    let sessions;
-    try { sessions = await readdir(projectDir, { withFileTypes: true }); } catch { continue; }
+    const sessions = await readdir(projectDir, { withFileTypes: true });
     for (const session of sessions) {
       if (!session.isDirectory()) continue;
       const file = join(projectDir, session.name, 'session.v4.jsonl.zstd');
-      files.push({ project: project.name, id: session.name, file });
+      try {
+        if ((await stat(file)).isFile()) files.push({ id: session.name, file });
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
     }
   }
   return files;
 }
 
-function readSession(file) {
-  return new Promise((resolve) => {
-    const session = { usage: [], meta: null, title: null, label: null };
-    const child = spawn('zstd', ['-dc', file], { stdio: ['ignore', 'pipe', 'ignore'] });
-    let spawnFailed = false;
-    child.on('error', () => { spawnFailed = true; resolve(null); });
-    const lines = readline.createInterface({ input: child.stdout });
-    lines.on('line', (line) => {
-      if (line.length < 40 || line[0] !== '{') return;
-      try {
-        if (line.includes('"assistant/message"')) {
-          const record = JSON.parse(line);
-          const usage = record?.data?.usage;
-          if (!usage) return;
-          const source = record?.data?.message?.source || {};
-          session.usage.push({
-            time: record.time,
-            provider: source.provider ?? 'unknown',
-            model: source.model ?? 'unknown',
-            input: usage.inputTokens || 0,
-            cacheRead: usage.cacheReadTokens || 0,
-            output: usage.outputTokens || 0,
-          });
-        } else if (line.startsWith('{"type":"session"')) {
-          const record = JSON.parse(line);
-          session.meta = {
-            cwd: record.cwd, parent: record.parentSession,
-            depth: record.delegationDepth ?? 0, created: record.createdAt,
-          };
-        } else if (line.includes('"session/title"')) {
-          session.title = JSON.parse(line).data?.title;
-        } else if (line.includes('"subagent/descriptor"')) {
-          session.label = JSON.parse(line).data?.label;
-        }
-      } catch {  }
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+const isTimestamp = (value) => Number.isFinite(value) && Number.isFinite(new Date(value).getTime());
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isString = (value) => typeof value === 'string';
+const isTokenCount = (value) => Number.isFinite(value) && value >= 0;
+const isDepth = (value) => Number.isSafeInteger(value) && value >= 0;
+const isOptional = (value, validate) => value === undefined || validate(value);
+
+function countBadRecord(session, terminated) {
+  if (terminated) session.malformedLines += 1;
+  else session.truncatedTails += 1;
+}
+
+function collectRecord(session, bytes, terminated) {
+  let record;
+  try {
+    const line = utf8.decode(bytes);
+    if (/^[\t\r ]*$/.test(line)) return;
+    record = JSON.parse(line);
+  } catch {
+    countBadRecord(session, terminated);
+    return;
+  }
+  if (record?.type === 'assistant/message') {
+    const usage = record.data?.usage;
+    if (usage == null) return;
+    if (!isObject(usage) || !isTimestamp(record.time)) {
+      countBadRecord(session, terminated);
+      return;
+    }
+    const { inputTokens: input = 0, cacheReadTokens: cacheRead = 0, outputTokens: output = 0 } = usage;
+    if (![input, cacheRead, output].every(isTokenCount)) {
+      countBadRecord(session, terminated);
+      return;
+    }
+    const { provider, model } = record.data?.message?.source ?? {};
+    if (!isOptional(provider, isString) || !isOptional(model, isString)) countBadRecord(session, terminated);
+    session.usage.push({
+      time: record.time,
+      provider: isString(provider) ? provider : 'unknown',
+      model: isString(model) ? model : 'unknown',
+      input, cacheRead, output,
     });
-    lines.on('close', () => resolve(spawnFailed ? null : session));
-  });
+  } else if (record?.type === 'session') {
+    const { cwd, parentSession: parent, delegationDepth: depth, createdAt: created } = record;
+    if (!isOptional(cwd, isString) || !isOptional(parent, isString) ||
+        !isOptional(depth, isDepth) || !isOptional(created, isTimestamp)) countBadRecord(session, terminated);
+    session.meta = {
+      cwd: isString(cwd) ? cwd : undefined,
+      parent: isString(parent) ? parent : undefined,
+      depth: isDepth(depth) ? depth : 0,
+      created: isTimestamp(created) ? created : undefined,
+    };
+  } else if (record?.type === 'session/title') {
+    if (isObject(record.data) && isString(record.data.title)) session.title = record.data.title;
+    else countBadRecord(session, terminated);
+  } else if (record?.type === 'subagent/descriptor') {
+    if (isObject(record.data) && isOptional(record.data.label, isString)) session.label = record.data.label;
+    else countBadRecord(session, terminated);
+  }
+}
+
+async function readSession(file) {
+  const session = { usage: [], meta: null, title: null, label: null, malformedLines: 0, truncatedTails: 0 };
+  const child = spawn('zstd', ['-dc', file], { stdio: ['ignore', 'pipe', 'ignore'] });
+  let spawnError;
+  child.once('error', error => { spawnError = error; });
+  const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+
+  const pending = [];
+  let streamFailed = false;
+  try {
+    for await (const chunk of child.stdout) {
+      let start = 0;
+      for (let end = chunk.indexOf(0x0a); end !== -1; end = chunk.indexOf(0x0a, start)) {
+        const line = chunk.subarray(start, end);
+        collectRecord(session, pending.length ? Buffer.concat([...pending, line]) : line, true);
+        pending.length = 0;
+        start = end + 1;
+      }
+      if (start < chunk.length) pending.push(chunk.subarray(start));
+    }
+  } catch { streamFailed = true; }
+  if (pending.length) collectRecord(session, Buffer.concat(pending), false);
+
+  const { code, signal } = await closed;
+  session.missingDecompressor = spawnError?.code === 'ENOENT';
+  session.decompressionFailed = Boolean(spawnError || streamFailed || code !== 0 || signal);
+  return session;
 }
 
 const human = (n) => {
@@ -163,19 +221,26 @@ async function mapLimit(items, limit, fn) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const home = opts.home || process.env.DSH_HOME || join(homedir(), '.dsh');
-  const sessionsRoot = join(home, 'sessions');
+  const sessionsRoot = resolve(home, 'sessions');
 
-  const files = await listSessionFiles(sessionsRoot);
-  if (!files.length) {
-    console.log(`dsh-usage: no DSH sessions under ${sessionsRoot}`);
-    return;
-  }
+  let files;
+  try { files = await listSessionFiles(sessionsRoot); }
+  catch { fail('could not enumerate DSH session files'); }
 
   const threshold = opts.days ? Date.now() - opts.days * 86_400_000 : 0;
   const scanned = await mapLimit(files, 4, item => readSession(item.file));
-  if (scanned.every(session => session === null)) {
-    fail('could not decompress sessions; install zstd (checked PATH for the `zstd` binary)');
+  if (scanned.some(session => session.missingDecompressor)) {
+    fail('could not decompress sessions; install zstd (the `zstd` executable was not found on PATH)');
   }
+  const diagnostics = { malformedLines: 0, truncatedTails: 0, decompressionFailures: 0, affectedFiles: 0 };
+  for (const session of scanned) {
+    diagnostics.malformedLines += session.malformedLines;
+    diagnostics.truncatedTails += session.truncatedTails;
+    if (session.decompressionFailed) diagnostics.decompressionFailures += 1;
+    if (session.malformedLines || session.truncatedTails || session.decompressionFailed) diagnostics.affectedFiles += 1;
+  }
+  const status = diagnostics.affectedFiles ? 'partial' : 'complete';
+  if (status === 'partial') process.exitCode = 1;
 
   const sessions = [];
   const models = new Map();
@@ -187,7 +252,7 @@ async function main() {
   let overThreshold = 0, tokensInOverThreshold = 0, tokensInAll = 0;
 
   scanned.forEach((session, index) => {
-    if (!session || !session.usage.length) return;
+    if (!session.usage.length) return;
     const cwd = session.meta?.cwd ?? '';
     if (opts.project && !cwd.startsWith(opts.project)) return;
     const usage = session.usage.filter(u => u.time >= threshold);
@@ -242,11 +307,6 @@ async function main() {
     sessions.push(row);
   });
 
-  if (!sessions.length) {
-    console.log(`dsh-usage: no usage records under ${sessionsRoot} match this filter`);
-    return;
-  }
-
   for (const row of sessions) {
     const key = row.cwd || '(unknown)';
     const projectRow = projects.get(key) || { sessions: 0, requests: 0, cacheRead: 0, input: 0, output: 0, cost: 0 };
@@ -264,8 +324,10 @@ async function main() {
   const childTokens = childSessions.reduce((a, r) => a + r.input + r.cacheRead, 0);
   const totalTokens = totalInput + totalCache;
   const summary = {
+    status,
+    diagnostics,
     home,
-    window: { days: opts.days ?? null, from: sessions.flatMap(row => row.created).reduce((a, b) => Math.min(a, b), Infinity) },
+    window: { days: opts.days ?? null, from: sessions.length ? sessions.reduce((a, row) => Math.min(a, row.created), Infinity) : null },
     sessions: sessions.length,
     requests: totalRequests,
     inputTokens: totalInput,
@@ -303,9 +365,12 @@ async function main() {
     return;
   }
 
-  const from = opts.days ? day(threshold) : day(summary.window.from);
-  console.log(`DSH usage · ${home}`);
-  console.log(` ${from} → ${day(Date.now())} · ${summary.sessions} sessions · ${summary.requests.toLocaleString('en-US')} requests`);
+  console.log(`${status.toUpperCase()} · DSH usage · ${home}`);
+  console.log(` ${diagnostics.malformedLines} malformed lines · ${diagnostics.truncatedTails} truncated tails · ${diagnostics.decompressionFailures} decompression failures · ${diagnostics.affectedFiles} affected files`);
+  const start = opts.days ? threshold : summary.window.from;
+  const window = start === null ? '' : `${day(start)} → ${day(Date.now())} · `;
+  console.log(` ${window}${summary.sessions} sessions · ${summary.requests.toLocaleString('en-US')} requests`);
+  if (!summary.sessions) return;
   console.log(` fresh input ${human(totalInput)} · cache read ${human(totalCache)} · output ${human(totalOutput)}`);
   console.log(` cache hit ${percent(totalCache, totalCache + totalInput)} · output:input 1:${totalOutput ? Math.round((totalCache + totalInput) / totalOutput) : '-'} · ${usd(totalCost)} at list price`);
 

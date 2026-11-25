@@ -2,7 +2,7 @@ import { watch } from 'node:fs';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, sep } from 'node:path';
 import { resolveScopes, scopeHome } from '../../lib/scopes.mjs';
-import { importFromDsh } from './native.mjs';
+import { importFromRunningDsh } from './native.mjs';
 
 export const name = 'phyzess-kitto-scopes';
 export const inject = ['skills', 'workingDirectory', 'systemPrompt', 'profileContext'];
@@ -107,9 +107,9 @@ function nativeInstructionConfig(rows) {
 
 export async function apply(ctx) {
   const [{ FileSystemSkillProvider }, { discoverBaselineInstructionFiles }, { readProfilePatches, composeEntries }] = await Promise.all([
-    importFromDsh(process.argv[1], '@deepseek-ai/dsh-skill-filesystem'),
-    importFromDsh(process.argv[1], '@deepseek-ai/dsh-agent-instructions'),
-    importFromDsh(process.argv[1], '@deepseek-ai/dsh-app-boot'),
+    importFromRunningDsh('@deepseek-ai/dsh-skill-filesystem'),
+    importFromRunningDsh('@deepseek-ai/dsh-agent-instructions'),
+    importFromRunningDsh('@deepseek-ai/dsh-app-boot'),
   ]);
   const rows = composeEntries([readProfilePatches('dsh', ctx.profileContext)]);
   const nativeConfigByPreset = new Map([[undefined, nativeInstructionConfig(rows)]]);
