@@ -1,29 +1,4 @@
 #!/usr/bin/env bash
-# ============================================================
-# sync.sh — Kitto 内部的 Pi 适配器（仓库 <-> 本机）
-#
-# 这是 `lib/kitto.mjs` 的 syncCommand 调用的内部实现，不是公开入口。
-# 直接 `bash sync.sh` 会打印 deprecated 警告；请用 `kitto setup`，
-# 或在 Kitto 会话里让维护 skill 执行 sync。
-#
-# 兼容保留的命令（settings/mcp/AGENTS.md/extensions/packages 仍可用）：
-#   bash sync.sh status           看仓库与本机差异（只读）
-#   bash sync.sh pull             仓库 -> 本机（内容不同才覆盖；settings/mcp 走结构化合并）
-#   bash sync.sh push             本机 -> 仓库（脱敏导出，运行时键与私钥不落盘；
-#                                 AGENTS.md 只导出 Pi 专属段，共享规则不回写）
-#   bash sync.sh push --commit    导出并提交
-#   bash sync.sh deps             按平台装 CLI 依赖（brew / mise / npm / pip）
-#
-# 共享 skills（~/.agents/skills）由 Kitto JS 管理（hash 所有权 + 锁）。
-# 直接运行 sync.sh 默认跳过；确需旧行为时显式设置：
-#   KITTO_ALLOW_LEGACY_SKILL_SYNC=1 bash sync.sh pull
-#
-# 机器专属配置放 config/pi/local/（gitignore），不会回流到仓库：
-#   packages.txt       本机额外 pi 包
-#   packages.skip.txt  不装的包（如与已有扩展工具名冲突）
-#   settings.json      覆盖仓库 settings 的键
-#   mcp.json           本机额外 / 覆盖的 MCP 服务器
-# ============================================================
 set -euo pipefail
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,13 +34,35 @@ for arg in "$@"; do
     case "$arg" in
         --dry-run|-n) DRY=1 ;;
         --commit)     COMMIT=1 ;;
-        --force|-f)   ;;            # 兼容 setup.sh 旧参数：pull 本就按内容覆盖
-        -h|--help)    sed -n '2,25p' "$0"; exit 0 ;;
+        --force|-f)   ;;
+        -h|--help)    printf '%s\n' '# ============================================================
+# sync.sh — Kitto 内部的 Pi 适配器（仓库 <-> 本机）
+#
+# 这是 `lib/kitto.mjs` 的 syncCommand 调用的内部实现，不是公开入口。
+# 直接 `bash sync.sh` 会打印 deprecated 警告；请用 `kitto setup`，
+# 或在 Kitto 会话里让维护 skill 执行 sync。
+#
+# 兼容保留的命令（settings/mcp/AGENTS.md/extensions/packages 仍可用）：
+#   bash sync.sh status           看仓库与本机差异（只读）
+#   bash sync.sh pull             仓库 -> 本机（内容不同才覆盖；settings/mcp 走结构化合并）
+#   bash sync.sh push             本机 -> 仓库（脱敏导出，运行时键与私钥不落盘；
+#                                 AGENTS.md 只导出 Pi 专属段，共享规则不回写）
+#   bash sync.sh push --commit    导出并提交
+#   bash sync.sh deps             按平台装 CLI 依赖（brew / mise / npm / pip）
+#
+# 共享 skills（~/.agents/skills）由 Kitto JS 管理（hash 所有权 + 锁）。
+# 直接运行 sync.sh 默认跳过；确需旧行为时显式设置：
+#   KITTO_ALLOW_LEGACY_SKILL_SYNC=1 bash sync.sh pull
+#
+# 机器专属配置放 config/pi/local/（gitignore），不会回流到仓库：
+#   packages.txt       本机额外 pi 包
+#   packages.skip.txt  不装的包（如与已有扩展工具名冲突）
+#   settings.json      覆盖仓库 settings 的键
+#   mcp.json           本机额外 / 覆盖的 MCP 服务器'; exit 0 ;;
         *)            fail "unknown option: $arg"; exit 2 ;;
     esac
 done
 
-# Kitto JS sets KITTO_SHARED_SKILLS_MANAGED=1 for its own syncCommand calls.
 if [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" != 1 ]; then
     deprecated "deprecated direct entry; use kitto setup/sync (or the Kitto maintenance skill) instead."
     if [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
@@ -80,15 +77,11 @@ cleanup() {
     [ -z "$LOCK" ] || rm -rf "$LOCK"
 }
 trap cleanup EXIT
-# bash does not run the EXIT trap on SIGTERM/SIGKILL, and a killed sync would
-# leave the write lock behind for the next run to trip over.
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 if [ "$DRY" = 0 ] && [[ "$CMD" =~ ^(pull|push|deps)$ ]]; then
     mkdir -p "$LOCAL"
     if ! mkdir "$LOCAL/.sync-lock" 2>/dev/null; then
-        # Report whether the recorded holder can still be running instead of
-        # asking the operator to inspect the directory by hand.
         holder=""
         if [ -f "$LOCAL/.sync-lock/pid" ]; then
             holder="$(cat "$LOCAL/.sync-lock/pid" 2>/dev/null)"
@@ -111,7 +104,7 @@ run() {
 }
 
 
-json_same() { # <a> <b> -> 0 when both decode to the same JSON value
+json_same() {
     python3 - "$1" "$2" <<'PY'
 import json, sys
 def load(p):
@@ -124,7 +117,7 @@ sys.exit(0 if load(sys.argv[1]) == load(sys.argv[2]) else 1)
 PY
 }
 
-show_json_diff() { # <ref> <new> <label>
+show_json_diff() {
     if json_same "$1" "$2"; then
         same "$3（内容一致，仅格式差异）"
     else
@@ -132,9 +125,8 @@ show_json_diff() { # <ref> <new> <label>
     fi
 }
 
-# ---------------------------------------------------------------- deploys
 
-deploy_file() { # <src> <dst> <label>
+deploy_file() {
     local src="$1" dst="$2" label="${3:-$2}"
     if [ -f "$dst" ] && cmp -s "$src" "$dst"; then same "$label"; return 0; fi
     if [ -f "$dst" ]; then info "update $label"; else info "create $label"; fi
@@ -142,7 +134,7 @@ deploy_file() { # <src> <dst> <label>
     run cp -f "$src" "$dst"
 }
 
-pi_agents_source() { # <out> -> path to deploy; compose common + Pi addendum
+pi_agents_source() {
     local out="$1"
     python3 "$PY" compose-agents "$COMMON_AGENTS" "$PI_AGENTS" "$out" || return 1
     printf '%s\n' "$out"
@@ -153,18 +145,13 @@ deploy_pi_agents() {
     if [ -f "$COMMON_AGENTS" ]; then
         src="$(pi_agents_source "$TMP/AGENTS.md")" || { fail "组合 $COMMON_AGENTS 与 $PI_AGENTS 失败"; return 1; }
     else
-        # Older configuration checkouts predate the shared layer: keep the
-        # historical whole-file behavior instead of breaking deployment.
         src="$PI_AGENTS"
     fi
     deploy_file "$src" "$DOT_PI/AGENTS.md" "~/.pi/agent/AGENTS.md"
 }
 
-prepare_pi_agents_export() { # validate and stage the addendum before any repo write
+prepare_pi_agents_export() {
     if [ ! -f "$COMMON_AGENTS" ]; then
-        # Older configuration checkouts predate the shared layer: keep the
-        # historical whole-file export, but never copy a shared-layer
-        # composition (with its boundary) back into a legacy addendum.
         python3 "$PY" legacy-agents "$DOT_PI/AGENTS.md" "$TMP/AGENTS.md" \
             || { fail "配置源没有共享层，但本机 AGENTS.md 已含共享段；拒绝整文件导出"; return 1; }
         return 0
@@ -178,7 +165,7 @@ deploy_pi_agents_export() {
     deploy_file "$TMP/AGENTS.md" "$PI_AGENTS" "config/pi/AGENTS.md"
 }
 
-deploy_dir() { # <src dir> <dst dir> <label>
+deploy_dir() {
     local src="$1" dst="$2" label="${3:-$2}"
     if [ -L "$dst" ]; then
         warn "$label 是指向别处的软链，保持不动"
@@ -191,14 +178,13 @@ deploy_dir() { # <src dir> <dst dir> <label>
     run cp -R "$src" "$dst"
 }
 
-ext_skipped() { # <basename> -> 0 when this platform must not deploy it
+ext_skipped() {
     case "$PLATFORM:$1" in
-        linux:herdr-agent-state.ts) return 0 ;;  # herdr 自己管理的集成文件
+        linux:herdr-agent-state.ts) return 0 ;;
         *) return 1 ;;
     esac
 }
 
-# ---------------------------------------------------------------- steps
 
 step_packages() {
     info "pi 扩展包"
@@ -264,7 +250,6 @@ step_extensions() {
 }
 
 step_skills() {
-    # Kitto JS owns shared skills (hash ownership + lock); never deploy from an internal call.
     [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" = 1 ] && return 0
     if [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
         warn "shared skills（~/.agents/skills）由 Kitto JS 管理，直接 sync.sh 跳过部署"
@@ -309,7 +294,6 @@ step_env() {
     fi
 }
 
-# ---------------------------------------------------------------- commands
 
 cmd_pull() {
     printf '\n%s==> pull%s  仓库 %s -> 本机 %s (platform: %s)\n\n' "$CYAN" "$NC" "$ROOT" "$DOT_PI" "$PLATFORM"
@@ -400,7 +384,6 @@ cmd_status() {
     printf '\n%s==> status%s  platform: %s\n' "$CYAN" "$NC" "$PLATFORM"
     printf '    repo: %s\n    pi:   %s\n    env:  %s\n\n' "$ROOT" "$DOT_PI" "$HOME/.pi-agent-env"
     info "托管文件"
-    # settings / mcp 不是字节比较：它们是合并出来的，比较"pull 是否会改变内容"
     if [ ! -f "$DOT_PI/settings.json" ]; then
         printf '  %smissing%s  settings.json\n' "$YELLOW" "$NC"
     else

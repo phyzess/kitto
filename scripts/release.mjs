@@ -9,9 +9,6 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const registry = 'https://registry.npmjs.org/';
 const packageName = '@phyzess/kitto';
 const registryArgs = [`--registry=${registry}`, `--@phyzess:registry=${registry}`];
-// npm acknowledges a publish before the registry serves the new version, so a
-// single immediate read reports a healthy release as a failure. Poll instead,
-// with a ceiling long enough for the publish pipeline (about six minutes).
 const verifyAttempts = 24;
 const verifyDelayMs = 15_000;
 
@@ -19,7 +16,6 @@ function waitSync(ms) {
   if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** Poll npm until it serves `integrity`; returns the attempt that succeeded. */
 export function waitForPublish(spec, integrity, read, { attempts = verifyAttempts, delayMs = verifyDelayMs, sleep = waitSync } = {}) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const found = read();
@@ -150,7 +146,6 @@ function release(version, publish) {
     rmSync(temp, { recursive: true, force: true });
   }
 }
-// Importable for tests: the CLI body runs only when this file is the entry point.
 function invokedDirectly() {
   try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); }
   catch { return false; }

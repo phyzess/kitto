@@ -18,26 +18,63 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
       - uses: actions/setup-node@v6
         with:
           node-version-file: '.node-version'
+      - name: Check comment ratchet or report required bootstrap review
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          valid_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ && "$1" != 0000000000000000000000000000000000000000 ]]; }
+          valid_sha "$BASE_SHA"
+          valid_sha "$HEAD_SHA"
+          test "$(git --no-replace-objects rev-parse --verify HEAD)" = "$HEAD_SHA"
+          test "$(git --no-replace-objects cat-file -t "$BASE_SHA")" = commit
+          args=(--base "$BASE_SHA" --head "$HEAD_SHA")
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              valid_sha "$PR_HEAD_SHA"
+              test "$(git --no-replace-objects cat-file -t "$PR_HEAD_SHA")" = commit
+              test "$(git --no-replace-objects show --no-patch --format=%P "$HEAD_SHA")" = "$BASE_SHA $PR_HEAD_SHA"
+              args+=(--pr-head "$PR_HEAD_SHA")
+              ;;
+            push) [[ "$GITHUB_REF" == refs/heads/main && -z "$PR_HEAD_SHA" ]] || exit 1 ;;
+            *) exit 1 ;;
+          esac
+          if [[ "$BASE_SHA" == 5368e35ddee521a389e9c676b4edb3929937c8fc && "$GITHUB_REPOSITORY" == phyzess/kitto ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+              printf '%s\n' '::error::The rollout push has no trusted checker at its predecessor. Verify the independently approved candidate against the landed tree; this run does not fall back to the pushed checker.' >&2
+              exit 1
+            fi
+            [[ "$PR_NUMBER" == 50 && "$GITHUB_REF" == refs/pull/50/merge && "$GITHUB_BASE_REF" == main &&
+              "$PR_HEAD_REPOSITORY" == phyzess/kitto && "$GITHUB_HEAD_REF" == kitto/comment-ratchet ]] || exit 1
+            printf '%s\n' '::warning::No trusted comment ratchet ran for PR #50. Protected independent maintainer review of the exact candidate is required before merge.'
+            exit 0
+          fi
+          tool="$(mktemp -d "$RUNNER_TEMP/kitto-comments.XXXXXX")"
+          cleanup() { test -n "$tool" && rm -rf -- "$tool"; }
+          trap cleanup EXIT
+          git --no-replace-objects archive "$BASE_SHA" package.json package-lock.json scripts/check-comments.mjs scripts/comment-ratchet.mjs scripts/comment-ratchet | tar -x -C "$tool"
+          npm ci --ignore-scripts --prefix "$tool"
+          node "$tool/scripts/check-comments.mjs" "${args[@]}"
       - run: bash -n setup.sh && bash -n sync.sh
       - run: python -m unittest discover -s tests -v
       - run: npm ci --ignore-scripts
+      - run: node --test tests/comment-ratchet.test.mjs
       - run: npm test
       - name: Install validated native hosts
-        run: |
-          node --input-type=module <<'JS'
-          import { execFileSync } from 'node:child_process';
-          import { hosts, pnpmVersion } from './lib/kitto.mjs';
-          execFileSync('npm', ['install', '--prefix', process.env.RUNNER_TEMP + '/kitto-hosts', '--no-audit', '--no-fund', '--ignore-scripts', 'pnpm@' + pnpmVersion, ...Object.values(hosts).map(host => host.package + '@' + host.version)], { stdio: 'inherit' });
-          // pnpm 12 needs its own installer to replace the shell placeholder
-          // with a native executable on macOS; other package scripts stay off.
-          execFileSync('npm', ['rebuild', '--prefix', process.env.RUNNER_TEMP + '/kitto-hosts', 'pnpm'], { stdio: 'inherit' });
-          JS
+        run: node scripts/ci-install-native.mjs
       - name: Verify native lifecycle without model credentials
         env:
           KITTO_NATIVE_BIN: ${{ runner.temp }}/kitto-hosts/node_modules/.bin

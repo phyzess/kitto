@@ -2,7 +2,6 @@ import { readFile } from 'node:fs/promises';
 import { kittoHome } from '../lib/kitto.mjs';
 import { updateNotice } from '../lib/update-notice.mjs';
 
-// Non-blocking self-update notice; Pi remains responsible for its other packages.
 export default function kitto(pi) {
   pi.on('session_start', (_event, ctx) => {
     if (!ctx.hasUI || process.env.KITTO_UPDATE_CHECK === '0') return;

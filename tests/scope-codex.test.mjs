@@ -73,7 +73,6 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
   const outside = join(fixture, 'workspace-sibling');
   await run('git', ['clone', '-q', source, outside]);
 
-  // Keep the hook's registry resolution independent of the invoking shell.
   const nativeEnv = { ...env };
   delete nativeEnv.KITTO_HOME;
   const command = installed.hooks.SessionStart[0].hooks[0].command;
@@ -112,8 +111,6 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
     const provider = `model_providers.fixture={name="Fixture", base_url="${baseUrl}", wire_api="responses", supports_websockets=false, request_max_retries=0, stream_max_retries=0}`;
     const session = run('codex', [
       'exec', '--json', '--ephemeral',
-      // The fixture owns its entire hook configuration. Installed user hooks
-      // still follow Codex's normal review and trust flow.
       '--dangerously-bypass-hook-trust', '-c', provider, '-c', 'model_provider=fixture', 'Fixture prompt',
     ], { cwd, env: nativeEnv, timeout: 15000 });
     session.child.stdin.end();

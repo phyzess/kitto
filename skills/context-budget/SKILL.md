@@ -31,7 +31,7 @@ agent 账单的主导项是**被反复重读的上下文**，不是输出。实�
 
 判定：单个会话的请求量很大，但日志里只有 `compaction/prune`（工具结果剪枝）而没有摘要事件，就是没真正压缩过。或者直接看单请求 prompt 的 p90：超过 300K 基本就是压缩没在合适位置触发。
 
-DSH 的触发点 = `min(thresholdRatio × contextWindow, contextWindow − maxTokens − headroomTokens)`。改它走**模型路由**：把 `llm-pi-ai` 里模型的 `contextWindow` 降到有效预算（400K 窗口 + 128K 输出 → ~206K 触发），一行生效、随升级走。改 preset 的 `compaction-basic` 是另一条路，但 Web 不编辑 preset、按行 id 覆盖会整表替换，只剩整份冻结 `plugins` 一个选项，不推荐。参考值见 `config/dsh/compaction.reference.yml`。
+DSH 的触发点 = `min(thresholdRatio × contextWindow, contextWindow − maxTokens − headroomTokens)`。改它走**模型路由**：把 `llm-pi-ai` 里模型的 `contextWindow` 降到有效预算（400K 窗口 + 128K 输出 → ~206K 触发），一行生效、随升级走。改 preset 的 `compaction-basic` 是另一条路，但 Web 不编辑 preset、按行 id 覆盖会整表替换，只剩整份冻结 `plugins` 一个选项，不推荐。参考值见 Kitto 仓库的 [ADR 005：DSH 压缩预算](https://github.com/phyzess/kitto/blob/main/docs/adr/005-dsh-compaction-budget.md)。
 
 ## 审计
 

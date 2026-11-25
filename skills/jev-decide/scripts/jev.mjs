@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// Ask a System One decision model (JEV) a set of typed questions about a state.
-// Read-only: one HTTPS POST, prints the structured answer. No dependencies.
-//
-//   node jev.mjs --state ./state.md --questions ./q.json
-//   node jev.mjs --state "summary text" --questions '{"env":{"type":"noul","instructions":"..."}}'
-//   node jev.mjs --state @- --questions @-        # from stdin (state first)
-//
-// Key: $OPENCODE_API_KEY or $OPENCODE_GO_API_KEY, else the refs block of
-// $DSH_HOME/.credentials.yaml (DSH only). The default endpoint is the Go one,
-// which bills System One against the OpenCode Go subscription; override with
-// $JEV_ENDPOINT (the Console path is https://opencode.ai/inference/systemone/v1/systemone
-// and bills pay-as-you-go credits).
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -60,7 +48,6 @@ async function source(value) {
   return value;
 }
 
-// DSH seals nothing here: refs holds `<NAME>: <value>` under the `refs:` block.
 async function keyFromDshStore() {
   const home = process.env.DSH_HOME || join(homedir(), '.dsh');
   let text;
@@ -90,14 +77,12 @@ try { questions = JSON.parse(questionsText); }
 catch { fail(2, '--questions must be valid JSON'); }
 if (!questions || typeof questions !== 'object' || Array.isArray(questions)) fail(2, '--questions must be a JSON object keyed by question id');
 
-// The /go/ path bills the Go subscription; the bare /inference/ path bills Console credits.
 const endpoint = process.env.JEV_ENDPOINT || 'https://opencode.ai/inference/go/systemone/v1/systemone';
 const response = await fetch(endpoint, {
   method: 'POST',
   headers: {
     authorization: `Bearer ${await resolveKey()}`,
     'content-type': 'application/json',
-    // The gateway rejects requests without a product user agent (Cloudflare 1010).
     'user-agent': 'jev-decide/0.1 (+deepseek-harness)',
   },
   body: JSON.stringify({ model: opts.model, state, questions }),

@@ -123,7 +123,7 @@ test('terminal wizard accepts arrows, Space, blank optional text, and Enter to p
   output.rows = 36;
   const down = '\x1b[B';
   const steps = [
-    ['选择宿主', down + ' ' + '\r'], // Deselect Codex from the detected hosts.
+    ['选择宿主', down + ' ' + '\r'],
     ['选择配置来源', down + down + '\r'],
     ['工作区父目录', '\r'],
     ['下一步', '\r'],

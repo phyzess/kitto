@@ -176,9 +176,6 @@ async function scopeCommand(args) {
 
 try {
   const [command, ...args] = process.argv.slice(2);
-  // --break-lock is accepted by the commands that take the installation lock.
-  // It removes a lock only when the recorded owner is provably gone, so a live
-  // operation is never displaced.
   if (['setup', 'update'].includes(command) && args.includes('--break-lock')) {
     allowStaleLockBreak(true);
     args.splice(args.indexOf('--break-lock'), 1);

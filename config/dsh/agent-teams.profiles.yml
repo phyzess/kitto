@@ -1,17 +1,3 @@
-# DSH AgentTeams 编排模板（Kitto 参考文件，不会自动部署）
-#
-# 合并到 ~/.dsh/profiles/web/cordis.patch.yml，然后重启 web profile。
-# Kitto 只管理 AGENTS.md 与 skills；DSH 的 profile 配置由本机原生维护，
-# 这份文件是跨机器复用的源。
-#
-# 先确认 openai-codex 与 opencode-go 路由可用，再合并 agent-teams 条目。
-# 同 id 覆盖会替换整个 config，须保留 stateDir、memberProvider 等本机设置。
-# 重启 web profile 后，在新会话中运行 /agent-teams --profile dev-standard <目标>。
-#
-# batch 只按需派发；Grok 只给攻坚，不作为日常验证或 GPT 限流的兜底。
-# 模板只预设成员路由；强度由队长在审批前按任务设置。
-# 如审查回退到与实现同款的 GPT，标记为同模型复核，不算独立审查。
-# toolPolicies 是工具可见性，不是 OS 沙箱；bash 仍可在允许后写文件。
 - id: agent-teams
   config:
     stateDir: .agent-teams
