@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { registerArchiveReview } from './dsh-archive-review.mjs';
 import { registerRouteEvidence } from './dsh-route-evidence.mjs';
 import { registerDshRouting } from './dsh-routing.mjs';
+import { registerDshTaskRouting } from './dsh-task-routing.mjs';
 
 export const name = 'phyzess-kitto';
 export const inject = ['skills'];
@@ -21,6 +22,7 @@ export function apply(ctx, config) {
     get: async () => ({ ...candidate, content: (await readFile(path, 'utf8')).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '') }),
   }));
   registerArchiveReview(ctx, config?.archiveReview);
+  registerDshTaskRouting(ctx);
   if (config?.routeEvidence === true) registerRouteEvidence(ctx);
   if (config?.routeDispatch === true) registerDshRouting(ctx);
 }
