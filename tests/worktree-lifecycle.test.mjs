@@ -396,12 +396,20 @@ test('clean SHA-256 blobs are verified as raw bytes, including binary files', as
   assert.equal(f.git('rev-parse', `refs/heads/${created.branch}`), created.baseHead);
 });
 
-test('the DSH entry leaves disabled and Desktop compositions untouched', async () => {
+test('the DSH archive adapter stays disabled by default and does not mount on Desktop', async () => {
   const { apply } = await import('../integration/dsh.mjs');
-  const services = { skills: { registerProvider() {} }, inject: () => assert.fail('disabled archive adapter must not resolve services') };
-  apply(services);
-  apply(services, { archiveReview: false });
-  apply({ ...services, inject: (_services, enable) => enable({ profileContext: { name: 'desktop' } }) }, { archiveReview: true });
+  const routingServices = ['profileContext', 'tools'];
+  const archiveServices = ['profileContext', 'tools', 'workspaceRegistry', 'sessionPersistence'];
+  for (const config of [undefined, { archiveReview: false }, { archiveReview: true }]) {
+    const injections = [];
+    apply({ skills: { registerProvider() {} }, inject(deps, enable) {
+      injections.push(deps);
+      enable({ profileContext: { name: 'desktop' }, get tools() { assert.fail('Desktop must not register tools'); },
+        get workspaceRegistry() { assert.fail('Desktop must not access the archive registry'); },
+        get sessionPersistence() { assert.fail('Desktop must not access archive persistence'); } });
+    } }, config);
+    assert.deepEqual(injections, config?.archiveReview ? [archiveServices, routingServices] : [routingServices]);
+  }
 });
 
 test('installed DSH registry and actual adapter project durable archive and unarchive without mutating Kitto claims', async t => {
