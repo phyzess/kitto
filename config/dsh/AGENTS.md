@@ -7,8 +7,8 @@
 ### 编排执行面（AgentTeams）
 
 - 分级与门禁按共享规则「开发任务编排」；T0 不建队，T1/T2 用 AgentTeams。
-- 选路、故障换路或独立审查时，先按 [Kitto 本机路由预检](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md) 运行 `kitto route`。用本会话 `list_subagent_models` 逐个校验候选，启用原生观察器时用 `kitto_route_evidence` 导出。Go 元数据只在操作者明确授权后单独采集；未确认设备、账号、用途或额度时停派。只在明确启用的受控 `subagent` 执行面使用一次性许可与原生审批；Teams、fork、workflow 均不受保护。
-- 建队用 `agent_teams_create({ description: <目标>, approval: "required" })`。命名模板只是参考，审批前按预检结果核对每个成员的显式 `provider` + `model`。如果不能确认成员、profile 和全局 fallback 都无效（包括内联计划的继承），停止派发；不要靠切换入口绕过。
+- **先建草案**：项目门禁允许规划后，用 `agent_teams_create({ name: <队名>, description: <目标>, approval: "required" })` 暂存或继续同一份计划。候选路由、额度和回退尚未核实也可暂存；暂存不启动成员、不领取任务。未完成预检时标为「不可启动」，不要请求点 **Approve & Run**。
+- **再核验启动**：选路、换路或独立审查时，加载 `kitto` skill，用其绑定的 CLI 绝对入口运行 [本机路由预检](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md)，不要依赖 `PATH`。用本会话 `list_subagent_models` 核对精确路由；Go 元数据须经操作者授权。提交审批前逐一核对暂存成员的显式 `provider`、`model`、思考档、账号、数据用途、额度及各层有效 fallback（含内联继承）。核验缺失或结果为 `stop`，保留草案、不启动。Teams、fork、workflow 不受执行门禁保护；仅明确启用的受控 `subagent` 使用一次性许可与原生审批。
 - 思考强度按任务选，不从角色或模型名推断。用 `list_subagent_models` 查该路由支持的档位：机械操作、已知命令和证据收集用 `low`；一般实现或需要选测试用 `medium`（有则用）或 `default`；疑难归因、高风险审查用 `high`。最高档只在强度不足且错判代价高时升级。
 - 命名模板不固定强度。队长按任务分配，在审批前用 `agent_teams_edit_plan` 的 `update_member.reasoning_effort` 选档；内联计划或普通子 agent 可在派发时直接传。AgentTeams 中，想用模型默认档时显式传 `default`，避免同路由继承队长强度。若同一角色的任务确实需要不同档位，分派给对应档位的成员，不改正在执行的成员。
 - `batch` 成员只在有独立批量任务时派发，不占默认验证或审查角色。需要 GPT 时选 `openai-codex`，不自动切到 Go GPT。
@@ -19,7 +19,7 @@
 - 独立 worktree 的创建与交还按 `kitto-worktree` skill 的预览与确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 - 质量任务用 `kind=requirements/implementation/verification/review/integration`；implementation/repair 必须带 `verify`；review 必须 `verdict=pass` 才解锁下游。
 - 规划与审查成员用 `tool_policy: "read-only"`（可跑 bash 验证，禁止 edit/write）；实现与批量用默认工具集。
-- 默认 `approval: "required"`；用户说「直接跑/不用审」时才用 `automatic`。
+- 草案核验通过后，在后续明确批准或 Web 审批后方可启动；「直接跑/不用审」不替代路由核验。
 - 队长不写产品代码（合并冲突、集成提交除外），也不批准自己写的实现。
 
 ### 上下文与成本（执行面）

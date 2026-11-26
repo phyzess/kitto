@@ -29,6 +29,12 @@
 2. 复制导出的对象到输入的 `host.evidence`，将原生会话 ID 填入 `host.session`。人工方式使用 `{ "source":"operator-native-result", "profile":"web", "session":"<实际会话 ID>", "routes":[{"provider":"…", "model":"…", "observedAt":"<实际采集 UTC>", "result":"<精确调用返回的原始文本>"}] }`。无效、重复、未来、过期或会话/profile 不匹配均不可用；同一导出只用于其实际来源会话。离线 JSON 可编辑，不是签名认证。阶段一手填 `host.routes` 仍支持；一旦提供 `host.evidence`，缺证据的路由不会回退到手填可用值。
 3. 继续填写 `host.routes` 的账号、上游、规范 ID、计费及批准信息。普通 `subagent` 可由匹配的原生证据补上省略的 `available`；`false` 或非布尔值不补。对 `teams`，核对原生暂存成员计划后才手工填写 `available: true`；ordinary 证据只补实际档位，不替代成员计划或 fallback 核对。采集不验证账号，不能自动生成 `task.authorized`，也不能证明成员已启动。
 
+## AgentTeams：先暂存，再预检
+
+1. 项目门禁允许规划后，用 `agent_teams_create({ name, description, approval: "required" })` 创建草案；已有草案则继续编辑。暂存不会启动成员或领取任务，路由未核实不影响暂存。
+2. 用原生暂存计划和有效配置核对成员、profile 与全局继承的 fallback，包括内联计划；按下节逐个预检。草案和 `list_subagent_models` 本身都不能证明没有回退。预检缺项或返回 `stop` 时，保留草案并列出阻断项，不请求 **Approve & Run**。
+3. 全部通过后再请求批准启动。若成员路由、思考档、任务用途或预算发生变化，重新核验受影响项。Teams 的 Web 审批不运行 Kitto 预检，需由操作者核对已验证的计划再批准。
+
 ## 准备预检输入
 
 1. DSH 当前会话调用 `list_subagent_models({})` 找 provider；再对候选逐一调用 `list_subagent_models({ provider, model })`，把实际显示的精确 ID 和 `Reasoning efforts` 下的 ID 填入 `host.routes`。成功才标 `available: true`；明确没有档位才填空数组 `[]`。缺失或失败的路由不要冒充可用。不配置原生子代理 allowlist 时，工具只看到父路由。如果做 AgentTeams，额外用原生暂存计划确认精确成员模型和所有继承层的 fallback；只在确认没有有效 fallback 时填 `"effectiveFallbacks": []`。普通工具的 allowlist 不是 AgentTeams 的底层授权。
@@ -70,7 +76,7 @@
    }
    ```
 
-5. 运行 `kitto route preflight --input route.json`。若没有 `kitto` 命令，可运行完整安装的 `node "$KITTO_HOME/runtime/bin/kitto.mjs" route preflight --input route.json`（默认 Kitto home：`${XDG_DATA_HOME:-$HOME/.local/share}/kitto`）。只在结果为 `recommend` 且原生计划获批后传确切 `provider`、`model` 和有返回的 `reasoning_effort`；先核对实际激活模型再推进。`stop` / 非独立审查退出码为 2。
+5. 在 DSH 中先加载 `kitto` skill，用它绑定的 `node <绝对 CLI 路径> route preflight --input route.json`，不从 `PATH`、npm 缓存或项目 checkout 取入口。操作者在完整安装上也可运行 `node "$KITTO_HOME/runtime/bin/kitto.mjs" route preflight --input route.json`（默认 Kitto home：`${XDG_DATA_HOME:-$HOME/.local/share}/kitto`）。Teams 在审批前把确切 `provider`、`model` 和有返回的 `reasoning_effort` 写入草案；确认对应结果均为 `recommend` 后才请求批准。启动后先核对实际激活模型再推进。`stop` / 非独立审查退出码为 2。
 
 ### 路由字段与比较
 

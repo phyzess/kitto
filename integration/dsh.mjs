@@ -10,7 +10,7 @@ export const inject = ['skills'];
 export function apply(ctx, config) {
   const path = fileURLToPath(new URL('./skills/kitto/SKILL.md', import.meta.url));
   const candidate = {
-    name: 'kitto', description: 'Inspect, synchronize and update personal agent configuration with Kitto.',
+    name: 'kitto', description: 'Maintain personal agent configuration or locate the installed Kitto CLI for routing, missing commands, or version mismatches.',
     invocation: { modelInvocable: true, userInvocable: true },
     source: 'bundled', provider: 'phyzess-kitto', rank: 600, locator: path, path,
     resourceBase: { kind: 'directory', path: fileURLToPath(new URL('./skills/kitto/', import.meta.url)) },
