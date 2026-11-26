@@ -1,7 +1,6 @@
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.mjs';
 import { routeQuestions } from '../lib/task-route-questions.mjs';
 
-/** Interpret the effective Codex thread, not the requested CLI flags or a proposed route. */
 export function evaluateCodexTaskRoutes(input, now = Date.now()) {
   const host = input?.host, native = host?.native;
   if (host?.kind !== 'codex' || !native?.thread?.id || native.thread.id !== host.session ||
