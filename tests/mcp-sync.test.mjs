@@ -7,6 +7,8 @@ import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dshExecutable, loadDshYaml } from '../integration/scoped-dsh/native.mjs';
 import { dshMcpNames } from '../lib/parity.mjs';
+import * as localYaml from 'yaml';
+import { get, list } from '../lib/ownership.mjs';
 import { dshMcpRows, piMcpServers, removeDshMcp, syncDshMcp } from '../lib/mcp-sync.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -796,4 +798,64 @@ test('the native DSH loader accepts credential template rows', { skip: !nativeDs
   assert.match(output, /\$\{credential:TOKEN\}/);
   assert.match(output, /Bearer \$\{credential:TOKEN\}/);
   assert.doesNotMatch(output, /literal secret/i);
+});
+
+async function ledgerFixture(t) {
+  const source = await sourceFixture(t, { alpha: { command: 'alpha-mcp' }, beta: { command: 'beta-mcp' } });
+  const home = await temporary(t, 'kitto-mcp-ledger-');
+  const dshHome = join(home, '.dsh');
+  await mkdir(dshHome, { recursive: true });
+  const path = join(dshHome, 'cordis.patch.yml');
+  const messages = [];
+  const options = { yaml: localYaml, log: () => {}, warn: message => messages.push(message) };
+  return { state: { schema: 2, source, dshHome }, path, messages, options };
+}
+
+test('DSH sync records owned rows with fingerprints; preview records nothing', async t => {
+  const f = await ledgerFixture(t);
+  await syncDshMcp(f.state, { ...f.options, dryRun: true });
+  assert.deepEqual(list(f.state, 'mcp', 'dsh'), []);
+  await syncDshMcp(f.state, f.options);
+  assert.deepEqual(list(f.state, 'mcp', 'dsh', 'owned').map(entry => entry.name), ['kitto-mcp-alpha', 'kitto-mcp-beta']);
+  assert.match(get(f.state, 'mcp', 'dsh', 'kitto-mcp-alpha').hash, /^[0-9a-f]{64}$/);
+  assert.deepEqual(f.messages, []);
+});
+
+test('DSH sync preserves a row changed outside Kitto and warns', async t => {
+  const f = await ledgerFixture(t);
+  await syncDshMcp(f.state, f.options);
+  const edited = (await read(f.path)).replace('alpha-mcp', 'user-alpha');
+  await writeFile(f.path, edited);
+  const recorded = get(f.state, 'mcp', 'dsh', 'kitto-mcp-alpha').hash;
+  await syncDshMcp(f.state, f.options);
+  assert.match(await read(f.path), /user-alpha/);
+  assert.match(f.messages.join('\n'), /preserved kitto-mcp-alpha/);
+  assert.equal(get(f.state, 'mcp', 'dsh', 'kitto-mcp-alpha').hash, recorded);
+  await syncDshMcp(f.state, f.options);
+  assert.equal((await read(f.path)).match(/kitto-mcp-alpha/g).length, 1, 'the preserved row is never duplicated');
+});
+
+test('DSH removal keeps a changed row and releases the rest', async t => {
+  const f = await ledgerFixture(t);
+  await syncDshMcp(f.state, f.options);
+  await writeFile(f.path, (await read(f.path)).replace('beta-mcp', 'user-beta'));
+  await removeDshMcp(f.state, { ...f.options, dryRun: true });
+  assert.equal(list(f.state, 'mcp', 'dsh').length, 2, 'preview leaves the ledger alone');
+  await removeDshMcp(f.state, f.options);
+  const after = await read(f.path);
+  assert.doesNotMatch(after, /kitto-mcp-alpha/);
+  assert.match(after, /kitto-mcp-beta/);
+  assert.match(f.messages.join('\n'), /preserved kitto-mcp-beta/);
+  assert.deepEqual(list(f.state, 'mcp', 'dsh').map(entry => entry.name), ['kitto-mcp-beta']);
+});
+
+test('DSH rows without a ledger entry keep the namespace-only behavior', async t => {
+  const f = await ledgerFixture(t);
+  await syncDshMcp(f.state, f.options);
+  const legacy = { schema: 2, source: f.state.source, dshHome: f.state.dshHome };
+  await writeFile(f.path, (await read(f.path)).replace('alpha-mcp', 'user-alpha'));
+  await syncDshMcp(legacy, f.options);
+  assert.doesNotMatch(await read(f.path), /user-alpha/);
+  assert.deepEqual(f.messages, []);
+  assert.equal(list(legacy, 'mcp', 'dsh', 'owned').length, 2);
 });
