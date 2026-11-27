@@ -2,21 +2,44 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { test } from 'vitest';
 import { runWizard } from '../lib/setup-wizard.ts';
+import type { WizardEnvironment } from '../lib/setup-wizard.ts';
+import type { SetupPlan } from '../lib/environment-setup.ts';
 
-async function wizard(answers, environment, { terminal = false, probeServicePnpm } = {}) {
-  const input = new PassThrough();
-  const output = new PassThrough();
+interface TerminalStream extends PassThrough {
+  isTTY?: boolean;
+  isRaw?: boolean;
+  columns?: number;
+  rows?: number;
+  setRawMode?(enabled: boolean): void;
+}
+
+interface WizardOptions {
+  terminal?: boolean;
+  probeServicePnpm?: (unit: string) => Promise<boolean>;
+}
+
+function fakeEnvironment(environment: Partial<WizardEnvironment>): WizardEnvironment {
+  return environment as WizardEnvironment;
+}
+
+async function wizard(
+  answers: string,
+  environment: Partial<WizardEnvironment>,
+  { terminal = false, probeServicePnpm }: WizardOptions = {},
+) {
+  const input: TerminalStream = new PassThrough();
+  const output: TerminalStream = new PassThrough();
   input.isTTY = output.isTTY = terminal;
   let text = '';
-  const plans = [];
+  const plans: SetupPlan[] = [];
   output.setEncoding('utf8');
-  output.on('data', (chunk) => {
+  output.on('data', (chunk: string) => {
     text += chunk;
   });
   const pending = runWizard({
     input,
     output,
-    detect: async () => environment,
+    detect: async () => fakeEnvironment(environment),
     execute: async (plan) => {
       plans.push(plan);
     },
@@ -91,11 +114,12 @@ test('wizard retries agent selection after declining installation and records ex
 
 test('wizard cancels cleanly on Ctrl+C, EOF, and an explicit cancel selection', async () => {
   const environment = { available: ['codex'], serviceActive: false };
-  for (const [answers, terminal] of [
+  const cases: Array<[string, boolean]> = [
     ['\x03', true],
     ['\n3\n', false],
     ['\n3\n\n0\n', false],
-  ]) {
+  ];
+  for (const [answers, terminal] of cases) {
     const result = await wizard(answers, environment, { terminal });
     assert.match(result.text, /已取消安装/);
     assert.deepEqual(result.plans, []);
@@ -166,7 +190,7 @@ test('wizard accepts the app-managed DSH desktop profile without asking for pnpm
 test('wizard asks for separate permission to install pnpm in the DSH service account', async () => {
   const environment = { available: ['pi'], serviceActive: true, canConfigureService: true, pnpmAvailable: true };
   const options = {
-    probeServicePnpm: async (unit) => {
+    probeServicePnpm: async (unit: string) => {
       assert.equal(unit, 'dsh.service');
       return false;
     },
@@ -182,30 +206,39 @@ test('wizard asks for separate permission to install pnpm in the DSH service acc
 });
 
 test('terminal wizard accepts arrows, Space, blank optional text, and Enter to preview', { timeout: 6000 }, async () => {
-  const input = new PassThrough();
-  const output = new PassThrough();
+  const input: TerminalStream = new PassThrough();
+  const output: TerminalStream = new PassThrough();
   input.isTTY = output.isTTY = true;
-  input.setRawMode = (enabled) => {
+  input.setRawMode = (enabled: boolean) => {
     input.isRaw = enabled;
   };
   output.columns = 100;
   output.rows = 36;
   const down = '\x1b[B';
-  const steps = [
+  const steps: Array<[string, string]> = [
     ['选择宿主', down + ' ' + '\r'],
     ['选择配置来源', down + down + '\r'],
     ['工作区父目录', '\r'],
     ['下一步', '\r'],
     ['预览完成', '\r'],
   ];
-  output.on('data', (chunk) => {
+  output.on('data', (chunk: Buffer) => {
     if (steps.length && chunk.toString().includes(steps[0][0])) {
-      const [, keys] = steps.shift();
+      const step = steps.shift();
+      assert.ok(step);
+      const [, keys] = step;
       setImmediate(() => input.write(keys));
     }
   });
-  const plans = [];
-  await runWizard({ input, output, detect: async () => ({ available: ['pi', 'codex'] }), execute: async (plan) => plans.push(plan) });
+  const plans: SetupPlan[] = [];
+  await runWizard({
+    input,
+    output,
+    detect: async () => fakeEnvironment({ available: ['pi', 'codex'] }),
+    execute: async (plan) => {
+      plans.push(plan);
+    },
+  });
   assert.deepEqual(steps, []);
   assert.equal(plans.length, 1);
   assert.deepEqual(plans[0].agents, ['pi']);

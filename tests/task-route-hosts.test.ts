@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { evaluateDshTaskRoutes, registerDshTaskRouting } from '../integration/dsh-task-routing.ts';
 import { evaluatePiTaskRoutes, registerPiTaskRouting } from '../integration/pi-task-routing.ts';
 import { evaluateCodexTaskRoutes } from '../integration/codex-task-routing.ts';
+import type { DshPluginContext, Json, PiExtensionApi, PiSessionContext } from '../types/kitto.d.ts';
 
 const now = Date.now();
 const session = 'native-session';
@@ -26,7 +27,16 @@ const route = {
   dispatchable: true,
   fallback: 'none',
 };
-function input(kind, surface) {
+function pluginContext(fake: Partial<DshPluginContext>): DshPluginContext {
+  return fake as DshPluginContext;
+}
+function piApi(fake: Partial<PiExtensionApi>): PiExtensionApi {
+  return fake as PiExtensionApi;
+}
+function piSession(fake: Partial<PiSessionContext>): PiSessionContext {
+  return fake as PiSessionContext;
+}
+function input(kind: string, surface: string): Json {
   return {
     id: 'review-work',
     host: { kind, surface, session, observedAt: new Date(now).toISOString(), routes: [route] },
@@ -80,19 +90,26 @@ test('Pi binds a current model check to the actual model; headless command does 
     evaluatePiTaskRoutes(request, { session, current: { provider: 'other', id: route.model } }, now).questions[0].reason,
     'select-in-native-host',
   );
-  let command;
-  registerPiTaskRouting({
-    registerCommand(name, value) {
-      assert.equal(name, 'kitto-route');
-      command = value;
-    },
-  });
-  await command.handler('', {
-    hasUI: false,
-    get ui() {
-      assert.fail('headless Pi cannot prompt');
-    },
-  });
+  const commands: Array<{ handler(args: string, ctx: PiSessionContext): Promise<void> }> = [];
+  registerPiTaskRouting(
+    piApi({
+      registerCommand(name, value) {
+        assert.equal(name, 'kitto-route');
+        commands.push(value);
+      },
+    }),
+  );
+  const [command] = commands;
+  assert.ok(command);
+  await command.handler(
+    '',
+    piSession({
+      hasUI: false,
+      get ui() {
+        return assert.fail('headless Pi cannot prompt');
+      },
+    }),
+  );
 });
 
 test('Codex groups outstanding decisions and presents paid estimates without treating selection as approval', () => {
@@ -112,7 +129,7 @@ test('current route requires an observed non-default effort and ignores a route-
     const request = input(kind, 'current');
     request.roles[0].choice = { ...route, effort: 'high' };
     request.host.routes = [{ ...route, efforts: ['high', 'low'], nativeEffort: 'high' }];
-    const evaluate = (effort) => {
+    const evaluate = (effort: string | undefined) => {
       if (kind === 'pi')
         return evaluatePiTaskRoutes(request, { session, current: { provider: route.provider, id: route.model }, effort }, now);
       request.host.native = { thread: { id: session }, model: route.model, modelProvider: route.provider, reasoningEffort: effort };
@@ -156,7 +173,7 @@ test('public CLI plan and check accept only the approved official DSH task and m
   const fixture = join(temp, 'plan.json');
   const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
   const request = input('dsh', 'teams');
-  const run = (operation, nativeSession = session) => {
+  const run = (operation: string, nativeSession: string | null = session) => {
     const env = { ...process.env };
     if (nativeSession === null) delete env.DSH_SESSION_ID;
     else env.DSH_SESSION_ID = nativeSession;
@@ -206,7 +223,7 @@ test('public CLI plan and check accept only the approved official DSH task and m
 });
 
 test('independently recomputing the native work fingerprint rejects a stale scope approval', () => {
-  const fingerprint = (contract, diff) =>
+  const fingerprint = (contract: string, diff: string) =>
     createHash('sha256')
       .update(JSON.stringify([contract, diff]))
       .digest('hex');
@@ -251,23 +268,27 @@ test(
   'real DSH tool definition registers and runs the paid-route plan without spawning',
   { skip: !process.env.KITTO_TEST_DSH_INSTALL },
   async () => {
-    const installAnchor = join(process.env.KITTO_TEST_DSH_INSTALL, 'package.json');
+    const installDir = process.env.KITTO_TEST_DSH_INSTALL;
+    assert.ok(installDir);
+    const installAnchor = join(installDir, 'package.json');
     const require = createRequire(installAnchor);
     assert.equal(require('./package.json').name, '@deepseek-ai/dsh');
-    const tools = [];
-    registerDshTaskRouting({
-      inject(deps, activate) {
-        assert.deepEqual(deps, ['profileContext', 'tools']);
-        activate({
-          profileContext: { installAnchor, name: 'web' },
-          tools: {
-            register(tool) {
-              tools.push(tool);
+    const tools: Json[] = [];
+    registerDshTaskRouting(
+      pluginContext({
+        inject(deps: string[], activate: (host: Json) => unknown) {
+          assert.deepEqual(deps, ['profileContext', 'tools']);
+          activate({
+            profileContext: { installAnchor, name: 'web' },
+            tools: {
+              register(tool: Json) {
+                tools.push(tool);
+              },
             },
-          },
-        });
-      },
-    });
+          });
+        },
+      }),
+    );
     assert.equal(tools.length, 1);
     const result = await tools[0].execute(
       { input_json: JSON.stringify(input('dsh', 'teams')) },

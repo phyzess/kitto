@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import type { SpawnSyncReturns } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 
 const script = fileURLToPath(new URL('../skills/context-budget/scripts/dsh-usage.ts', import.meta.url));
 const time = Date.UTC(2026, 0, 1);
 const header = JSON.stringify({ type: 'session', version: 4, cwd: '/synthetic/project', createdAt: time });
-const request = (inputTokens, timestamp = time) =>
+const request = (inputTokens: number, timestamp: number | null = time) =>
   JSON.stringify({
     type: 'assistant/message',
     time: timestamp,
@@ -19,7 +21,7 @@ const request = (inputTokens, timestamp = time) =>
     },
   });
 
-function fixture(t, { zstd = true } = {}) {
+function fixture(t: TestContext, { zstd = true } = {}) {
   const base = realpathSync(tmpdir());
   const home = mkdtempSync(join(base, 'kitto-dsh-usage-'));
   assert.match(relative(base, home), /^kitto-dsh-usage-[^/]+$/);
@@ -54,14 +56,14 @@ if (id === 'failed' || id === 'signaled') {
     );
   }
   return {
-    session(id, contents) {
+    session(id: string, contents?: string | Buffer) {
       const dir = join(home, 'sessions', 'project', id);
       mkdirSync(dir, { recursive: true });
       const file = join(dir, 'session.v4.jsonl.zstd');
       if (contents !== undefined) writeFileSync(file, contents);
       return file;
     },
-    run(...args) {
+    run(...args: string[]) {
       const result = spawnSync(process.execPath, [script, ...args], {
         encoding: 'utf8',
         timeout: 5000,
@@ -81,7 +83,7 @@ const diagnostics = (malformedLines = 0, truncatedTails = 0, decompressionFailur
   affectedFiles,
 });
 
-function report(result, code, expectedDiagnostics) {
+function report(result: SpawnSyncReturns<string>, code: number, expectedDiagnostics: ReturnType<typeof diagnostics>) {
   assert.equal(result.status, code, result.stderr);
   assert.equal(result.stderr, '');
   const summary = JSON.parse(result.stdout);
@@ -157,7 +159,7 @@ test('invalid dates are counted without losing usage from the same session', (t)
 
 test('invalid UTF-8 bytes are counted by LF boundary but valid U+FFFD is accepted', (t) => {
   const f = fixture(t);
-  const invalid = (inputTokens) => {
+  const invalid = (inputTokens: number) => {
     const [before, after] = request(inputTokens).split('PRIVATE_MESSAGE');
     return Buffer.concat([Buffer.from(before), Buffer.from([0xff]), Buffer.from(after)]);
   };
@@ -174,7 +176,7 @@ test('invalid UTF-8 bytes are counted by LF boundary but valid U+FFFD is accepte
 
 test('bad token counts are isolated without echoing their values', (t) => {
   const f = fixture(t);
-  const usage = (fields) => JSON.stringify({ type: 'assistant/message', time, data: { usage: fields } });
+  const usage = (fields: Record<string, unknown>) => JSON.stringify({ type: 'assistant/message', time, data: { usage: fields } });
   f.session(
     'bad-token-count',
     [
@@ -200,7 +202,7 @@ test('bad token counts are isolated without echoing their values', (t) => {
 
 test('invalid session metadata is counted without leaking it or losing usage', (t) => {
   const f = fixture(t);
-  const event = (type, data) => JSON.stringify({ type, data });
+  const event = (type: string, data: unknown) => JSON.stringify({ type, data });
   const bad = { text: 'PRIVATE_METADATA' };
   const badHeader = JSON.stringify({ type: 'session', cwd: bad, parentSession: bad, delegationDepth: bad, createdAt: time });
   f.session(
@@ -215,8 +217,8 @@ test('invalid session metadata is counted without leaking it or losing usage', (
   const summary = report(json, 1, diagnostics(4, 0, 0, 2));
   assert.equal(summary.requests, 3);
   assert.equal(summary.fanOut.root, 2);
-  assert.equal(summary.topSessions.find((row) => row.id === 'fallback-id').depth, 0);
-  assert.equal(summary.topSessions.find((row) => row.id === 'fallback-id').title, '');
+  assert.equal(summary.topSessions.find((row: { id: string }) => row.id === 'fallback-id').depth, 0);
+  assert.equal(summary.topSessions.find((row: { id: string }) => row.id === 'fallback-id').title, '');
   const filtered = report(f.run('--json', '--project', '/synthetic'), 1, diagnostics(4, 0, 0, 2));
   assert.equal(filtered.requests, 1);
   assert.equal(filtered.topSessions[0].title, 'safe-label');

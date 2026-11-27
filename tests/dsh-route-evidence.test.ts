@@ -3,27 +3,44 @@ import { test } from 'vitest';
 import { createRouteObserver } from '../integration/dsh-route-evidence.ts';
 import { apply } from '../integration/dsh.ts';
 import { applyCapabilityEvidence, parseNativeModelResult } from '../lib/routing-evidence.ts';
+import type { DshPluginContext, Json } from '../types/kitto.d.ts';
 
 const route = { provider: 'test', model: 'model' };
 const raw = 'test/model — Example\nReasoning efforts:\nlow (default) — Low\nhigh — High';
 const response = { isError: false, value: raw };
 const started = Date.parse('2026-11-25T12:00:00Z');
 
+function pluginContext(fake: Partial<DshPluginContext>): DshPluginContext {
+  return fake as DshPluginContext;
+}
+
+function exported(observer: ReturnType<typeof createRouteObserver>, exec: Json) {
+  const snapshot = observer.export(exec);
+  assert.ok(snapshot);
+  return snapshot;
+}
+
+function applied(host: Json, now: number): Json {
+  const result = applyCapabilityEvidence(host, now);
+  assert.ok(result);
+  return result;
+}
+
 test('bundle observer is opt-in and ignores unsupported profiles', () => {
   let injections = 0;
-  const ctx = {
+  const ctx = pluginContext({
     skills: { registerProvider() {} },
-    inject(services, start) {
+    inject(services: string[], start: (host: Json) => unknown) {
       injections++;
       assert.deepEqual(services, ['profileContext', 'tools']);
       start({
         profileContext: { name: 'desktop' },
         get tools() {
-          assert.fail('unsupported profile');
+          return assert.fail('unsupported profile');
         },
       });
     },
-  };
+  });
   apply(ctx);
   assert.equal(injections, 1, 'only the task-route planner mounts by default');
   apply(ctx, { routeEvidence: true });
@@ -53,25 +70,25 @@ test('observer exports only exact results for the authenticated caller/session, 
     { ...exec, name: 'read' },
     {
       get value() {
-        assert.fail('unrelated result accessed');
+        return assert.fail('unrelated result accessed');
       },
     },
   );
   observer.observe({ ...exec, arguments: { provider: 'test' } }, response);
   observer.observe({ ...exec, token: undefined }, response);
-  assert.equal(observer.export(exec).routes.length, 0);
+  assert.equal(exported(observer, exec).routes.length, 0);
   observer.observe(exec, response);
-  const snapshot = observer.export(exec);
+  const snapshot = exported(observer, exec);
   assert.deepEqual(snapshot.routes, [{ ...route, observedAt: new Date(started).toISOString(), reasoningEfforts: ['low', 'high'] }]);
-  assert.equal(observer.export({ ...exec, agent: { session: agent.session } }).routes.length, 0);
+  assert.equal(exported(observer, { ...exec, agent: { session: agent.session } }).routes.length, 0);
   agent.session = { id: 'session-b' };
-  assert.equal(observer.export(exec).routes.length, 0);
+  assert.equal(exported(observer, exec).routes.length, 0);
   observer.observe(exec, response);
   observer.observe(exec, { isError: true });
-  assert.equal(observer.export(exec).routes.length, 0);
+  assert.equal(exported(observer, exec).routes.length, 0);
   observer.observe(exec, response);
   clock += 301_000;
-  assert.equal(observer.export(exec).routes.length, 0);
+  assert.equal(exported(observer, exec).routes.length, 0);
   enabled = false;
   assert.equal(observer.export(exec), null);
 });
@@ -86,15 +103,15 @@ test('import honors row timestamps, session, source and duplicates, not a manual
     routes: [route, { provider: 'test', model: 'other', available: true }],
     evidence,
   };
-  assert.deepEqual(applyCapabilityEvidence(host, started).routes[0].reasoningEfforts, ['low', 'high']);
-  assert.equal(applyCapabilityEvidence(host, started).routes[1].available, false);
+  assert.deepEqual(applied(host, started).routes[0].reasoningEfforts, ['low', 'high']);
+  assert.equal(applied(host, started).routes[1].available, false);
   for (const invalid of [
     { ...evidence, session: 'session-b' },
     { ...evidence, routes: [row, row] },
     { ...evidence, profile: 'desktop' },
   ]) {
-    assert.equal(applyCapabilityEvidence({ ...host, evidence: invalid }, started).routes[0].available, false);
+    assert.equal(applied({ ...host, evidence: invalid }, started).routes[0].available, false);
   }
-  assert.equal(applyCapabilityEvidence(host, started - 1000).routes[0].available, false);
-  assert.equal(applyCapabilityEvidence(host, started + 301_000).routes[0].available, false);
+  assert.equal(applied(host, started - 1000).routes[0].available, false);
+  assert.equal(applied(host, started + 301_000).routes[0].available, false);
 });

@@ -14,9 +14,17 @@ import {
   replaceScope,
   scopes,
 } from '../lib/ownership.ts';
+import type { OwnershipKind } from '../lib/ownership.ts';
+import type { State } from '../types/kitto.d.ts';
+
+function emptyState(): State {
+  return {} as State;
+}
+
+const unknownKind = 'widget' as OwnershipKind;
 
 test('record and release a skill', () => {
-  const state = {};
+  const state = emptyState();
   record(state, 'skill', 'shared', 'review', 'h1');
   assert.deepEqual(get(state, 'skill', 'shared', 'review'), { hash: 'h1', status: 'owned' });
   assert.deepEqual(list(state, 'skill', 'shared'), [{ name: 'review', hash: 'h1', status: 'owned' }]);
@@ -26,7 +34,7 @@ test('record and release a skill', () => {
 });
 
 test('reads never create state', () => {
-  const state = {};
+  const state = emptyState();
   assert.deepEqual(list(state, 'mcp', 'codex'), []);
   assert.equal(get(state, 'mcp', 'codex', 'x'), undefined);
   assert.equal(forgetPending(state, 'mcp', 'codex', 'x'), false);
@@ -34,7 +42,7 @@ test('reads never create state', () => {
 });
 
 test('pending add is forgotten without a trace', () => {
-  const state = {};
+  const state = emptyState();
   markPending(state, 'mcp', 'codex', 'docs', 'h1');
   assert.deepEqual(get(state, 'mcp', 'codex', 'docs'), { hash: 'h1', status: 'pending' });
   assert.equal(forgetPending(state, 'mcp', 'codex', 'docs'), true);
@@ -42,7 +50,7 @@ test('pending add is forgotten without a trace', () => {
 });
 
 test('pending update keeps the confirmed hash and reverts on forget', () => {
-  const state = {};
+  const state = emptyState();
   record(state, 'mcp', 'codex', 'docs', 'old');
   markPending(state, 'mcp', 'codex', 'docs', 'new');
   markPending(state, 'mcp', 'codex', 'docs', 'newer');
@@ -56,7 +64,7 @@ test('pending update keeps the confirmed hash and reverts on forget', () => {
 });
 
 test('promote finishes a pending entry and can adopt with an explicit hash', () => {
-  const state = {};
+  const state = emptyState();
   record(state, 'mcp', 'codex', 'docs', 'old');
   markPending(state, 'mcp', 'codex', 'docs', 'new');
   promote(state, 'mcp', 'codex', 'docs');
@@ -67,7 +75,7 @@ test('promote finishes a pending entry and can adopt with an explicit hash', () 
 });
 
 test('kept entries are not owned and cannot shadow owned ones', () => {
-  const state = {};
+  const state = emptyState();
   markKept(state, 'skill', 'pi', 'mine');
   assert.deepEqual(get(state, 'skill', 'pi', 'mine'), { hash: null, status: 'kept' });
   assert.equal(isOwnedWith(state, 'skill', 'pi', 'mine', 'anything'), false);
@@ -77,7 +85,7 @@ test('kept entries are not owned and cannot shadow owned ones', () => {
 });
 
 test('isOwnedWith compares the live hash', () => {
-  const state = {};
+  const state = emptyState();
   record(state, 'instructions', 'codex', 'agents-md', 'block');
   assert.equal(isOwnedWith(state, 'instructions', 'codex', 'agents-md', 'block'), true);
   assert.equal(isOwnedWith(state, 'instructions', 'codex', 'agents-md', 'edited'), false);
@@ -85,7 +93,7 @@ test('isOwnedWith compares the live hash', () => {
 });
 
 test('replaceScope mirrors a deploy pass and lets owned win over kept', () => {
-  const state = {};
+  const state = emptyState();
   record(state, 'skill', 'shared', 'stale', 'x');
   replaceScope(state, 'skill', 'shared', { owned: { a: 'h1' }, kept: ['b', 'a'] });
   assert.deepEqual(list(state, 'skill', 'shared'), [
@@ -101,8 +109,8 @@ test('replaceScope mirrors a deploy pass and lets owned win over kept', () => {
 });
 
 test('invalid addresses are rejected', () => {
-  const state = {};
-  assert.throws(() => record(state, 'widget', 'shared', 'a', 'h'), /Unknown ownership kind/);
+  const state = emptyState();
+  assert.throws(() => record(state, unknownKind, 'shared', 'a', 'h'), /Unknown ownership kind/);
   assert.throws(() => record(state, 'skill', '', 'a', 'h'), /scope/);
   assert.throws(() => record(state, 'skill', 'shared', '__proto__', 'h'), /name/);
   assert.throws(() => record(state, 'skill', 'shared', 'a', ''), /hash/);

@@ -3,15 +3,33 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
+import type { TestContext } from 'vitest';
 import { adapterFor, planConnect, planDeploy, selectedAdapters } from '../lib/hosts/index.ts';
+import type { CodexAdapterDeps } from '../lib/hosts/codex.ts';
+import type { DshWebAdapterDeps } from '../lib/hosts/dsh-web.ts';
+import type { PiAdapterDeps } from '../lib/hosts/pi.ts';
+import type { RunFunction } from '../lib/process.ts';
+import type { HostReport, State } from '../types/kitto.d.ts';
 
-const pluginReady = { capabilities: { plugin: true }, actual: '1.0.0' };
+interface FakeDeps {
+  common: { home: string; run: RunFunction };
+  pi: PiAdapterDeps;
+  codex: CodexAdapterDeps;
+  dsh: DshWebAdapterDeps;
+}
 
-async function fixture(t, overrides = {}) {
+function fake<T>(value: unknown): T {
+  return value as T;
+}
+
+const pluginReady = fake<HostReport>({ capabilities: { plugin: true }, actual: '1.0.0' });
+
+async function fixture(t: TestContext, overrides: Partial<State> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'kitto-adapters-'));
   t.onTestFinished(() => rm(root, { recursive: true, force: true }));
   const home = join(root, 'home');
-  const state = {
+  const state: State = {
+    schema: 2,
     agents: ['pi', 'codex', 'dsh'],
     dshProfile: 'web',
     source: join(root, 'source'),
@@ -21,33 +39,35 @@ async function fixture(t, overrides = {}) {
     agentsHome: join(root, 'agents'),
     ...overrides,
   };
-  const calls = [];
-  const run = (command, args) => {
+  const calls: string[] = [];
+  const run = (command: string, args: string[]) => {
     calls.push([command, ...args].join(' '));
     return '{}';
   };
   const common = { home, run };
-  const deps = {
+  const deps: FakeDeps = {
     common,
-    pi: { sync: (_state, command, apply) => calls.push(`sync ${command} apply=${apply}`) },
+    pi: {
+      sync: fake<PiAdapterDeps['sync']>((_state: State, command: string, apply: boolean) => calls.push(`sync ${command} apply=${apply}`)),
+    },
     codex: {
       inspect: () => pluginReady,
-      syncMcp: async () => {
+      syncMcp: fake<CodexAdapterDeps['syncMcp']>(async () => {
         calls.push('codex-mcp apply');
-      },
+      }),
     },
     dsh: {
       inspect: () => pluginReady,
       hasPnpm: () => true,
-      syncMcp: async (_state, { dryRun }) => {
+      syncMcp: fake<DshWebAdapterDeps['syncMcp']>(async (_state: State, { dryRun }: { dryRun: boolean }) => {
         calls.push(`dsh-mcp dryRun=${dryRun}`);
-      },
+      }),
     },
   };
   return { root, home, state, calls, deps };
 }
 
-test('connect actions describe exactly the commands apply runs, for every host', async (t) => {
+test('connect actions describe exactly the commands apply runs, for every host', async (t: TestContext) => {
   const { state, calls, deps } = await fixture(t);
   for (const adapter of selectedAdapters(state, deps)) {
     for (const action of adapter.planConnect(state)) {
@@ -61,7 +81,7 @@ test('connect actions describe exactly the commands apply runs, for every host',
   }
 });
 
-test('pi plans one pull whose preview is the dry run and whose apply is the real sync', async (t) => {
+test('pi plans one pull whose preview is the dry run and whose apply is the real sync', async (t: TestContext) => {
   const { state, calls, deps } = await fixture(t);
   const [pull] = adapterFor(state, 'pi', deps).plan(state);
   assert.equal(pull.kind, 'pi-pull');
@@ -71,7 +91,7 @@ test('pi plans one pull whose preview is the dry run and whose apply is the real
   assert.deepEqual(calls, ['sync pull apply=false', 'sync pull apply=true']);
 });
 
-test('dsh web plans one MCP sync whose preview is the dry run', async (t) => {
+test('dsh web plans one MCP sync whose preview is the dry run', async (t: TestContext) => {
   const { state, calls, deps } = await fixture(t);
   const [sync] = adapterFor(state, 'dsh', deps).plan(state);
   assert.equal(sync.kind, 'sync-mcp');
@@ -80,7 +100,7 @@ test('dsh web plans one MCP sync whose preview is the dry run', async (t) => {
   assert.deepEqual(calls, ['dsh-mcp dryRun=true', 'dsh-mcp dryRun=false']);
 });
 
-test('deploy plan runs pi before dsh regardless of the agent order and leaves MCP apply after skills', async (t) => {
+test('deploy plan runs pi before dsh regardless of the agent order and leaves MCP apply after skills', async (t: TestContext) => {
   const { state, deps } = await fixture(t, { agents: ['dsh', 'codex', 'pi'] });
   const { sync, postSkills } = planDeploy(state, { deps });
   assert.deepEqual(
@@ -93,7 +113,7 @@ test('deploy plan runs pi before dsh regardless of the agent order and leaves MC
   );
 });
 
-test('dsh desktop plans no bundle, plugin or MCP actions', async (t) => {
+test('dsh desktop plans no bundle, plugin or MCP actions', async (t: TestContext) => {
   const { state, deps } = await fixture(t, { agents: ['dsh'], dshProfile: 'Desktop' });
   const adapter = adapterFor(state, 'dsh', deps);
   assert.equal(adapter.desktop, true);
@@ -104,17 +124,19 @@ test('dsh desktop plans no bundle, plugin or MCP actions', async (t) => {
   assert.equal(adapter.assertConnectable, undefined);
 });
 
-test('dsh web refuses to connect without pnpm', async (t) => {
+test('dsh web refuses to connect without pnpm', async (t: TestContext) => {
   const { state, deps } = await fixture(t, { agents: ['dsh'] });
   deps.dsh.hasPnpm = () => false;
-  assert.throws(() => adapterFor(state, 'dsh', deps).assertConnectable(), /require pnpm/);
+  assert.throws(() => adapterFor(state, 'dsh', deps).assertConnectable?.(), /require pnpm/);
 });
 
-test('codex connect skips registration when the CLI has no plugin command', async (t) => {
+test('codex connect skips registration when the CLI has no plugin command', async (t: TestContext) => {
   const { state, calls, deps } = await fixture(t, { agents: ['codex'] });
-  deps.codex.inspect = () => ({ capabilities: { plugin: false } });
-  const warnings = [];
-  const warn = vi.spyOn(console, 'warn').mockImplementation((message) => warnings.push(message));
+  deps.codex.inspect = () => fake<HostReport>({ capabilities: { plugin: false } });
+  const warnings: string[] = [];
+  const warn = vi.spyOn(console, 'warn').mockImplementation((message: string) => {
+    warnings.push(message);
+  });
   t.onTestFinished(() => warn.mockRestore());
   const [register] = adapterFor(state, 'codex', deps).planConnect(state);
   await register.apply();
@@ -122,8 +144,9 @@ test('codex connect skips registration when the CLI has no plugin command', asyn
   assert.match(warnings[0], /no plugin subcommand/);
 });
 
-test('pi detach lists the package removal only when the runtime is registered, and apply runs it', async (t) => {
+test('pi detach lists the package removal only when the runtime is registered, and apply runs it', async (t: TestContext) => {
   const { state, home, calls, deps } = await fixture(t, { agents: ['pi'] });
+  assert.ok(state.piHome);
   await mkdir(state.piHome, { recursive: true });
   const adapter = adapterFor(state, 'pi', deps);
   assert.deepEqual(await adapter.planDetach(state), []);
@@ -139,16 +162,23 @@ test('pi detach lists the package removal only when the runtime is registered, a
   assert.deepEqual(calls, [actions[0].describe()]);
 });
 
-test('dsh web detach previews the MCP dry run and resolves the bundle lazily', async (t) => {
+test('dsh web detach previews the MCP dry run and resolves the bundle lazily', async (t: TestContext) => {
   const { state, calls } = await fixture(t, { agents: ['dsh'] });
-  const removals = [];
+  assert.ok(state.dshHome);
+  const removals: Array<boolean | undefined> = [];
   const adapter = adapterFor(state, 'dsh', {
-    common: { home: join(state.dshHome, 'kitto-home'), run: (...call) => calls.push(call.flat().join(' ')) },
+    common: {
+      home: join(state.dshHome, 'kitto-home'),
+      run: (...call: Parameters<RunFunction>) => {
+        calls.push(call.flat().join(' '));
+        return '';
+      },
+    },
     dsh: {
       hasPnpm: () => true,
-      removeMcp: async (_state, options) => {
+      removeMcp: fake<DshWebAdapterDeps['removeMcp']>(async (_state: State, options: { dryRun?: boolean }) => {
         removals.push(options.dryRun);
-      },
+      }),
     },
   });
   const actions = await adapter.planDetach(state);

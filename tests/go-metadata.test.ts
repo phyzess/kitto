@@ -8,6 +8,7 @@ import { test } from 'vitest';
 import { collectGoMetadata } from '../lib/go-metadata.ts';
 import { adviseRoute } from '../lib/model-routing.ts';
 import { setRoutingBoundary } from '../lib/routing-policy.ts';
+import type { Json, State } from '../types/kitto.d.ts';
 
 const now = Date.parse('2026-11-25T12:00:00Z');
 const stamp = new Date(now).toISOString(),
@@ -49,9 +50,12 @@ const doc = {
 const meter = () => ({
   usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map((name) => [name, { percent: 10, status: 'ok', resetsAt: reset }])),
 });
-const response = (value) => Response.json(value);
+const response = (value: unknown) => Response.json(value);
+function stubFetch(handler: (url: string, init: Json) => Response): (url: string, init: RequestInit) => Promise<Response> {
+  return async (url, init) => handler(url, init);
+}
 function fixture() {
-  const request = {
+  const request: Json = {
     host: { kind: 'dsh', installation: 'full-local', profile: 'web', surface: 'subagent', observedAt: stamp, routes: [flash, sol] },
     task: {
       role: 'verify',
@@ -64,18 +68,19 @@ function fixture() {
     go: { account: flash.account, plan: 'go', extraUsage: 'off' },
     goRead: { ...flash, allow: true, credentialBindingConfirmed: true, credentialKind: 'personal' },
   };
-  const state = { schema: 1, routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web' };
+  const state: State = { schema: 1, source: 'test', routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web' };
   setRoutingBoundary(state, 'personal');
   return { request, state, clock: () => now, optedIn: true };
 }
+type Args = ReturnType<typeof fixture>;
 
 test('dedicated metadata collector checks opt-in, device, task, and same account before reading key', async () => {
-  for (const mutate of [
+  const mutations: Array<(args: Args) => void> = [
     (args) => {
       args.optedIn = false;
     },
     (args) => {
-      args.state = null;
+      Object.assign(args, { state: null });
     },
     (args) => {
       args.request.goRead.allow = false;
@@ -102,7 +107,8 @@ test('dedicated metadata collector checks opt-in, device, task, and same account
     (args) => {
       setRoutingBoundary(args.state, 'company');
     },
-  ]) {
+  ];
+  for (const mutate of mutations) {
     const args = fixture();
     mutate(args);
     let reads = 0,
@@ -112,9 +118,10 @@ test('dedicated metadata collector checks opt-in, device, task, and same account
       readKey: () => {
         reads++;
       },
-      fetcher: () => {
+      fetcher: stubFetch(() => {
         calls++;
-      },
+        return response(null);
+      }),
     });
     assert.equal(result.status, 'stop');
     assert.equal(reads, 0);
@@ -143,7 +150,7 @@ test('CLI verifies native default or explicitly selected DSH home before key and
   const aliasHome = join(home, 'custom-alias');
   mkdirSync(customHome);
   symlinkSync(customHome, aliasHome);
-  for (const [dshHome, explicit, expected] of [
+  const homes: Array<[string | undefined, string | undefined, boolean]> = [
     [defaultHome, undefined, true],
     [defaultHome, '  ', true],
     [customHome, customHome, true],
@@ -154,12 +161,13 @@ test('CLI verifies native default or explicitly selected DSH home before key and
     [defaultHome, 'relative-path', false],
     [customHome, aliasHome, true],
     [aliasHome, customHome, true],
-  ]) {
+  ];
+  for (const [dshHome, explicit, expected] of homes) {
     writeFileSync(statePath, JSON.stringify({ ...state, dshHome }));
-    const env = { ...process.env, HOME: home, USERPROFILE: home, KITTO_HOME: home, DSH_PROFILE: 'web' };
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home, KITTO_HOME: home, DSH_PROFILE: 'web' };
     delete env.DSH_HOME;
     if (explicit !== undefined) env.DSH_HOME = explicit;
-    const run = (operation) =>
+    const run = (operation: string) =>
       spawnSync(
         process.execPath,
         [
@@ -184,14 +192,14 @@ test('CLI verifies native default or explicitly selected DSH home before key and
 
 test('metadata GET requests are fixed and the auth header is only on usage', async () => {
   const args = fixture(),
-    calls = [];
+    calls: Array<[string, Json]> = [];
   const result = await collectGoMetadata({
     ...args,
     readKey: () => 'synthetic-key',
-    fetcher: (url, options) => {
+    fetcher: stubFetch((url, options) => {
       calls.push([url, options]);
       return response(calls.length === 1 ? doc : meter());
-    },
+    }),
   });
   assert.equal(result.status, 'collected');
   assert.deepEqual(
@@ -209,7 +217,7 @@ test('metadata GET requests are fixed and the auth header is only on usage', asy
 });
 
 test('redirects, transport failures, bad or oversized content and body deadline give sanitized failures', async () => {
-  const cases = [
+  const cases: Array<[() => Response, string]> = [
     [() => new Response(null, { status: 302, headers: { location: 'https://elsewhere.invalid/' } }), 'metadata-redirect'],
     [() => new Response('secret', { status: 403 }), 'metadata-http-error'],
     [
@@ -232,10 +240,10 @@ test('redirects, transport failures, bad or oversized content and body deadline 
       ...fixture(),
       timeoutMs: 40,
       readKey: () => 'synthetic-key',
-      fetcher: () => {
+      fetcher: stubFetch(() => {
         requests++;
         return reply();
-      },
+      }),
     });
     assert.equal(result.reason, expected);
     assert.equal(requests, 1);
@@ -249,12 +257,12 @@ test('failed or mismatched meter evidence disables Go without overriding non-Go 
   const denied = await collectGoMetadata({
     ...args,
     readKey: () => 'synthetic-key',
-    fetcher: () => {
+    fetcher: stubFetch(() => {
       if (++calls === 1) return response(doc);
       const missing = meter();
       delete missing.usage.weekly;
       return response(missing);
-    },
+    }),
   });
   assert.equal(denied.reason, 'metadata-meter-unverified');
   for (const metadata of [denied, { status: 'collected', account: 'other', plan: 'go' }, null]) {
@@ -265,13 +273,13 @@ test('failed or mismatched meter evidence disables Go without overriding non-Go 
   const exhausted = await collectGoMetadata({
     ...args,
     readKey: () => 'synthetic-key',
-    fetcher: () => {
+    fetcher: stubFetch(() => {
       if (++calls === 1) return response(doc);
       const full = meter();
       full.usage.rolling.status = 'rate-limited';
       full.usage.rolling.percent = 100;
       return response(full);
-    },
+    }),
   });
   args.request.go.metadata = exhausted;
   assert.equal(adviseRoute({ ...args, now }).go.status, 'exhausted');

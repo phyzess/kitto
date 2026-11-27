@@ -12,5 +12,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["bin/**/*.ts", "lib/**/*.ts", "integration/**/*.ts", "types/**/*.ts"]
+  "include": ["bin/**/*.ts", "lib/**/*.ts", "integration/**/*.ts", "types/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["scripts/comment-ratchet.ts", "scripts/comment-ratchet/**", "scripts/check-comments.ts", "tests/comment-ratchet.test.ts"]
 }

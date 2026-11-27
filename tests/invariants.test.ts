@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const script = join(repo, 'scripts', 'check-invariants.ts');
 
-function fixture(files) {
+function fixture(files: Record<string, string>) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'kitto-invariants-')));
   cpSync(join(repo, 'sgconfig.yml'), join(root, 'sgconfig.yml'));
   cpSync(join(repo, 'rules'), join(root, 'rules'), { recursive: true });
@@ -18,7 +18,7 @@ function fixture(files) {
   return root;
 }
 
-function scan(root) {
+function scan(root: string) {
   return spawnSync(process.execPath, [script, '--root', root], { encoding: 'utf8', timeout: 60_000 });
 }
 

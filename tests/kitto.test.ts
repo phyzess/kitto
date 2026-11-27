@@ -41,6 +41,29 @@ import {
   commitAll,
   mirrorOf,
 } from './helpers/kitto-fixture.ts';
+import type { Fixture } from './helpers/kitto-fixture.ts';
+
+interface ComponentRow {
+  owner: string;
+  tested?: boolean;
+  upstream?: unknown;
+  kind?: string;
+  contentSha256?: string;
+  profile?: string;
+  name?: string;
+}
+
+interface HostCall {
+  command: string;
+  args: string[];
+}
+
+function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name];
+  assert.ok(value, `${name} must be set`);
+  return value;
+}
+const hostCallsOf = (f: Fixture) => callsOf(f) as HostCall[];
 
 test('public options reject unknown hosts, flags and missing values', () => {
   assert.deepEqual(parseOptions(['--agents', 'pi,codex,pi']).agents, ['pi', 'codex']);
@@ -70,7 +93,7 @@ test('host baseline comparison orders prereleases', () => {
 test('missing host installation preflight requires stable Node at the minimum version', (t) => {
   const emptyPath = mkdtempSync(join(tmpdir(), 'kitto-node-preflight-'));
   t.onTestFinished(() => rmSync(emptyPath, { recursive: true, force: true }));
-  const probe = (version) =>
+  const probe = (version: string) =>
     command(
       process.execPath,
       [
@@ -86,6 +109,7 @@ test('missing host installation preflight requires stable Node at the minimum ve
       { HOME: emptyPath, PATH: emptyPath },
     );
   const minimum = hosts.pi.node;
+  assert.ok(minimum);
   const candidate = probe(`${minimum}-rc.1`);
   assert.equal(candidate.status, 1, candidate.stdout + candidate.stderr);
   assert(candidate.stderr.includes(`Installing pi through npm requires Node >=${minimum}.`));
@@ -152,11 +176,11 @@ test('shared rules compose into all three hosts with addenda kept host-specific'
   good(f.cli('setup', '--agents', 'pi,codex,dsh', '--source', f.source));
   const common = readFileSync(join(f.source, 'config/instructions/common.md'), 'utf8').trim();
   const files = {
-    pi: join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'),
-    codex: join(f.env.CODEX_HOME, 'AGENTS.md'),
-    dsh: join(f.env.DSH_HOME, 'AGENTS.md'),
+    pi: join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'AGENTS.md'),
+    codex: join(requireEnv(f.env, 'CODEX_HOME'), 'AGENTS.md'),
+    dsh: join(requireEnv(f.env, 'DSH_HOME'), 'AGENTS.md'),
   };
-  const addenda = { pi: 'Pi addendum only', codex: 'Codex addendum only', dsh: 'DSH addendum only' };
+  const addenda: Record<string, string> = { pi: 'Pi addendum only', codex: 'Codex addendum only', dsh: 'DSH addendum only' };
   for (const [host, file] of Object.entries(files)) {
     const text = readFileSync(file, 'utf8');
     assert.equal(text.split(common).length - 1, 1, `${host}: shared rules must appear once`);
@@ -175,15 +199,19 @@ test('shared rules compose into all three hosts with addenda kept host-specific'
 
 test('shared rule edits redeploy to every host and preserve block-external content', (t) => {
   const f = fixture(t);
-  mkdirSync(join(f.env.CODEX_HOME), { recursive: true });
-  mkdirSync(join(f.env.DSH_HOME), { recursive: true });
-  writeFileSync(join(f.env.CODEX_HOME, 'AGENTS.md'), 'Local Codex note\n');
-  writeFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'Local DSH note\n');
+  mkdirSync(join(requireEnv(f.env, 'CODEX_HOME')), { recursive: true });
+  mkdirSync(join(requireEnv(f.env, 'DSH_HOME')), { recursive: true });
+  writeFileSync(join(requireEnv(f.env, 'CODEX_HOME'), 'AGENTS.md'), 'Local Codex note\n');
+  writeFileSync(join(requireEnv(f.env, 'DSH_HOME'), 'AGENTS.md'), 'Local DSH note\n');
   good(f.cli('setup', '--agents', 'pi,codex,dsh', '--source', f.source));
   const commonPath = join(f.source, 'config/instructions/common.md');
   writeFileSync(commonPath, readFileSync(commonPath, 'utf8').replace('shared-marker', 'shared-marker-v2'));
   good(f.maintain('sync', '--apply'));
-  const files = [join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), join(f.env.CODEX_HOME, 'AGENTS.md'), join(f.env.DSH_HOME, 'AGENTS.md')];
+  const files = [
+    join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'AGENTS.md'),
+    join(requireEnv(f.env, 'CODEX_HOME'), 'AGENTS.md'),
+    join(requireEnv(f.env, 'DSH_HOME'), 'AGENTS.md'),
+  ];
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
     assert.match(text, /shared-marker-v2/);
@@ -197,7 +225,7 @@ test('shared rule edits redeploy to every host and preserve block-external conte
 test('Pi export writes only the Pi addendum back to the source', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
-  const deployed = join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md');
+  const deployed = join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'AGENTS.md');
   const addendumPath = join(f.source, 'config/pi/AGENTS.md');
   writeFileSync(deployed, readFileSync(deployed, 'utf8').replace('Pi instructions', 'Pi instructions from machine'));
   good(f.maintain('export', '--apply'));
@@ -221,9 +249,11 @@ test('self-update notice is rate-limited, ignores prereleases, and tolerates off
   let calls = 0;
   const fetcher = async () => {
     calls++;
-    return { ok: true, json: async () => ({ version: '0.2.0' }) };
+    return new Response(JSON.stringify({ version: '0.2.0' }));
   };
-  assert.match(await updateNotice(cache, '0.1.0', { fetcher, now: 100 }), /0.2.0/);
+  const notice = await updateNotice(cache, '0.1.0', { fetcher, now: 100 });
+  assert.ok(notice);
+  assert.match(notice, /0.2.0/);
   assert.equal(await updateNotice(cache, '0.1.0', { fetcher, now: 200 }), undefined);
   assert.equal(calls, 1);
   assert.equal(
@@ -245,9 +275,11 @@ test('self-update notice recovers from a null cache file', async (t) => {
   let calls = 0;
   const fetcher = async () => {
     calls++;
-    return { ok: true, json: async () => ({ version: '0.2.0' }) };
+    return new Response(JSON.stringify({ version: '0.2.0' }));
   };
-  assert.match(await updateNotice(cache, '0.1.0', { fetcher, now: 100 }), /0.2.0/);
+  const notice = await updateNotice(cache, '0.1.0', { fetcher, now: 100 });
+  assert.ok(notice);
+  assert.match(notice, /0.2.0/);
   assert.equal(calls, 1);
 });
 
@@ -267,11 +299,11 @@ test('missing DSH package manager is detected before writes and included in inst
   const result = f.cli('setup', '--agents', 'dsh', '--source', f.source);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /require pnpm/);
-  assert.equal(existsSync(f.env.KITTO_HOME), false);
+  assert.equal(existsSync(requireEnv(f.env, 'KITTO_HOME')), false);
   const preview = f.cli('setup', '--agents', 'dsh', '--source', f.source, '--install-agents', '--dry-run');
   good(preview);
   assert.ok(preview.stdout.includes(`Install missing DSH prerequisite: pnpm@${pnpmVersion}`));
-  assert.equal(existsSync(f.env.KITTO_HOME), false);
+  assert.equal(existsSync(requireEnv(f.env, 'KITTO_HOME')), false);
 });
 
 test('DSH desktop setup deploys global rules and skills without pnpm, bundle or profile patch', (t) => {
@@ -288,12 +320,12 @@ test('DSH desktop setup deploys global rules and skills without pnpm, bundle or 
   assert.match(result.stdout, /use --dsh-profile web/);
   assert.doesNotMatch(result.stdout, /Connect native Kitto integrations/);
   assert.match(result.stderr, /has not been initialized/);
-  assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
-  assert.equal(readFileSync(join(f.env.DSH_HOME, 'skills/desktop-example/SKILL.md'), 'utf8'), 'Desktop host skill');
-  assert.match(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), /Example body/);
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).dshProfile, 'desktop');
-  assert.equal(existsSync(join(f.env.DSH_HOME, 'profiles/desktop')), false);
-  let calls = callsOf(f);
+  assert.match(readFileSync(join(requireEnv(f.env, 'DSH_HOME'), 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
+  assert.equal(readFileSync(join(requireEnv(f.env, 'DSH_HOME'), 'skills/desktop-example/SKILL.md'), 'utf8'), 'Desktop host skill');
+  assert.match(readFileSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md'), 'utf8'), /Example body/);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).dshProfile, 'desktop');
+  assert.equal(existsSync(join(requireEnv(f.env, 'DSH_HOME'), 'profiles/desktop')), false);
+  let calls = hostCallsOf(f);
   assert(!calls.some((c) => c.command === 'dsh'));
   assert(!calls.some((c) => c.command === 'pnpm'));
   const versions = f.maintain('versions');
@@ -301,17 +333,17 @@ test('DSH desktop setup deploys global rules and skills without pnpm, bundle or 
   assert.match(versions.stdout, /app-managed/);
 
   good(f.maintain('remove', '--apply'));
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).detached, true);
-  assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
-  calls = callsOf(f);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).detached, true);
+  assert.match(readFileSync(join(requireEnv(f.env, 'DSH_HOME'), 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
+  calls = hostCallsOf(f);
   assert(!calls.some((c) => c.command === 'dsh' && c.args.includes('remove')));
 });
 
 test('DSH desktop detection reports an uninitialized profile, the npm CLI and a working in-app CLI', (t) => {
   const f = fixture(t);
-  const profile = join(f.env.DSH_HOME, 'profiles/desktop');
+  const profile = join(requireEnv(f.env, 'DSH_HOME'), 'profiles/desktop');
   const args = ['setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source, '--dry-run'];
-  const probeCalls = () => callsOf(f).filter((c) => c.command === 'dsh' && c.args.includes('version-exemptions'));
+  const probeCalls = () => hostCallsOf(f).filter((c) => c.command === 'dsh' && c.args.includes('version-exemptions'));
 
   const uninitialized = f.cli(...args);
   good(uninitialized);
@@ -319,7 +351,7 @@ test('DSH desktop detection reports an uninitialized profile, the npm CLI and a 
   assert.match(uninitialized.stderr, /Start DeepSeek Harness Desktop once/);
   assert.doesNotMatch(uninitialized.stdout, /Connect native Kitto integrations/);
   assert.equal(probeCalls().length, 0);
-  assert.equal(existsSync(f.env.KITTO_HOME), false);
+  assert.equal(existsSync(requireEnv(f.env, 'KITTO_HOME')), false);
 
   mkdirSync(profile, { recursive: true });
   const manifest = { dependencies: {}, dsh: { profile: { bundles: [] } } };
@@ -347,7 +379,7 @@ test('DSH desktop setup skips CLI checks and never installs the npm dsh CLI', (t
   rmSync(join(bin, 'dsh'));
   symlinkSync(git, join(bin, 'git'));
   f.env.PATH = bin;
-  const profile = join(f.env.DSH_HOME, 'profiles/desktop');
+  const profile = join(requireEnv(f.env, 'DSH_HOME'), 'profiles/desktop');
   mkdirSync(profile, { recursive: true });
   writeFileSync(join(profile, 'package.json'), JSON.stringify({ dependencies: {}, dsh: { profile: { bundles: [] } } }));
   mkdirSync(join(f.source, 'config/dsh'), { recursive: true });
@@ -361,33 +393,33 @@ test('DSH desktop setup skips CLI checks and never installs the npm dsh CLI', (t
 
   const result = f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'Desktop', '--source', f.source, '--install-agents');
   good(result);
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).dshProfile, 'desktop');
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).dshProfile, 'desktop');
   assert.match(result.stderr, /No dsh CLI was found on PATH/);
-  assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
+  assert.match(readFileSync(join(requireEnv(f.env, 'DSH_HOME'), 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
   assert.deepEqual(readdirSync(profile), ['package.json']);
-  const calls = callsOf(f);
+  const calls = hostCallsOf(f);
   assert(!calls.some((c) => c.command === 'npm' || c.command === 'dsh'));
 });
 
 test('DSH desktop probe copies the profile, tolerates a read-only home and reports timeouts', (t) => {
   const f = fixture(t);
-  const profile = join(f.env.DSH_HOME, 'profiles/desktop');
+  const profile = join(requireEnv(f.env, 'DSH_HOME'), 'profiles/desktop');
   mkdirSync(profile, { recursive: true });
   writeFileSync(join(profile, 'package.json'), JSON.stringify({ dependencies: {}, dsh: { profile: { bundles: [] } } }));
 
-  assert.equal(probeDesktopProfile({ dshHome: f.env.DSH_HOME, env: f.env }).kind, 'desktop-cli');
+  assert.equal(probeDesktopProfile({ dshHome: requireEnv(f.env, 'DSH_HOME'), env: f.env }).kind, 'desktop-cli');
   assert.deepEqual(readdirSync(profile), ['package.json']);
 
   chmodSync(profile, 0o555);
   try {
-    assert.equal(probeDesktopProfile({ dshHome: f.env.DSH_HOME, env: f.env }).kind, 'desktop-cli');
+    assert.equal(probeDesktopProfile({ dshHome: requireEnv(f.env, 'DSH_HOME'), env: f.env }).kind, 'desktop-cli');
     assert.deepEqual(readdirSync(profile), ['package.json']);
   } finally {
     chmodSync(profile, 0o755);
   }
 
   f.env.FAKE_DSH_PROBE_DELAY_MS = '1000';
-  assert.equal(probeDesktopProfile({ dshHome: f.env.DSH_HOME, env: f.env, timeoutMs: 150 }).kind, 'timeout');
+  assert.equal(probeDesktopProfile({ dshHome: requireEnv(f.env, 'DSH_HOME'), env: f.env, timeoutMs: 150 }).kind, 'timeout');
   delete f.env.FAKE_DSH_PROBE_DELAY_MS;
   assert.deepEqual(readdirSync(profile), ['package.json']);
 });
@@ -413,23 +445,26 @@ test('shared-rules-only setup is rejected for the DSH desktop profile', (t) => {
   );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /requires a configuration source/);
-  assert.equal(existsSync(f.env.KITTO_HOME), false);
+  assert.equal(existsSync(requireEnv(f.env, 'KITTO_HOME')), false);
 });
 
 test('setup persists code, keeps private assets out, and registers all native integrations', (t) => {
   const f = fixture(t);
   writeFileSync(join(f.source, 'config/pi/mcp.private.json'), '{"YOUR_SECRET":"fixture"}');
   good(f.cli('setup', '--agents', 'pi,codex,dsh', '--source', f.source));
-  const runtime = join(f.env.KITTO_HOME, 'runtime');
+  const runtime = join(requireEnv(f.env, 'KITTO_HOME'), 'runtime');
   assert.equal(existsSync(join(runtime, 'config')), false);
   assert.equal(existsSync(join(runtime, 'skills')), false);
   const skill = readFileSync(join(runtime, 'integration/skills/kitto/SKILL.md'), 'utf8');
   assert.doesNotMatch(skill, /KITTO_RUNNER/);
   assert.match(skill, /'\\''/);
-  assert.equal(JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'))).ready, true);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).ready, true);
   good(f.maintain('status'));
   good(f.cli('setup'));
-  const calls = readFileSync(f.log, 'utf8').trim().split('\n').map(JSON.parse);
+  const calls = readFileSync(f.log, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
   assert(calls.some((c) => c.command === 'pi' && c.args[0] === 'install' && c.args[1] === runtime));
   assert(calls.some((c) => c.command === 'codex' && c.args.join(' ') === 'plugin add kitto@phyzess-kitto'));
   assert(calls.some((c) => c.command === 'dsh' && c.args.join(' ') === `plugin --profile web add ${runtime}`));
@@ -438,7 +473,7 @@ test('setup persists code, keeps private assets out, and registers all native in
 test('deployed routing help uses the bound CLI without relying on PATH', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'dsh', '--source', f.source));
-  const runtime = join(f.env.KITTO_HOME, 'runtime');
+  const runtime = join(requireEnv(f.env, 'KITTO_HOME'), 'runtime');
   const skill = readFileSync(join(runtime, 'integration/skills/kitto/SKILL.md'), 'utf8');
   const help = skill.match(/^'.*kitto-node' .* route --help$/m)?.[0];
   assert.ok(help && !help.includes('KITTO_CLI'), 'The deployed skill must show the bound routing command.');
@@ -463,29 +498,29 @@ test('deployed routing help uses the bound CLI without relying on PATH', (t) => 
 
 test('a conflicting existing shared skill stops setup before runtime or host changes', (t) => {
   const f = fixture(t),
-    target = join(f.env.PI_AGENTS_DIR, 'skills/example');
+    target = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example');
   mkdirSync(target, { recursive: true });
   writeFileSync(join(target, 'SKILL.md'), 'local work');
   const result = f.cli('setup', '--agents', 'codex', '--source', f.source);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Skill conflict/);
   assert.equal(readFileSync(join(target, 'SKILL.md'), 'utf8'), 'local work');
-  assert.equal(existsSync(join(f.env.KITTO_HOME, 'runtime')), false);
+  assert.equal(existsSync(join(requireEnv(f.env, 'KITTO_HOME'), 'runtime')), false);
 });
 
 test('guided setup keeps divergent unowned skills through later Pi syncs', (t) => {
   const f = fixture(t);
-  const local = join(f.env.PI_AGENTS_DIR, 'skills/example');
-  const owned = join(f.env.PI_AGENTS_DIR, 'skills/managed/SKILL.md');
+  const local = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example');
+  const owned = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/managed/SKILL.md');
   const source = join(f.source, 'skills/example/SKILL.md');
-  const hostLocal = join(f.env.PI_CODING_AGENT_DIR, 'skills/host-example');
+  const hostLocal = join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'skills/host-example');
   const hostSource = join(f.source, 'config/pi/skills/host-example');
-  const state = join(f.env.KITTO_HOME, 'state.json');
+  const state = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json');
   for (const dir of [local, hostSource, join(f.source, 'skills/managed')]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(local, 'SKILL.md'), 'local shared skill');
   writeFileSync(join(f.source, 'skills/managed/SKILL.md'), 'managed skill');
   writeFileSync(join(hostSource, 'SKILL.md'), 'host skill from source');
-  mkdirSync(join(f.env.PI_CODING_AGENT_DIR, 'skills'), { recursive: true });
+  mkdirSync(join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'skills'), { recursive: true });
   symlinkSync(local, hostLocal, 'dir');
 
   const setup = command(
@@ -524,7 +559,7 @@ test('guided setup keeps divergent unowned skills through later Pi syncs', (t) =
 
 test('owned skill updates and removals apply, local modifications stop sync', (t) => {
   const f = fixture(t),
-    target = join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md');
+    target = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md');
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'new shared body');
   good(f.maintain('sync'));
@@ -542,8 +577,8 @@ test('owned skill updates and removals apply, local modifications stop sync', (t
 
 test('foreign symlinks are preserved and rejected', (t) => {
   const f = fixture(t),
-    target = join(f.env.PI_AGENTS_DIR, 'skills/example');
-  mkdirSync(join(f.env.PI_AGENTS_DIR, 'skills'), { recursive: true });
+    target = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example');
+  mkdirSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills'), { recursive: true });
   symlinkSync(f.temp, target);
   const result = f.cli('setup', '--agents', 'codex', '--source', f.source);
   assert.notEqual(result.status, 0);
@@ -554,17 +589,17 @@ test('failed native registration is resumable and holds no stale lock', (t) => {
   const f = fixture(t);
   f.env.FAIL_HOST = 'codex';
   assert.notEqual(f.cli('setup', '--agents', 'codex', '--source', f.source).status, 0);
-  assert.equal(JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'))).ready, false);
-  assert.equal(existsSync(join(f.env.KITTO_HOME, '.lock')), false);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).ready, false);
+  assert.equal(existsSync(join(requireEnv(f.env, 'KITTO_HOME'), '.lock')), false);
   delete f.env.FAIL_HOST;
   good(f.cli('setup'));
-  assert.equal(JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'))).ready, true);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).ready, true);
 });
 
 test('maintenance runner finds custom home without inheriting setup environment', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
-  const runtime = f.env.KITTO_HOME;
+  const runtime = requireEnv(f.env, 'KITTO_HOME');
   delete f.env.KITTO_HOME;
   good(command(process.execPath, [join(runtime, 'runtime/bin/maintain.mjs'), 'status'], f.env));
 });
@@ -572,9 +607,9 @@ test('maintenance runner finds custom home without inheriting setup environment'
 test('lock rejects concurrent mutation and dirty source rejects update', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
-  mkdirSync(join(f.env.KITTO_HOME, '.lock'));
+  mkdirSync(join(requireEnv(f.env, 'KITTO_HOME'), '.lock'));
   assert.match(f.maintain('sync', '--apply').stderr, /exists without an owner record/);
-  rmSync(join(f.env.KITTO_HOME, '.lock'), { recursive: true });
+  rmSync(join(requireEnv(f.env, 'KITTO_HOME'), '.lock'), { recursive: true });
   writeFileSync(join(f.source, 'uncommitted.txt'), 'work');
   assert.match(f.maintain('update', '--apply').stderr, /local changes/);
   assert.equal(readFileSync(join(f.source, 'uncommitted.txt'), 'utf8'), 'work');
@@ -589,8 +624,8 @@ test('remote bootstrap clones internally and later updates only by fast-forward'
   f.env.GIT_CONFIG_GLOBAL = config;
   good(command('git', ['config', '--file', config, `url.${mirror}.insteadOf`, 'https://kitto.invalid/config.git'], f.env));
   good(f.cli('setup', '--agents', 'codex', '--source', 'https://kitto.invalid/config.git', '--ref', 'main'));
-  const managed = join(f.env.KITTO_HOME, 'config');
-  assert.equal(JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'))).source, managed);
+  const managed = join(requireEnv(f.env, 'KITTO_HOME'), 'config');
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).source, managed);
   good(command('git', ['remote', 'add', 'origin', mirror], f.env, f.source));
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'new remote skill');
   for (const args of [
@@ -604,7 +639,7 @@ test('remote bootstrap clones internally and later updates only by fast-forward'
   assert.equal(command('git', ['rev-parse', 'HEAD'], f.env, managed).stdout, before);
   good(f.maintain('update', '--apply'));
   assert.notEqual(command('git', ['rev-parse', 'HEAD'], f.env, managed).stdout, before);
-  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'new remote skill');
+  assert.equal(readFileSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md'), 'utf8'), 'new remote skill');
 });
 
 test('kitto update refreshes the runtime copy, deploys the new source and records a checkpoint', async (t) => {
@@ -612,10 +647,10 @@ test('kitto update refreshes the runtime copy, deploys the new source and record
     a = release(f, '0.1.0-test.1'),
     b = release(f, '0.1.0-test.2', 'update');
   good(a('--agents', 'codex', '--source', f.source));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     runtime = join(home, 'runtime'),
     statePath = join(home, 'state.json');
-  const skill = join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md');
+  const skill = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md');
   assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
   assert.equal(readJson(statePath).version, '0.1.0-test.1');
   withRemote(f);
@@ -661,7 +696,7 @@ test('a failed deployment after the runtime swap is not verified and stays recov
     a = release(f, '0.1.0-test.1'),
     b = release(f, '0.1.0-test.2', 'update');
   good(a('--agents', 'codex', '--source', f.source));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     statePath = join(home, 'state.json'),
     runtime = join(home, 'runtime');
   const verifiedHash = readJson(statePath).runtimeHash;
@@ -695,7 +730,7 @@ test('a failed update is never checkpointed and a later update keeps the real ch
     b = release(f, '0.1.0-test.2', 'update'),
     c = release(f, '0.1.0-test.3', 'update');
   good(a('--agents', 'codex', '--source', f.source));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     statePath = join(home, 'state.json');
   withRemote(f);
   writeFileSync(join(f.source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: { debug: { command: 'debug-mcp' } } }));
@@ -720,7 +755,7 @@ test('an installRuntime failure leaves the verified runtime and state intact', (
     a = release(f, '0.1.0-test.1'),
     b = release(f, '0.1.0-test.2', 'update');
   good(a('--agents', 'codex', '--source', f.source));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     runtime = join(home, 'runtime'),
     statePath = join(home, 'state.json');
   withRemote(f);
@@ -741,7 +776,7 @@ test('maintain update fast-forwards and redeploys without replacing its own runt
   const f = fixture(t),
     a = release(f, '0.1.0-test.1');
   good(a('--agents', 'codex', '--source', f.source));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     runtime = join(home, 'runtime');
   withRemote(f);
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'maintain update content');
@@ -756,7 +791,7 @@ test('maintain update fast-forwards and redeploys without replacing its own runt
   assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
   good(f.maintain('update', '--apply'));
   assert.match(readJson(join(home, 'state.json')).deployed.commit, /./);
-  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'maintain update content');
+  assert.equal(readFileSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md'), 'utf8'), 'maintain update content');
   assert.equal(readJson(join(runtime, 'package.json')).version, '0.1.0-test.1');
   assert.equal(readJson(join(home, 'state.json')).version, '0.1.0-test.1');
 });
@@ -793,7 +828,7 @@ test('update preview covers the app-managed DSH desktop branch without a dsh CLI
   commitAll(f, 'desktop rules');
   good(f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source));
   withRemote(f);
-  const home = f.env.KITTO_HOME;
+  const home = requireEnv(f.env, 'KITTO_HOME');
   const logBefore = existsSync(f.log) ? readFileSync(f.log, 'utf8') : '';
   const before = snapshot(home);
   const preview = f.cli('update', '--check');
@@ -808,7 +843,7 @@ test('kitto update restores a lost managed checkout from the recorded source URL
   const f = fixture(t),
     { url } = mirrorOf(f);
   good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'main'));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     managed = join(home, 'config');
   assert.equal(readJson(join(home, 'state.json')).sourceUrl, url);
   assert.equal(readJson(join(home, 'state.json')).sourceRef, 'main');
@@ -825,7 +860,7 @@ test('kitto update restores a lost managed checkout from the recorded source URL
   good(f.cli('update', '--apply'));
   assert.equal(existsSync(join(managed, '.git')), true);
   assert.equal(readJson(join(home, 'state.json')).sourceUrl, url);
-  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'restored from source URL');
+  assert.equal(readFileSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md'), 'utf8'), 'restored from source URL');
   assert.equal(
     command('git', ['rev-parse', 'HEAD'], f.env, managed).stdout.trim(),
     command('git', ['rev-parse', 'main'], f.env, join(f.temp, 'remote.git')).stdout.trim(),
@@ -834,19 +869,19 @@ test('kitto update restores a lost managed checkout from the recorded source URL
 
 test('kitto update restores a lost checkout on its recorded non-default branch', (t) => {
   const f = fixture(t);
-  const git = (...args) => command('git', args, f.env, f.source);
+  const git = (...args: string[]) => command('git', args, f.env, f.source);
   good(git('checkout', '-b', 'alt'));
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'alt branch content');
   commitAll(f, 'alt config');
   good(git('checkout', 'main'));
   const { mirror, url } = mirrorOf(f);
   good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'alt'));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     managed = join(home, 'config'),
     statePath = join(home, 'state.json');
   assert.equal(readJson(statePath).sourceRef, 'alt');
   assert.equal(command('git', ['symbolic-ref', '--short', 'HEAD'], f.env, managed).stdout.trim(), 'alt');
-  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'alt branch content');
+  assert.equal(readFileSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md'), 'utf8'), 'alt branch content');
   rmSync(managed, { recursive: true });
 
   const preview = f.cli('update', '--check');
@@ -859,17 +894,17 @@ test('kitto update restores a lost checkout on its recorded non-default branch',
     command('git', ['rev-parse', 'HEAD'], f.env, managed).stdout.trim(),
     command('git', ['rev-parse', 'alt'], f.env, mirror).stdout.trim(),
   );
-  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'), 'alt branch content');
+  assert.equal(readFileSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md'), 'utf8'), 'alt branch content');
   assert.equal(readJson(statePath).sourceRef, 'alt');
 });
 
 test('kitto update refuses to guess a lost checkout pinned to a tag', (t) => {
   const f = fixture(t);
-  const git = (...args) => command('git', args, f.env, f.source);
+  const git = (...args: string[]) => command('git', args, f.env, f.source);
   good(git('tag', 'v1'));
   const { url } = mirrorOf(f);
   good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'v1'));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     managed = join(home, 'config'),
     statePath = join(home, 'state.json');
   assert.equal(readJson(statePath).sourceRef, 'v1');
@@ -906,7 +941,7 @@ test('kitto update backfills a missing sourceUrl and sourceRef from the bootstra
   const f = fixture(t),
     { url } = mirrorOf(f);
   good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'main'));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     managed = join(home, 'config'),
     statePath = join(home, 'state.json');
   const legacy = readJson(statePath);
@@ -932,7 +967,7 @@ test('kitto update refuses a lost checkout whose recorded ref is unknown or not 
   const f = fixture(t),
     { url } = mirrorOf(f);
   good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'main'));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     managed = join(home, 'config'),
     statePath = join(home, 'state.json');
   const legacy = readJson(statePath);
@@ -962,7 +997,7 @@ test('kitto update follows a changed origin and redacts credentials in messages'
     second = 'https://user:secret@kitto.invalid/config2.git';
   const { mirror } = mirrorOf(f, first, second);
   good(f.cli('setup', '--agents', 'codex', '--source', first, '--ref', 'main'));
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     managed = join(home, 'config'),
     statePath = join(home, 'state.json');
   assert.equal(readJson(statePath).sourceUrl, first);
@@ -994,7 +1029,7 @@ test('kitto update follows a changed origin and redacts credentials in messages'
 test('kitto update explains a missing upstream and refuses a diverged remote', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
-  const statePath = join(f.env.KITTO_HOME, 'state.json'),
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'),
     stateBefore = readFileSync(statePath, 'utf8');
   for (const args of [['update'], ['update', '--apply']]) {
     const result = f.cli(...args);
@@ -1036,7 +1071,7 @@ test('kitto update allows a clean local branch that is ahead of its remote', (t)
   writeFileSync(join(f.source, 'local-note.txt'), 'local work');
   commitAll(f, 'local ahead');
   const head = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout.trim();
-  const statePath = join(f.env.KITTO_HOME, 'state.json');
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json');
 
   const preview = f.cli('update', '--check');
   good(preview);
@@ -1056,8 +1091,8 @@ test('kitto update preview writes neither the home, the source nor the deploymen
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'new remote skill');
   commitAll(f, 'remote update');
   good(command('git', ['push', 'origin', 'main'], f.env, f.source));
-  const home = f.env.KITTO_HOME,
-    skill = join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md');
+  const home = requireEnv(f.env, 'KITTO_HOME'),
+    skill = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md');
   const before = snapshot(home),
     skillBefore = readFileSync(skill, 'utf8');
   const head = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout;
@@ -1075,7 +1110,7 @@ test('kitto update preview writes neither the home, the source nor the deploymen
 test('kitto update tolerates state from an older version and explains a missing local checkout', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
-  const statePath = join(f.env.KITTO_HOME, 'state.json');
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json');
   assert.equal(readJson(statePath).sourceUrl, undefined);
   assert.equal(readJson(statePath).sourceRef, null);
   withRemote(f);
@@ -1093,13 +1128,13 @@ test('kitto update tolerates state from an older version and explains a missing 
   assert.notEqual(lost.status, 0);
   assert.match(lost.stderr, /no source URL was recorded/);
   assert.match(lost.stderr, /or use a new KITTO_HOME/);
-  assert.equal(existsSync(join(f.env.KITTO_HOME, 'config')), false);
+  assert.equal(existsSync(join(requireEnv(f.env, 'KITTO_HOME'), 'config')), false);
 });
 
 test('kitto update refuses dirty worktrees and pinned tag checkouts before writing', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
-  const statePath = join(f.env.KITTO_HOME, 'state.json'),
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'),
     before = readFileSync(statePath, 'utf8');
   writeFileSync(join(f.source, 'uncommitted.txt'), 'work');
   const dirty = f.cli('update', '--apply');
@@ -1133,7 +1168,7 @@ test('packed npm artifact excludes personal configuration and all undeclared ass
   const f = fixture(t);
   const result = command('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], f.env, publishRoot);
   good(result);
-  const paths = JSON.parse(result.stdout)[0].files.map((file) => file.path);
+  const paths = JSON.parse(result.stdout)[0].files.map((file: { path: string }) => file.path);
   assert(paths.includes('integration/skills/kitto/SKILL.md'));
   assert(paths.includes('bin/kitto.mjs'));
   for (const path of paths)
@@ -1141,8 +1176,8 @@ test('packed npm artifact excludes personal configuration and all undeclared ass
       path,
       /^(bin\/[^/]+\.mjs|lib\/(hosts\/)?[^/]+\.(mjs|py)|integration\/|sync\.sh$|package\.json$|README\.md$|CHANGELOG\.md$)/,
     );
-  assert(!paths.some((path) => /^(config|skills|lists|tests)\//.test(path)));
-  assert(!paths.some((path) => path.endsWith('.map')));
+  assert(!paths.some((path: string) => /^(config|skills|lists|tests)\//.test(path)));
+  assert(!paths.some((path: string) => path.endsWith('.map')));
 });
 
 test('failed upgrade retries preserve the working checkpoint, and external setup recovers broken code', (t) => {
@@ -1152,17 +1187,17 @@ test('failed upgrade retries preserve the working checkpoint, and external setup
   good(a('--agents', 'codex', '--source', f.source));
   f.env.FAIL_HOST = 'codex';
   assert.notEqual(b().status, 0);
-  const checkpoint = join(f.env.KITTO_HOME, 'runtime.previous.json'),
+  const checkpoint = join(requireEnv(f.env, 'KITTO_HOME'), 'runtime.previous.json'),
     before = readFileSync(checkpoint, 'utf8');
   assert.equal(readJson(checkpoint).version, '0.1.0-test.1');
   assert.notEqual(b().status, 0);
   assert.equal(readFileSync(checkpoint, 'utf8'), before);
-  const statePath = join(f.env.KITTO_HOME, 'state.json'),
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'),
     state = readFileSync(statePath, 'utf8');
   good(f.maintain('recover'));
   assert.equal(readFileSync(statePath, 'utf8'), state);
   rmSync(f.source, { recursive: true });
-  writeFileSync(join(f.env.KITTO_HOME, 'runtime/bin/maintain.mjs'), 'broken syntax !');
+  writeFileSync(join(requireEnv(f.env, 'KITTO_HOME'), 'runtime/bin/maintain.mjs'), 'broken syntax !');
   good(f.cli('setup', '--recover', '--dry-run'));
   assert.notEqual(f.cli('setup', '--recover').status, 0);
   assert.equal(readJson(statePath).ready, false);
@@ -1172,7 +1207,7 @@ test('failed upgrade retries preserve the working checkpoint, and external setup
   assert.equal(readJson(statePath).version, '0.1.0-test.1');
   assert.equal(readJson(statePath).ready, true);
   assert.deepEqual(list(readJson(statePath), 'skill', 'shared', 'owned'), list(JSON.parse(state), 'skill', 'shared', 'owned'));
-  assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8').includes('Example body'), true);
+  assert.equal(readFileSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md'), 'utf8').includes('Example body'), true);
   good(f.maintain('status'));
 });
 
@@ -1183,9 +1218,9 @@ test('same-version setup does not erase a prior version checkpoint', (t) => {
   good(a('--agents', 'codex', '--source', f.source));
   good(b());
   good(b());
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'runtime.previous.json')).version, '0.1.0-test.1');
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'runtime.previous.json')).version, '0.1.0-test.1');
   good(f.maintain('recover', '--apply'));
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).version, '0.1.0-test.1');
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).version, '0.1.0-test.1');
 });
 
 test('tampered checkpoint is rejected without changing the active installation', (t) => {
@@ -1194,28 +1229,33 @@ test('tampered checkpoint is rejected without changing the active installation',
     b = release(f, '0.1.0-test.2');
   good(a('--agents', 'codex', '--source', f.source));
   good(b());
-  writeFileSync(join(f.env.KITTO_HOME, 'runtime.previous/lib/kitto.mjs'), 'modified');
+  writeFileSync(join(requireEnv(f.env, 'KITTO_HOME'), 'runtime.previous/lib/kitto.mjs'), 'modified');
   assert.match(f.maintain('recover', '--apply').stderr, /checkpoint was modified/);
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).version, '0.1.0-test.2');
-  assert.equal(existsSync(join(f.env.KITTO_HOME, '.lock')), false);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).version, '0.1.0-test.2');
+  assert.equal(existsSync(join(requireEnv(f.env, 'KITTO_HOME'), '.lock')), false);
 });
 
 test('native removal is previewable and repeatable, preserves personal assets and allows reinstall', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'pi,codex,dsh', '--source', f.source));
   good(f.maintain('sync', '--apply'));
-  const codexFile = join(f.env.CODEX_HOME, '_fake-codex.json'),
+  const codexFile = join(requireEnv(f.env, 'CODEX_HOME'), '_fake-codex.json'),
     other = readJson(codexFile);
   other.installed.push({ pluginId: 'other@personal', marketplaceName: 'personal' });
   other.marketplaces.push({ name: 'personal', root: '/other' });
   writeFileSync(codexFile, JSON.stringify(other));
-  const dshFile = join(f.env.DSH_HOME, 'profiles/web/package.json'),
+  const dshFile = join(requireEnv(f.env, 'DSH_HOME'), 'profiles/web/package.json'),
     profile = readJson(dshFile);
   profile.dependencies.other = '1.0.0';
   profile.dsh.profile.bundles.push('other');
   writeFileSync(dshFile, JSON.stringify(profile));
   const sourceHead = command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout;
-  const files = [codexFile, dshFile, join(f.env.PI_CODING_AGENT_DIR, 'settings.json'), join(f.env.KITTO_HOME, 'state.json')];
+  const files = [
+    codexFile,
+    dshFile,
+    join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'settings.json'),
+    join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'),
+  ];
   const before = files.map((file) => readFileSync(file, 'utf8'));
   good(f.maintain('remove'));
   assert.deepEqual(
@@ -1226,11 +1266,11 @@ test('native removal is previewable and repeatable, preserves personal assets an
   good(f.maintain('remove', '--apply'));
   assert.equal(readJson(files[3]).detached, true);
   assert.deepEqual(
-    readJson(codexFile).installed.map((x) => x.pluginId),
+    readJson(codexFile).installed.map((x: { pluginId: string }) => x.pluginId),
     ['other@personal'],
   );
   assert.deepEqual(
-    readJson(codexFile).marketplaces.map((x) => x.name),
+    readJson(codexFile).marketplaces.map((x: { name: string }) => x.name),
     ['personal'],
   );
   assert.equal(readJson(dshFile).dependencies.other, '1.0.0');
@@ -1238,12 +1278,12 @@ test('native removal is previewable and repeatable, preserves personal assets an
   assert.equal(readJson(files[2]).packages.length, 0);
   assert.doesNotMatch(readFileSync(join(f.source, 'config/pi/local/packages.txt'), 'utf8'), /kitto\/runtime/);
   assert.equal(command('git', ['rev-parse', 'HEAD'], f.env, f.source).stdout, sourceHead);
-  assert(existsSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md')));
+  assert(existsSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md')));
   assert.match(f.maintain('sync', '--apply').stderr, /detached/);
   good(f.cli('setup'));
   assert.equal(readJson(files[3]).ready, true);
   assert.equal(readJson(files[3]).detached, false);
-  assert(readJson(codexFile).installed.some((x) => x.pluginId === 'kitto@phyzess-kitto'));
+  assert(readJson(codexFile).installed.some((x: { pluginId: string }) => x.pluginId === 'kitto@phyzess-kitto'));
 });
 
 test('partially completed removal resumes after a native failure without needing the source checkout', (t) => {
@@ -1253,15 +1293,18 @@ test('partially completed removal resumes after a native failure without needing
   f.env.FAIL_ACTION = 'remove';
   f.env.FAIL_STAGE = 'marketplace';
   assert.notEqual(f.maintain('remove', '--apply').status, 0);
-  const path = join(f.env.KITTO_HOME, 'state.json');
+  const path = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json');
   assert.deepEqual(readJson(path).removedAgents, ['pi']);
   assert.equal(readJson(path).removing, true);
-  assert.equal(existsSync(join(f.env.KITTO_HOME, '.lock')), false);
+  assert.equal(existsSync(join(requireEnv(f.env, 'KITTO_HOME'), '.lock')), false);
   rmSync(f.source, { recursive: true });
   delete f.env.FAIL_HOST;
   good(f.maintain('remove', '--apply'));
   assert.equal(readJson(path).detached, true);
-  const calls = readFileSync(f.log, 'utf8').trim().split('\n').map(JSON.parse);
+  const calls = readFileSync(f.log, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
   assert.equal(calls.filter((x) => x.command === 'pi' && x.args[0] === 'remove').length, 1);
   good(f.maintain('status'));
 });
@@ -1269,19 +1312,19 @@ test('partially completed removal resumes after a native failure without needing
 test('foreign native registration stops removal before detaching any host', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
-  const file = join(f.env.CODEX_HOME, '_fake-codex.json'),
+  const file = join(requireEnv(f.env, 'CODEX_HOME'), '_fake-codex.json'),
     data = readJson(file);
   data.marketplaces[0].root = '/foreign';
   writeFileSync(file, JSON.stringify(data));
   assert.match(f.maintain('remove', '--apply').stderr, /another location/);
-  assert.equal(readJson(join(f.env.PI_CODING_AGENT_DIR, 'settings.json')).packages.length, 1);
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+  assert.equal(readJson(join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'settings.json')).packages.length, 1);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).ready, true);
   const alias = join(f.temp, 'kitto-alias');
-  symlinkSync(f.env.KITTO_HOME, alias);
+  symlinkSync(requireEnv(f.env, 'KITTO_HOME'), alias);
   data.marketplaces[0].root = alias;
   writeFileSync(file, JSON.stringify(data));
   good(f.maintain('remove', '--apply'));
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).detached, true);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).detached, true);
 });
 
 for (const agent of ['codex', 'dsh']) {
@@ -1294,7 +1337,7 @@ for (const agent of ['codex', 'dsh']) {
     const git = command('which', ['git'], f.env).stdout.trim();
     symlinkSync(git, join(bin, 'git'));
     f.env.PATH = bin;
-    const home = f.env[agent === 'codex' ? 'CODEX_HOME' : 'DSH_HOME'];
+    const home = requireEnv(f.env, agent === 'codex' ? 'CODEX_HOME' : 'DSH_HOME');
     mkdirSync(join(f.source, 'config', agent, 'skills/host-example'), { recursive: true });
     writeFileSync(join(f.source, 'config', agent, 'skills/host-example/SKILL.md'), 'Host only');
     const source = join(f.source, 'config', agent, 'AGENTS.md');
@@ -1306,15 +1349,15 @@ for (const agent of ['codex', 'dsh']) {
     good(f.cli('setup', '--agents', agent, '--source', f.source, ...options));
     assert.match(readFileSync(instructions, 'utf8'), /My local rules\n[\s\S]*Portable rules/);
     assert.equal(readFileSync(join(home, 'skills/host-example/SKILL.md'), 'utf8'), 'Host only');
-    assert(!existsSync(join(f.env.PI_AGENTS_DIR, 'skills/host-example')));
+    assert(!existsSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/host-example')));
     const versions = f.maintain('versions');
     good(versions);
     const report = JSON.parse(versions.stdout);
-    assert(report.components.some((row) => row.owner === agent && row.tested));
-    assert(!report.components.some((row) => row.owner === 'pi' || row.upstream));
-    assert(report.components.some((row) => row.owner === agent && row.kind === 'skill' && row.contentSha256));
+    assert(report.components.some((row: ComponentRow) => row.owner === agent && row.tested));
+    assert(!report.components.some((row: ComponentRow) => row.owner === 'pi' || row.upstream));
+    assert(report.components.some((row: ComponentRow) => row.owner === agent && row.kind === 'skill' && row.contentSha256));
     good(f.maintain('deps', '--apply'));
-    assert(!existsSync(f.env.PI_CODING_AGENT_DIR));
+    assert(!existsSync(requireEnv(f.env, 'PI_CODING_AGENT_DIR')));
     writeFileSync(source, 'Updated portable rules');
     good(f.maintain('sync', '--apply'));
     assert.match(readFileSync(instructions, 'utf8'), /My local rules\n[\s\S]*Updated portable rules/);
@@ -1326,7 +1369,7 @@ for (const agent of ['codex', 'dsh']) {
       writeFileSync(instructions, updated);
       const path = join(home, 'profiles/headless/package.json');
       assert(readJson(path).dependencies['@phyzess/kitto']);
-      assert(report.components.some((row) => row.profile === 'headless' && row.name === '@phyzess/kitto'));
+      assert(report.components.some((row: ComponentRow) => row.profile === 'headless' && row.name === '@phyzess/kitto'));
       good(f.cli('setup'));
       good(f.maintain('remove', '--apply'));
       assert(!readJson(path).dependencies['@phyzess/kitto']);
@@ -1362,7 +1405,7 @@ test('dependency previews use enabled Pi MCP commands and deduplicate shared too
   assert.equal(preview.stdout.match(/(?:Missing|Available): codegraph/g)?.length, 1);
   assert.match(preview.stdout, /shared skill codegraph, Pi MCP codegraph/);
   assert.doesNotMatch(preview.stdout, /dap-mcp-server/);
-  const file = join(f.env.PI_CODING_AGENT_DIR, 'mcp.json');
+  const file = join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'mcp.json');
   const config = readJson(file);
   config.mcpServers.debug.enabled = true;
   writeFileSync(file, JSON.stringify(config));
@@ -1380,16 +1423,16 @@ test('first setup retries from its own clone and rejects unregistered or changed
   writeFileSync(config, '');
   f.env.GIT_CONFIG_GLOBAL = config;
   good(command('git', ['config', '--file', config, `url.${mirror}.insteadOf`, url], f.env));
-  const conflict = join(f.env.PI_AGENTS_DIR, 'skills/example');
+  const conflict = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example');
   mkdirSync(conflict, { recursive: true });
   writeFileSync(join(conflict, 'SKILL.md'), 'local work');
   const args = ['setup', '--agents', 'codex', '--source', url, '--ref', 'main'];
-  const managed = join(f.env.KITTO_HOME, 'config');
+  const managed = join(requireEnv(f.env, 'KITTO_HOME'), 'config');
   mkdirSync(managed, { recursive: true });
   assert.match(f.cli(...args).stderr, /Unregistered checkout/);
   rmSync(managed, { recursive: true });
   assert.match(f.cli(...args).stderr, /Skill conflict/);
-  assert(!existsSync(join(f.env.KITTO_HOME, 'state.json')));
+  assert(!existsSync(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')));
   rmSync(conflict, { recursive: true });
   good(command('git', ['remote', 'set-url', 'origin', 'https://kitto.invalid/another.git'], f.env, managed));
   assert.match(f.cli(...args).stderr, /Unregistered checkout/);
@@ -1399,7 +1442,7 @@ test('first setup retries from its own clone and rejects unregistered or changed
   good(retried);
   assert.match(retried.stdout, /Resume setup/);
   assert.equal(readFileSync(join(managed, 'local-note'), 'utf8'), 'preserve this');
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).ready, true);
 });
 
 test('dependency apply reports missing installers and checks successful installs', (t) => {
@@ -1436,7 +1479,7 @@ test('tag install pins a snapshot and managed setup can switch it without losing
   const homeAlias = join(f.temp, 'home-alias');
   symlinkSync(f.home, homeAlias, 'dir');
   f.env.KITTO_HOME = join(homeAlias, 'kitto');
-  const git = (...args) => command('git', args, f.env, f.source);
+  const git = (...args: string[]) => command('git', args, f.env, f.source);
   const first = git('rev-parse', 'HEAD').stdout.trim();
   good(git('tag', 'v1'));
   writeFileSync(join(f.source, 'skills/example/SKILL.md'), 'second snapshot');
@@ -1451,7 +1494,7 @@ test('tag install pins a snapshot and managed setup can switch it without losing
   f.env.GIT_CONFIG_GLOBAL = config;
   good(git('config', '--file', config, `url.${mirror}.insteadOf`, url));
   good(f.cli('setup', '--agents', 'codex', '--source', url, '--ref', 'v1'));
-  const state = () => readJson(join(f.env.KITTO_HOME, 'state.json'));
+  const state = () => readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'));
   assert.deepEqual(state().deployed, { commit: first, dirty: false, detached: true });
   assert.match(f.maintain('update', '--apply').stderr, /pinned to a detached revision/);
   const note = join(state().source, 'local-note');
@@ -1459,7 +1502,7 @@ test('tag install pins a snapshot and managed setup can switch it without losing
   assert.match(f.cli('setup', '--ref', 'v2').stderr, /local changes/);
   assert.equal(readFileSync(note, 'utf8'), 'local work');
   rmSync(note);
-  const deployedSkill = join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md');
+  const deployedSkill = join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md');
   const original = readFileSync(deployedSkill, 'utf8');
   writeFileSync(deployedSkill, 'manual change');
   assert.match(f.cli('setup', '--ref', 'v2').stderr, /Skill conflict/);
@@ -1497,20 +1540,23 @@ test('interactive CLI previews and applies bundled Pi and Codex setup for future
   });
   good(result);
   assert.match(result.stdout, /安装计划[\s\S]*Preview only[\s\S]*预览完成[\s\S]*Scope ready/);
-  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  const state = readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'));
   assert.equal(state.ready, true);
   assert.deepEqual(state.agents, ['pi', 'codex']);
   assert.equal(state.source, await realpath(f.source));
   assert.equal(
-    readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8'),
+    readFileSync(join(requireEnv(f.env, 'PI_AGENTS_DIR'), 'skills/example/SKILL.md'), 'utf8'),
     readFileSync(join(f.source, 'skills/example/SKILL.md'), 'utf8'),
   );
-  assert.equal(existsSync(join(f.env.PI_CODING_AGENT_DIR, 'mcp.json')), true);
-  const calls = readFileSync(f.log, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(existsSync(join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'mcp.json')), true);
+  const calls = readFileSync(f.log, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
   assert(calls.some((c) => c.command === 'pi' && c.args[0] === 'install'));
   assert(calls.some((c) => c.command === 'codex' && c.args.join(' ') === 'plugin add kitto@phyzess-kitto'));
 
-  const registry = readJson(join(f.env.KITTO_HOME, 'scopes.json'));
+  const registry = readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'scopes.json'));
   assert.equal(registry.global, true);
   assert.deepEqual(registry.workspaceParents, [workspaceParent]);
   const workspace = join(workspaceParent, 'future-team');
@@ -1524,7 +1570,7 @@ test('interactive CLI previews and applies bundled Pi and Codex setup for future
 
   const nativeEnv = { ...f.env };
   delete nativeEnv.KITTO_HOME;
-  const extension = join(f.env.PI_CODING_AGENT_DIR, 'extensions/kitto-scopes.js');
+  const extension = join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'extensions/kitto-scopes.js');
   const pi = command(
     process.execPath,
     [
@@ -1547,10 +1593,10 @@ test('interactive CLI previews and applies bundled Pi and Codex setup for future
   );
   good(pi);
   const { contextFiles, skillPaths } = JSON.parse(pi.stdout);
-  assert(contextFiles.some((file) => file.content === 'Future workspace instructions'));
+  assert(contextFiles.some((file: { content: string }) => file.content === 'Future workspace instructions'));
   assert(skillPaths.includes(skills));
 
-  const hooks = readJson(join(f.env.CODEX_HOME, 'hooks.json'));
+  const hooks = readJson(join(requireEnv(f.env, 'CODEX_HOME'), 'hooks.json'));
   const hook = hooks.hooks.SessionStart[0].hooks[0].command;
   const codex = spawnSync('sh', ['-c', hook], {
     cwd: project,
@@ -1584,11 +1630,14 @@ test('interactive DSH Desktop setup stays global-only and skips scoped adapters'
   assert.match(result.stdout, /环境配置已完成/);
   assert.doesNotMatch(result.stdout, /Connect native Kitto integrations/);
   assert.doesNotMatch(result.stdout, /DSH scope registration will run/);
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).dshProfile, 'desktop');
-  assert.match(readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
-  assert.equal(existsSync(join(f.env.KITTO_HOME, 'scopes.json')), false);
-  assert.equal(existsSync(join(f.env.DSH_HOME, 'profiles/desktop')), false);
-  const calls = readFileSync(f.log, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).dshProfile, 'desktop');
+  assert.match(readFileSync(join(requireEnv(f.env, 'DSH_HOME'), 'AGENTS.md'), 'utf8'), /Desktop portable rules/);
+  assert.equal(existsSync(join(requireEnv(f.env, 'KITTO_HOME'), 'scopes.json')), false);
+  assert.equal(existsSync(join(requireEnv(f.env, 'DSH_HOME'), 'profiles/desktop')), false);
+  const calls = readFileSync(f.log, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
   assert(!calls.some((c) => c.command === 'dsh' && c.args.includes('add')));
   assert(!calls.some((c) => c.command === 'pnpm'));
 });
@@ -1596,7 +1645,7 @@ test('interactive DSH Desktop setup stays global-only and skips scoped adapters'
 test('a stale lock reports its owner and --break-lock clears both locks', (t) => {
   const f = fixture(t);
   const dead = spawnSync(process.execPath, ['-e', '']).pid;
-  const lock = join(f.env.KITTO_HOME, '.lock');
+  const lock = join(requireEnv(f.env, 'KITTO_HOME'), '.lock');
   mkdirSync(lock, { recursive: true });
   writeFileSync(
     join(lock, 'owner.json'),
@@ -1616,12 +1665,12 @@ test('a stale lock reports its owner and --break-lock clears both locks', (t) =>
   assert.match(released.stdout, new RegExp(`removed stale sync lock .*\\(pid ${dead} is no longer running\\)`));
   assert.equal(existsSync(lock), false);
   assert.equal(existsSync(join(f.source, 'config/pi/local/.sync-lock')), false);
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).ready, true);
 });
 
 test('a live lock is never displaced, even with --break-lock', (t) => {
   const f = fixture(t);
-  const lock = join(f.env.KITTO_HOME, '.lock');
+  const lock = join(requireEnv(f.env, 'KITTO_HOME'), '.lock');
   mkdirSync(lock, { recursive: true });
   writeFileSync(
     join(lock, 'owner.json'),
@@ -1673,23 +1722,28 @@ test('release verification gives up with the expected integrity', () => {
   assert.equal(calls, 3);
 });
 
-function installAsSchemaOne(f, packages = []) {
+function installAsSchemaOne(f: Fixture, packages: string[] = []) {
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
-  const statePath = join(f.env.KITTO_HOME, 'state.json');
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json');
   assert.equal(readJson(statePath).schema, 2, 'new installs write schema 2');
   const original = JSON.stringify(downgradeState(readJson(statePath)), null, 2) + '\n';
   writeFileSync(statePath, original);
-  rmSync(join(f.env.KITTO_HOME, 'state.v1.json'), { force: true });
+  rmSync(join(requireEnv(f.env, 'KITTO_HOME'), 'state.v1.json'), { force: true });
   const local = join(f.source, 'config/pi/local');
   mkdirSync(local, { recursive: true });
   writeFileSync(join(local, 'managed-packages.json'), JSON.stringify(packages));
-  return { statePath, original, managed: join(local, 'managed-packages.json'), backup: join(f.env.KITTO_HOME, 'state.v1.json') };
+  return {
+    statePath,
+    original,
+    managed: join(local, 'managed-packages.json'),
+    backup: join(requireEnv(f.env, 'KITTO_HOME'), 'state.v1.json'),
+  };
 }
 
 test('a schema 1 state migrates on the first apply: one backup, imported Pi packages, file removed', (t) => {
   const f = fixture(t);
   const v1 = installAsSchemaOne(f, ['npm:shared-one']);
-  const machine = join(f.env.PI_CODING_AGENT_DIR, 'settings.json');
+  const machine = join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'settings.json');
   const settings = readJson(machine);
   writeFileSync(machine, JSON.stringify({ ...settings, packages: [...settings.packages, 'npm:shared-one', 'npm:personal'] }));
 
@@ -1721,7 +1775,7 @@ test('state-rollback previews, restores schema 1 and the Pi package file, and re
   const f = fixture(t);
   writeFileSync(join(f.source, 'config/pi/settings.json'), JSON.stringify({ packages: ['npm:shared-one'] }));
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
-  const statePath = join(f.env.KITTO_HOME, 'state.json'),
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'),
     before = readFileSync(statePath, 'utf8');
   const managed = join(f.source, 'config/pi/local/managed-packages.json');
   assert.equal(existsSync(managed), false);
@@ -1759,7 +1813,7 @@ test('state-rollback previews, restores schema 1 and the Pi package file, and re
 test('setup records the tool node and deploys the launcher only on apply; remove detaches it', (t) => {
   const f = fixture(t);
   const launcher = join(f.home, '.agents/bin/kitto-node');
-  const statePath = join(f.env.KITTO_HOME, 'state.json');
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json');
   const preview = f.cli('setup', '--agents', 'dsh', '--source', f.source, '--dry-run');
   good(preview);
   assert.match(preview.stdout, /tool node: \S+ \(v\d+\.\d+\.\d+, (mise|execPath)\)/);
@@ -1799,7 +1853,7 @@ test('setup preserves a foreign file at the launcher path and warns', (t) => {
   good(result);
   assert.match(result.stderr, /Warning: .*kitto-node exists and is not an unmodified Kitto launcher/);
   assert.equal(readFileSync(launcher, 'utf8'), foreignLauncher);
-  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  const state = readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'));
   assert.equal(state.owned.launcher, undefined);
   good(f.maintain('remove', '--apply'));
   assert.equal(readFileSync(launcher, 'utf8'), foreignLauncher);

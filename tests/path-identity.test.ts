@@ -4,12 +4,13 @@ import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writ
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { sameLocation } from '../lib/paths.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-function aliasedRoot(t) {
+function aliasedRoot(t: TestContext) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'kitto-paths-')));
   t.onTestFinished(() => rmSync(base, { recursive: true, force: true }));
   const real = join(base, 'real');
@@ -35,7 +36,7 @@ test('an installation whose runtime directory is a symlink is still recognised a
   for (const name of ['kitto-home.mjs', 'paths.mjs']) cpSync(join(root, 'dist', 'lib', name), join(target, 'lib', name));
   symlinkSync(target, join(home, 'runtime'));
   writeFileSync(join(home, 'state.json'), '{}');
-  const env = { ...process.env, HOME: join(base, 'nohome') };
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: join(base, 'nohome') };
   delete env.KITTO_HOME;
   delete env.XDG_DATA_HOME;
   const script = `import { kittoHome } from ${JSON.stringify(join(target, 'lib/kitto-home.mjs'))}; console.log(kittoHome());`;

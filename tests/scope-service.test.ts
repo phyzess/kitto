@@ -21,7 +21,7 @@ const valid = {
   RootDirectory: '',
   RootImage: '',
 };
-const output = (properties) =>
+const output = (properties: Record<string, string>) =>
   Object.entries(properties)
     .map(([key, value]) => key + '=' + value)
     .join('\n') + '\n';

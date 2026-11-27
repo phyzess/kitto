@@ -1,4 +1,5 @@
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, symlink, stat, readdir } from 'node:fs/promises';
@@ -6,11 +7,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
+import type { ScopeRegistry } from '../lib/scopes.ts';
 import { readScopeRegistry, resolveScopes, writeScopeRegistry } from '../lib/scopes.ts';
 
 const cli = fileURLToPath(new URL('../dist/bin/kitto.mjs', import.meta.url));
 
-async function scopeFixture(t) {
+const unchecked = (value: unknown) => value as ScopeRegistry;
+
+async function scopeFixture(t: TestContext) {
   const temp = await realpath(await mkdtemp(join(tmpdir(), 'kitto-scope-cli-')));
   t.onTestFinished(() => rm(temp, { recursive: true, force: true }));
   const data = join(temp, 'data');
@@ -18,11 +22,11 @@ async function scopeFixture(t) {
   return { temp, data, env };
 }
 
-function runScope(env, ...args) {
+function runScope(env: NodeJS.ProcessEnv, ...args: string[]) {
   return spawnSync(process.execPath, [cli, ...args], { env, encoding: 'utf8', timeout: 30_000 });
 }
 
-function scopeOk(env, ...args) {
+function scopeOk(env: NodeJS.ProcessEnv, ...args: string[]) {
   const result = runScope(env, ...args);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result;
@@ -35,7 +39,7 @@ test('scoped CLI preserves shared files and discovers repos created after setup'
     workspace = join(temp, 'work'),
     other = workspace + '-other';
   const env = { ...process.env, HOME: temp, KITTO_HOME: data, PI_CODING_AGENT_DIR: join(temp, 'pi') };
-  const setup = (...args) => execFileSync(process.execPath, [cli, 'setup', ...args, '--agents', 'pi'], { env, encoding: 'utf8' });
+  const setup = (...args: string[]) => execFileSync(process.execPath, [cli, 'setup', ...args, '--agents', 'pi'], { env, encoding: 'utf8' });
   setup('--workspace', workspace, '--dry-run');
   await assert.rejects(stat(data), { code: 'ENOENT' });
   await assert.rejects(stat(workspace), { code: 'ENOENT' });
@@ -52,7 +56,7 @@ test('scoped CLI preserves shared files and discovers repos created after setup'
   const repo = join(nested, 'new-repo');
   execFileSync('git', ['init', '-q', repo]);
   await writeFile(join(repo, 'AGENTS.md'), 'Repo rules.\n');
-  const roots = async (dir) => (await resolveScopes(dir, data)).map((scope) => scope.root);
+  const roots = async (dir: string) => (await resolveScopes(dir, data)).map((scope) => scope.root);
   assert.deepEqual(await roots(join(alias, 'sub/new-repo')), [join(data, 'global'), workspace, nested]);
   assert.deepEqual(await roots(other), [join(data, 'global')]);
   assert.equal(await readFile(join(repo, 'AGENTS.md'), 'utf8'), 'Repo rules.\n');
@@ -66,7 +70,7 @@ test('a workspace parent opts future child workspaces in independently', async (
   const parentAlias = join(temp, 'alias');
   const outside = join(temp, 'workspaces-other');
   const env = { ...process.env, HOME: temp, KITTO_HOME: data, PI_CODING_AGENT_DIR: join(temp, 'pi') };
-  const setup = (...args) =>
+  const setup = (...args: string[]) =>
     execFileSync(process.execPath, [cli, 'setup', ...args, '--agents', 'pi'], {
       env,
       encoding: 'utf8',
@@ -95,7 +99,7 @@ test('a workspace parent opts future child workspaces in independently', async (
     await mkdir(join(child, '.agents/skills'), { recursive: true });
     await writeFile(join(child, 'AGENTS.md'), child + '\n');
   }
-  const roots = async (dir) => (await resolveScopes(dir, data)).map((scope) => scope.root);
+  const roots = async (dir: string) => (await resolveScopes(dir, data)).map((scope) => scope.root);
   assert.deepEqual(await resolveScopes(join(parentAlias, 'workspace-1/new-clone'), data), [
     {
       root: first,
@@ -287,7 +291,7 @@ test('scope list and remove work with registrations written by setup, including 
     alias = join(temp, 'alias');
   await mkdir(workspace);
   await symlink(workspace, alias, 'dir');
-  const setup = (...args) =>
+  const setup = (...args: string[]) =>
     execFileSync(process.execPath, [cli, 'setup', ...args, '--agents', 'pi'], {
       env,
       encoding: 'utf8',
@@ -334,7 +338,7 @@ test('writeScopeRegistry is atomic, mode 0600, and keeps unknown top-level field
     workspace = join(temp, 'work'),
     file = join(home, 'scopes.json');
   assert.deepEqual(await readScopeRegistry(home), { version: 1, global: false, workspaces: [], workspaceParents: [] });
-  await writeScopeRegistry(home, { version: 1, global: true, workspaces: [workspace], future: { pinned: true } });
+  await writeScopeRegistry(home, unchecked({ version: 1, global: true, workspaces: [workspace], future: { pinned: true } }));
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), {
     version: 1,
     global: true,
@@ -362,7 +366,7 @@ test('writeScopeRegistry is atomic, mode 0600, and keeps unknown top-level field
     { version: 1, global: false, workspaces: ['relative'] },
     { version: 1, global: false, workspaces: [workspace], workspaceParents: 'nope' },
   ];
-  for (const registry of invalid) await assert.rejects(writeScopeRegistry(home, registry), /Invalid Kitto scope registry/);
+  for (const registry of invalid) await assert.rejects(writeScopeRegistry(home, unchecked(registry)), /Invalid Kitto scope registry/);
   assert.equal(JSON.parse(await readFile(file, 'utf8')).global, false);
   await writeFile(file, '{ not json');
   await assert.rejects(readScopeRegistry(home), /Invalid Kitto scope registry/);

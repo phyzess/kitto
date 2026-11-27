@@ -5,8 +5,24 @@ import { join } from 'node:path';
 import { compareVersions } from '../lib/hosts.ts';
 import { hosts, meetsBaseline } from '../lib/kitto.ts';
 import { re, root, dist, command, fixture, good, readJson, callsOf, snapshot, withRemote, commitAll } from './helpers/kitto-fixture.ts';
+import type { Fixture } from './helpers/kitto-fixture.ts';
 
-function hostsTools(f, { versions = {}, missing = [], id = 'hosts-tools' } = {}) {
+interface HostCall {
+  command: string;
+  args: string[];
+}
+
+function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name];
+  assert.ok(value, `${name} must be set`);
+  return value;
+}
+const hostCallsOf = (f: Fixture) => callsOf(f) as HostCall[];
+
+function hostsTools(
+  f: Fixture,
+  { versions = {}, missing = [], id = 'hosts-tools' }: { versions?: Record<string, string>; missing?: string[]; id?: string } = {},
+) {
   const bin = join(f.temp, id);
   mkdirSync(bin, { recursive: true });
   const versionsFile = join(bin, 'versions.json');
@@ -20,8 +36,15 @@ function hostsTools(f, { versions = {}, missing = [], id = 'hosts-tools' } = {})
       { mode: 0o755 },
     );
   }
-  const env = { ...f.env, PATH: bin, HOSTS_VERSIONS: versionsFile, HOSTS_LOG: log };
-  const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
+  const env: NodeJS.ProcessEnv = { ...f.env, PATH: bin, HOSTS_VERSIONS: versionsFile, HOSTS_LOG: log };
+  const calls = (): HostCall[] =>
+    existsSync(log)
+      ? readFileSync(log, 'utf8')
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : [];
   return {
     bin,
     env,
@@ -30,7 +53,7 @@ function hostsTools(f, { versions = {}, missing = [], id = 'hosts-tools' } = {})
     calls,
     installs: () => calls().filter((call) => call.command === 'npm' && call.args[0] === 'install'),
     versions: () => readJson(versionsFile),
-    run: (...args) => command(process.execPath, [join(dist, 'bin/kitto.mjs'), ...args], env),
+    run: (...args: string[]) => command(process.execPath, [join(dist, 'bin/kitto.mjs'), ...args], env),
   };
 }
 
@@ -38,7 +61,7 @@ test('kitto hosts check reports selected versions and baselines without writes',
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
   const tools = hostsTools(f, { versions: { pi: '1.4.0', codex: hosts.codex.version } });
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     statePath = join(home, 'state.json');
   const before = snapshot(home),
     stateBefore = readFileSync(statePath, 'utf8');
@@ -80,7 +103,7 @@ test('kitto hosts --apply installs the exact baseline for outdated selected host
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
   const tools = hostsTools(f, { versions: { pi: '1.4.0', codex: hosts.codex.version } });
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     statePath = join(home, 'state.json');
   const stateBefore = readFileSync(statePath, 'utf8');
 
@@ -145,7 +168,7 @@ test('a failed kitto hosts --apply changes neither the host CLI nor Kitto state'
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
   const tools = hostsTools(f, { versions: { pi: '1.4.0' } });
   tools.env.HOSTS_NPM_FAIL = '1';
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     statePath = join(home, 'state.json');
   const before = snapshot(home),
     stateBefore = readFileSync(statePath, 'utf8');
@@ -171,7 +194,7 @@ test('kitto hosts leaves unselected hosts alone and update still never upgrades 
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
   withRemote(f);
   const tools = hostsTools(f, { versions: { pi: '1.0.0', codex: '0.169.0', dsh: '0.1.0' } });
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     before = snapshot(home);
 
   const update = f.cli('update', '--check');
@@ -199,7 +222,7 @@ test('kitto hosts leaves the app-managed DSH Desktop CLI to the Desktop app', (t
   commitAll(f, 'desktop rules');
   good(f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source));
   const tools = hostsTools(f, { missing: ['dsh'] });
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     before = snapshot(home);
 
   const check = tools.run('hosts');
@@ -265,7 +288,7 @@ test('setup accepts a newer host but rejects it as the result of a pinned instal
     { mode: 0o755 },
   );
   const module = new URL('../lib/kitto.ts', import.meta.url).href;
-  const invoke = (body) =>
+  const invoke = (body: string) =>
     command(
       process.execPath,
       ['--input-type=module', '-e', `import { checkSelectedHosts, installMissingHosts } from ${JSON.stringify(module)}; ${body}`],
@@ -284,11 +307,11 @@ test('kitto hosts treats a mixed-case Desktop profile as app-managed', (t) => {
   writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
   commitAll(f, 'desktop rules');
   good(f.cli('setup', '--agents', 'dsh', '--dsh-profile', 'desktop', '--source', f.source));
-  const statePath = join(f.env.KITTO_HOME, 'state.json');
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json');
   const state = readJson(statePath);
   writeFileSync(statePath, JSON.stringify({ ...state, dshProfile: 'Desktop' }, null, 2) + '\n');
   const tools = hostsTools(f, { versions: { dsh: '0.2.2-rc.0' } });
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     before = snapshot(home);
 
   const check = tools.run('hosts');
@@ -308,7 +331,7 @@ test('kitto hosts --apply fails clearly when npm is unavailable', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
   const tools = hostsTools(f, { versions: { pi: '1.4.0' }, missing: ['npm'] });
-  const statePath = join(f.env.KITTO_HOME, 'state.json'),
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'),
     stateBefore = readFileSync(statePath, 'utf8');
 
   const failed = tools.run('hosts', '--apply');
@@ -323,7 +346,7 @@ test('kitto hosts --apply fails when the installed CLI still reports the old ver
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
   const tools = hostsTools(f, { versions: { pi: '1.4.0' } });
   tools.env.HOSTS_NPM_NOOP = '1';
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     before = snapshot(home);
   const statePath = join(home, 'state.json'),
     stateBefore = readFileSync(statePath, 'utf8');
@@ -341,7 +364,7 @@ test('a multi-host failure reports which hosts changed and which did not', (t) =
   good(f.cli('setup', '--agents', 'pi,codex', '--source', f.source));
   const tools = hostsTools(f, { versions: { pi: '1.4.0', codex: '0.169.0' } });
   tools.env.HOSTS_NPM_FAIL_PACKAGE = '@openai/codex';
-  const home = f.env.KITTO_HOME,
+  const home = requireEnv(f.env, 'KITTO_HOME'),
     statePath = join(home, 'state.json');
   const stateBefore = readFileSync(statePath, 'utf8');
 
@@ -364,7 +387,7 @@ test('a permission failure explains the npm global prefix', (t) => {
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
   const tools = hostsTools(f, { versions: { pi: '1.4.0' } });
   tools.env.HOSTS_NPM_PERMISSION = '1';
-  const statePath = join(f.env.KITTO_HOME, 'state.json'),
+  const statePath = join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'),
     stateBefore = readFileSync(statePath, 'utf8');
 
   const failed = tools.run('hosts', '--apply');
@@ -401,7 +424,8 @@ test('public and maintenance hosts distinguish equivalent precedence from an exa
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
   const tools = hostsTools(f, { versions: { pi: '1.5.2+local' } });
-  const maintain = (...args) => command(process.execPath, [join(f.env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args], tools.env);
+  const maintain = (...args: string[]) =>
+    command(process.execPath, [join(requireEnv(f.env, 'KITTO_HOME'), 'runtime/bin/maintain.mjs'), ...args], tools.env);
   for (const run of [tools.run, maintain]) {
     const check = run('hosts', '--check');
     good(check);
@@ -466,7 +490,7 @@ test('the maintenance runner exposes the same explicit host policy', (t) => {
   const f = fixture(t);
   good(f.cli('setup', '--agents', 'codex', '--source', f.source));
   const tools = hostsTools(f, { versions: { codex: '0.169.0' } });
-  const result = command(process.execPath, [join(f.env.KITTO_HOME, 'runtime/bin/maintain.mjs'), 'hosts'], tools.env);
+  const result = command(process.execPath, [join(requireEnv(f.env, 'KITTO_HOME'), 'runtime/bin/maintain.mjs'), 'hosts'], tools.env);
   good(result);
   assert.match(result.stdout, new RegExp(String.raw`codex: current 0\.169\.0; Kitto baseline ${re(hosts.codex.version)}`));
   assert.match(result.stdout, /check only; no writes/);
@@ -479,11 +503,11 @@ test('a host below the tested baseline warns and keeps deploying the other hosts
   good(result);
   assert.match(result.stderr, new RegExp(String.raw`kitto: codex: 0\.167\.1 is older than the tested baseline ${re(hosts.codex.version)}`));
   assert.match(result.stderr, /continuing and skipping the steps this CLI cannot support/);
-  assert.match(readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8'), /Pi instructions/);
-  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  assert.match(readFileSync(join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'AGENTS.md'), 'utf8'), /Pi instructions/);
+  const state = readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json'));
   assert.equal(state.ready, true);
   assert.deepEqual(state.agents, ['pi', 'codex']);
-  assert(callsOf(f).some((c) => c.command === 'codex' && c.args[0] === 'plugin' && c.args.includes('add')));
+  assert(hostCallsOf(f).some((c) => c.command === 'codex' && c.args[0] === 'plugin' && c.args.includes('add')));
 });
 
 test('a host without the plugin subcommand skips only its native integration', (t) => {
@@ -492,9 +516,9 @@ test('a host without the plugin subcommand skips only its native integration', (
   const result = f.cli('setup', '--agents', 'pi,codex', '--source', f.source);
   good(result);
   assert.match(result.stderr, /this codex CLI has no plugin subcommand/);
-  assert.match(readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8'), /Pi instructions/);
-  assert(!callsOf(f).some((c) => c.command === 'codex' && c.args[0] === 'plugin' && !c.args.includes('--help')));
-  assert.equal(readJson(join(f.env.KITTO_HOME, 'state.json')).ready, true);
+  assert.match(readFileSync(join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'AGENTS.md'), 'utf8'), /Pi instructions/);
+  assert(!hostCallsOf(f).some((c) => c.command === 'codex' && c.args[0] === 'plugin' && !c.args.includes('--help')));
+  assert.equal(readJson(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')).ready, true);
 });
 
 test('--require-baseline makes an untested host version fatal again', (t) => {
@@ -503,6 +527,6 @@ test('--require-baseline makes an untested host version fatal again', (t) => {
   const failed = f.cli('setup', '--agents', 'pi,codex', '--source', f.source, '--require-baseline');
   assert.notEqual(failed.status, 0);
   assert.match(failed.stderr, new RegExp(String.raw`codex: 0\.167\.1 is older than the tested baseline ${re(hosts.codex.version)}`));
-  assert.equal(existsSync(join(f.env.KITTO_HOME, 'state.json')), false);
-  assert.equal(existsSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md')), false);
+  assert.equal(existsSync(join(requireEnv(f.env, 'KITTO_HOME'), 'state.json')), false);
+  assert.equal(existsSync(join(requireEnv(f.env, 'PI_CODING_AGENT_DIR'), 'AGENTS.md')), false);
 });

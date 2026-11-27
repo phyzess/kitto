@@ -5,10 +5,12 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { fileURLToPath } from 'node:url';
+import type { Json } from '../types/kitto.d.ts';
 
 const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
-async function fixture(t) {
+async function fixture(t: TestContext) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-audit-')));
   t.onTestFinished(() => rm(root, { recursive: true, force: true }));
   const home = join(root, 'home'),
@@ -16,22 +18,22 @@ async function fixture(t) {
     repo = join(ws, 'example');
   await mkdir(home);
   await mkdir(repo, { recursive: true });
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     GIT_CONFIG_NOSYSTEM: '1',
     PATH: process.env.PATH,
     HOME: home,
     XDG_CONFIG_HOME: home,
     KITTO_HOME: join(root, 'not-created'),
   };
-  function run(cmd, args, cwd = repo, extra = {}) {
+  function run(cmd: string, args: string[], cwd: string = repo, extra: NodeJS.ProcessEnv = {}) {
     return spawnSync(cmd, args, { cwd, env: { ...env, ...extra }, encoding: 'utf8' });
   }
-  function git(...args) {
+  function git(...args: string[]) {
     const r = run('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.org', ...args]);
     assert.equal(r.status, 0, r.stderr);
     return r.stdout;
   }
-  function audit(cwd, args = [], extra) {
+  function audit(cwd: string, args: string[] = [], extra?: NodeJS.ProcessEnv): Json[] {
     const r = run(process.execPath, [cli, 'worktree', 'audit', '--json', ...args], cwd, extra);
     assert.equal(r.status, 0, r.stderr);
     return JSON.parse(r.stdout);
@@ -44,9 +46,15 @@ async function fixture(t) {
   return { root, ws, repo, git, run, audit };
 }
 
-async function snapshot(root) {
-  const files = {};
-  async function visit(path) {
+function rowAt(rows: Json[], path: string): Json {
+  const row = rows.find((candidate) => candidate.path === path);
+  assert.ok(row);
+  return row;
+}
+
+async function snapshot(root: string) {
+  const files: Record<string, Array<bigint | string>> = {};
+  async function visit(path: string) {
     const stat = await lstat(path, { bigint: true });
     files[path] = [stat.mode, stat.mtimeNs];
     if (stat.isDirectory()) for (const name of await readdir(path)) await visit(join(path, name));
@@ -108,8 +116,8 @@ test('a linked checkout cannot borrow another registration’s Git directory at 
   git('worktree', 'add', '-b', 'first', first);
   git('worktree', 'add', '-b', 'second', second);
   const original = audit(repo);
-  const firstOriginal = original.find((row) => row.path === first);
-  const secondOriginal = original.find((row) => row.path === second);
+  const firstOriginal = rowAt(original, first);
+  const secondOriginal = rowAt(original, second);
   assert.equal(firstOriginal.head, secondOriginal.head);
   assert.notEqual(firstOriginal.gitDir, secondOriginal.gitDir);
   assert.ok(firstOriginal.changes);
@@ -120,8 +128,8 @@ test('a linked checkout cannot borrow another registration’s Git directory at 
   const before = await snapshot(root);
   const rows = audit(repo);
   assert.deepEqual(audit(first), rows);
-  const broken = rows.find((row) => row.path === first);
-  const intact = rows.find((row) => row.path === second);
+  const broken = rowAt(rows, first);
+  const intact = rowAt(rows, second);
   assert.equal(broken.branch, 'refs/heads/first');
   assert.equal(broken.head, secondOriginal.head);
   assert.deepEqual(broken.blockers, ['unmanaged', 'occupancy-unknown', 'identity-unknown']);
@@ -140,12 +148,12 @@ test('duplicate registrations cannot supply checkout identity even when one back
     second = join(root, 'second');
   git('worktree', 'add', '-b', 'first', first);
   git('worktree', 'add', '-b', 'second', second);
-  const { gitDir } = audit(repo).find((row) => row.path === second);
+  const { gitDir } = rowAt(audit(repo), second);
   await writeFile(join(gitDir, 'gitdir'), `${join(first, '.git')}\n`);
 
   const before = await snapshot(root);
-  const duplicates = audit(repo).filter((row) => row.path === first);
-  assert.deepEqual(duplicates.map((row) => row.branch).sort(), ['refs/heads/first', 'refs/heads/second']);
+  const duplicates = audit(repo).filter((row: Json) => row.path === first);
+  assert.deepEqual(duplicates.map((row: Json) => row.branch).sort(), ['refs/heads/first', 'refs/heads/second']);
   for (const row of duplicates) {
     assert.ok(row.blockers.includes('identity-unknown'));
     assert.equal(row.gitDir, null);
@@ -260,7 +268,7 @@ test('workspace contains distinct clones; malformed or mutating requests fail wi
   const { ws, root, repo, git, run, audit } = await fixture(t);
   git('clone', repo, join(ws, 'another'));
   const before = await snapshot(root);
-  assert.equal(new Set(audit(root, ['--workspace', ws]).map((row) => row.commonDir)).size, 2);
+  assert.equal(new Set(audit(root, ['--workspace', ws]).map((row: Json) => row.commonDir)).size, 2);
   for (const args of [['remove'], ['audit', '--apply'], ['audit', '--workspace'], ['audit']]) {
     const result = run(process.execPath, [cli, 'worktree', ...args], root);
     assert.notEqual(result.status, 0);

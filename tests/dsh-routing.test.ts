@@ -4,10 +4,12 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { createDispatchGate, issueRoutePermit, registerDshRouting, ROUTING_HOST_VERSION } from '../integration/dsh-routing.ts';
 import { createRouteObserver } from '../integration/dsh-route-evidence.ts';
 import { setRoutingBoundary } from '../lib/routing-policy.ts';
 import { createRoutingStore } from '../lib/routing-state.ts';
+import type { Json, State } from '../types/kitto.d.ts';
 
 const route = {
   provider: 'openai-codex',
@@ -21,7 +23,7 @@ const route = {
   available: true,
   reasoningEfforts: ['low'],
 };
-function fixture(t, boundary = 'personal') {
+function fixture(t: TestContext, boundary = 'personal') {
   const root = mkdtempSync(join(tmpdir(), 'kitto-dsh-route-'));
   t.onTestFinished(() => rmSync(root, { recursive: true, force: true }));
   const home = join(root, 'native'),
@@ -31,9 +33,17 @@ function fixture(t, boundary = 'personal') {
   let now = Date.now();
   const clock = () => now,
     store = createRoutingStore(root);
-  const state = { schema: 1, routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web', dshHome: home };
+  const state: State = {
+    schema: 1,
+    source: 'test',
+    routingInstallKind: 'local',
+    ready: true,
+    agents: ['dsh'],
+    dshProfile: 'web',
+    dshHome: home,
+  };
   setRoutingBoundary(state, boundary);
-  const request = {
+  const request: Json = {
     host: {
       kind: 'dsh',
       installation: 'full-local',
@@ -57,7 +67,7 @@ function fixture(t, boundary = 'personal') {
     },
     dispatch: { source: 'operator-verified', project, cwd: project, callerCwd: project },
   };
-  const agent = { id: 'test-session', session: { id: 'test-session', header: { cwd: project } } };
+  const agent: Json = { id: 'test-session', session: { id: 'test-session', header: { cwd: project } } };
   const signal = new AbortController().signal;
   const observer = createRouteObserver({ profile: 'web', enabled: () => true, clock });
   const gate = createDispatchGate({ home, store, getState: () => state, getCwd: () => project, observer, clock });
@@ -67,7 +77,7 @@ function fixture(t, boundary = 'personal') {
       { isError: false, value: `${item.provider}/${item.model} — Fixture\nReasoning efforts:\nlow — Low` },
     );
   const issue = () => issueRoutePermit({ state, home, request, store, now });
-  const exec = (permit, args = {}) => {
+  const exec = (permit: Json, args: Json = {}) => {
     const native = { ...permit.native, ...args };
     Object.defineProperty(native, 'prompt', {
       enumerable: true,
@@ -88,12 +98,17 @@ function fixture(t, boundary = 'personal') {
     exec,
     observe,
     state,
-    advance: (ms) => {
+    advance: (ms: number) => {
       now += ms;
     },
   };
 }
 const allow = async () => ({ kind: 'allow' });
+function guarded(gate: ReturnType<typeof fixture>['gate'], exec: Json) {
+  const decision = gate.guard(exec);
+  assert.ok(decision);
+  return decision;
+}
 
 test('live evidence and host ask precede the one-shot native dispatch', async (t) => {
   const f = fixture(t);
@@ -106,14 +121,14 @@ test('live evidence and host ask precede the one-shot native dispatch', async (t
   assert.equal((await f.gate.preExecute({ ...first, parent: Symbol() }, allow)).kind, 'deny');
   assert.equal((await f.gate.preExecute({ ...first, agent: { id: 'other', session: first.agent.session } }, allow)).kind, 'deny');
   assert.equal((await f.gate.preExecute(first, async () => ({ kind: 'deny', reason: 'native veto' }))).reason, 'native veto');
-  assert.equal(f.gate.guard(first).kind, 'deny');
+  assert.equal(guarded(f.gate, first).kind, 'deny');
   const decisions = await Promise.all([f.gate.preExecute(first, allow), f.gate.preExecute(second, allow)]);
   assert.deepEqual(
     decisions.map((item) => item.kind),
     ['ask', 'ask'],
   );
   assert.equal(f.gate.guard(first), undefined);
-  assert.equal(f.gate.guard(second).kind, 'deny');
+  assert.equal(guarded(f.gate, second).kind, 'deny');
   let called = 0;
   await f.gate.dispatch(first, async () => {
     called++;
@@ -128,7 +143,7 @@ test('live evidence and host ask precede the one-shot native dispatch', async (t
   f.gate.result(first, { isError: false, value: { kind: 'activation', name: permit.attempt } });
   assert.equal(f.store.peek(permit.attempt).status, 'activated');
   assert.equal((await f.gate.preExecute(f.exec(permit), allow)).kind, 'deny');
-  assert.equal(f.gate.guard(f.exec(permit)).kind, 'deny');
+  assert.equal(guarded(f.gate, f.exec(permit)).kind, 'deny');
 });
 
 test('expired and interrupted attempts stay spent; failed dispatch never authorizes a retry', async (t) => {
@@ -146,11 +161,11 @@ test('expired and interrupted attempts stay spent; failed dispatch never authori
   );
   f.gate.result(exec, { isError: true });
   assert.equal(f.store.peek(permit.attempt).status, 'consumed');
-  assert.equal(f.gate.guard(exec).kind, 'deny');
+  assert.equal(guarded(f.gate, exec).kind, 'deny');
   const second = f.exec(f.issue());
   assert.equal((await f.gate.preExecute(second, allow)).kind, 'ask');
   f.advance(120_000);
-  assert.equal(f.gate.guard(second).kind, 'deny');
+  assert.equal(guarded(f.gate, second).kind, 'deny');
 });
 
 test('only explicitly verified native spawn and approved account/data/budget qualify', (t) => {
@@ -174,7 +189,9 @@ test(
   'pinned Cordis pipeline dispatches a permitted registered tool once and retains native veto',
   { skip: !process.env.KITTO_TEST_DSH_INSTALL },
   async (t) => {
-    const installAnchor = join(process.env.KITTO_TEST_DSH_INSTALL, 'package.json');
+    const installDir = process.env.KITTO_TEST_DSH_INSTALL;
+    assert.ok(installDir);
+    const installAnchor = join(installDir, 'package.json');
     const require = createRequire(installAnchor);
     assert.equal(require('./package.json').version, ROUTING_HOST_VERSION);
     const { Context } = require('@deepseek-ai/cordis');
@@ -194,16 +211,16 @@ test(
     ctx.provide('profileContext', { name: 'web', home: f.home, installAnchor });
     ctx.provide('workingDirectory', { get: () => f.project });
     const spawn = { name: 'spawn', inheritsParentContext: false, capabilities: { agentOptions: true } };
-    const starts = [],
-      preflights = [];
+    const starts: Json[] = [],
+      preflights: Json[] = [];
     let allowed = [{ provider: route.provider, model: route.model }],
       approved = false,
       asks = 0;
     ctx.provide('sessionProjections', { register: async () => ({ stateOf: () => allowed }) });
     ctx.provide('subagents', {
-      getProvider: (name) => (name === 'spawn' ? spawn : undefined),
+      getProvider: (name: string) => (name === 'spawn' ? spawn : undefined),
       resolveMaxDepth: () => undefined,
-      startActivation: async (input) => {
+      startActivation: async (input: Json) => {
         starts.push(input);
         return { name: input.name };
       },
@@ -211,7 +228,7 @@ test(
     ctx.provide('llm', {
       listProviders: () => [{ id: route.provider, name: 'Offline provider' }],
       resolveModelInfo: async () => ({ id: route.model, name: 'Offline model', reasoning: { efforts: [{ id: 'low', name: 'Low' }] } }),
-      resolveCallConfig: async (options) => {
+      resolveCallConfig: async (options: Json) => {
         preflights.push(options);
       },
     });
@@ -229,7 +246,7 @@ test(
       { agent, signal } = f.exec(permit);
     agent.session.requestHeader = () => undefined;
     agent.options = { provider: route.provider, model: route.model };
-    async function run(name, args) {
+    async function run(name: string, args: Json) {
       const stage = await pipeline.prepare({ callId: 'fixture-call', name, arguments: args, agent, signal });
       return pipeline.complete(stage.exec, stage.kind === 'dispatch' ? await pipeline.dispatch(stage.exec) : stage);
     }
@@ -268,7 +285,7 @@ test('a verified shared Go hold rejects issued permits and aliases without block
   };
   const now = Date.parse(f.request.host.observedAt),
     stamp = f.request.host.observedAt;
-  const setRoute = (item) => {
+  const setRoute = (item: Json) => {
     f.request.host.routes = [item];
     f.request.task.authorized = [{ ...item, data: 'public' }];
   };

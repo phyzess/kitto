@@ -4,12 +4,13 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 
-async function fixture(t) {
+async function fixture(t: TestContext) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'kitto-dsh-discovery-')));
   t.onTestFinished(() => rm(home, { recursive: true, force: true }));
   const env = { HOME: home, PATH: join(home, 'bin'), DSH_HOME: join(home, '.dsh') };
-  const run = (code, extra = {}) =>
+  const run = (code: string, extra: NodeJS.ProcessEnv = {}) =>
     spawnSync(
       process.execPath,
       [
@@ -22,12 +23,12 @@ async function fixture(t) {
       ],
       { env: { ...env, ...extra }, encoding: 'utf8', timeout: 15000 },
     );
-  async function file(path, content, mode) {
+  async function file(path: string, content: string, mode?: number) {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, { mode });
     return path;
   }
-  async function install(dir) {
+  async function install(dir: string) {
     await file(join(dir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', bin: { dsh: 'lib/bin.js' } }));
     return file(join(dir, 'lib/bin.js'), '#!/bin/sh\nexit 99\n', 0o700);
   }
@@ -38,7 +39,7 @@ const yamlProbe = 'console.log((await loadDshYaml()).origin)';
 
 test('a missing DSH gives a deferred scoped setup preview and never writes a patch', async (t) => {
   const { home, env, run } = await fixture(t);
-  const setup = (dryRun) => run(`await installDshScope(${JSON.stringify({ home, dryRun })});`);
+  const setup = (dryRun: boolean) => run(`await installDshScope(${JSON.stringify({ home, dryRun })});`);
   const preview = setup(true);
   assert.equal(preview.status, 0, preview.stderr);
   assert.match(preview.stdout, /would register after DSH is installed/);

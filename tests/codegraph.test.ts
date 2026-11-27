@@ -1,22 +1,22 @@
-import { test } from 'vitest';
+import { test, type TestContext } from 'vitest';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { codegraphPlan, codegraphTargets, ensureCodeGraphIndexes } from '../lib/codegraph.ts';
 
-function temp(t) {
+function temp(t: TestContext) {
   const directory = mkdtempSync(join(tmpdir(), 'kitto-codegraph-'));
   t.onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
 
-function repo(path) {
+function repo(path: string) {
   mkdirSync(join(path, '.git'), { recursive: true });
   return path;
 }
 
-function scopes(home, value) {
+function scopes(home: string, value: Record<string, unknown>) {
   mkdirSync(home, { recursive: true });
   writeFileSync(join(home, 'scopes.json'), JSON.stringify({ version: 1, global: false, workspaces: [], ...value }));
 }
@@ -78,9 +78,9 @@ test('codegraphPlan separates ready, missing, unavailable and unwritable indexes
 test('ensureCodeGraphIndexes initializes missing indexes only when applying', async (t) => {
   const directory = temp(t);
   const target = repo(join(directory, 'repo'));
-  const calls = [];
-  const logs = [];
-  const run = (path) => {
+  const calls: string[] = [];
+  const logs: string[] = [];
+  const run = (path: string) => {
     calls.push(path);
     mkdirSync(join(path, '.codegraph'));
     return { status: 0 };
@@ -93,7 +93,7 @@ test('ensureCodeGraphIndexes initializes missing indexes only when applying', as
       available: true,
       writable: () => true,
       run,
-      log: (line) => logs.push(line),
+      log: (line: string) => logs.push(line),
     },
   );
   assert.deepEqual(calls, []);
@@ -106,7 +106,7 @@ test('ensureCodeGraphIndexes initializes missing indexes only when applying', as
       available: true,
       writable: () => true,
       run,
-      log: (line) => logs.push(line),
+      log: (line: string) => logs.push(line),
     },
   );
   assert.deepEqual(calls, [target]);
@@ -116,7 +116,7 @@ test('ensureCodeGraphIndexes initializes missing indexes only when applying', as
 test('ensureCodeGraphIndexes honors KITTO_NO_CODEGRAPH_INIT', async (t) => {
   const directory = temp(t);
   const target = repo(join(directory, 'repo'));
-  const calls = [];
+  const calls: string[] = [];
   const previous = process.env.KITTO_NO_CODEGRAPH_INIT;
   process.env.KITTO_NO_CODEGRAPH_INIT = '1';
   try {
@@ -127,7 +127,7 @@ test('ensureCodeGraphIndexes honors KITTO_NO_CODEGRAPH_INIT', async (t) => {
         apply: true,
         available: true,
         writable: () => true,
-        run: (path) => {
+        run: (path: string) => {
           calls.push(path);
           return { status: 0 };
         },
@@ -144,16 +144,16 @@ test('ensureCodeGraphIndexes honors KITTO_NO_CODEGRAPH_INIT', async (t) => {
 test('ensureCodeGraphIndexes reports missing CLI and unwritable targets without running', async (t) => {
   const directory = temp(t);
   const target = repo(join(directory, 'repo'));
-  const calls = [];
-  const logs = [];
-  const run = (path) => {
+  const calls: string[] = [];
+  const logs: string[] = [];
+  const run = (path: string) => {
     calls.push(path);
     return { status: 0 };
   };
-  await ensureCodeGraphIndexes({}, { targets: [target], apply: true, available: false, run, log: (line) => logs.push(line) });
+  await ensureCodeGraphIndexes({}, { targets: [target], apply: true, available: false, run, log: (line: string) => logs.push(line) });
   await ensureCodeGraphIndexes(
     {},
-    { targets: [target], apply: true, available: true, writable: () => false, run, log: (line) => logs.push(line) },
+    { targets: [target], apply: true, available: true, writable: () => false, run, log: (line: string) => logs.push(line) },
   );
   assert.deepEqual(calls, []);
   assert.match(logs.join('\n'), /codegraph CLI not found/);

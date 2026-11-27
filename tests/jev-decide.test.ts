@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import type { SpawnSyncReturns } from 'node:child_process';
 import { once } from 'node:events';
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { subtest } from './helpers/subtest.ts';
 import { fileURLToPath } from 'node:url';
 import { hosts } from '../lib/host-pins.ts';
@@ -52,9 +54,9 @@ const dshAvailable = (() => {
     return false;
   }
 })();
-const dshOnly = { skip: dshAvailable ? false : 'DSH parser not installed (set DSH_INSTALL_DIR)' };
+const dshOnly = { skip: !dshAvailable };
 
-async function fixture(t) {
+async function fixture(t: TestContext) {
   const dir = await mkdtemp(join(tmpdir(), 'kitto-jev-test-'));
   assert.ok(isAbsolute(dir));
   t.onTestFinished(() => rm(dir, { recursive: true, force: true }));
@@ -63,11 +65,11 @@ async function fixture(t) {
   await Promise.all([mkdir(home), mkdir(dsh)]);
   const env = { HOME: home, USERPROFILE: home, DSH_HOME: dsh };
   const filename = join(dsh, '.credentials.yaml');
-  const store = async (text, path = filename) => {
+  const store = async (text: string, path: string = filename) => {
     await writeFile(path, text, { mode: 0o600 });
     await chmod(path, 0o600);
   };
-  const run = (args = inline, extraEnv = {}, input) =>
+  const run = (args: string[] = inline, extraEnv: NodeJS.ProcessEnv = {}, input?: string) =>
     spawnSync(process.execPath, [...preload, script, ...args], {
       cwd: dir,
       env: { ...env, ...extraEnv },
@@ -78,7 +80,7 @@ async function fixture(t) {
   return { dir, home, env, filename, store, run };
 }
 
-function expectPost(result, key, url = goEndpoint, model = 'jev-1.14') {
+function expectPost(result: SpawnSyncReturns<string>, key: string, url: string = goEndpoint, model: string = 'jev-1.14') {
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, '');
@@ -94,14 +96,14 @@ function expectPost(result, key, url = goEndpoint, model = 'jev-1.14') {
   });
 }
 
-function expectNoKey(result) {
+function expectNoKey(result: SpawnSyncReturns<string>) {
   assert.ifError(result.error);
   assert.equal(result.status, 2);
   assert.equal(result.stdout, '');
   assert.equal(result.stderr, noKey);
 }
 
-test('rejects double stdin immediately with the pipe still open', async (t) => {
+test('rejects double stdin immediately with the pipe still open', async (t: TestContext) => {
   const { dir, env } = await fixture(t);
   const child = spawn(process.execPath, [...preload, script, '--state', '@-', '--questions', '@-'], {
     cwd: dir,
@@ -123,7 +125,7 @@ test('rejects double stdin immediately with the pipe still open', async (t) => {
   assert.equal(stderr, 'jev: only one of --state and --questions may use @- (stdin)\n');
 });
 
-test('either single stdin source works with the other inline or in a file', async (t) => {
+test('either single stdin source works with the other inline or in a file', async (t: TestContext) => {
   const { dir, run } = await fixture(t);
   await Promise.all([writeFile(join(dir, 'state.md'), state), writeFile(join(dir, 'q.json'), questionText)]);
   for (const [stateArg, questionArg, input] of [
@@ -139,7 +141,7 @@ test('either single stdin source works with the other inline or in a file', asyn
   }
 });
 
-test('env keys take precedence and keep the Go default and explicit endpoint override', async (t) => {
+test('env keys take precedence and keep the Go default and explicit endpoint override', async (t: TestContext) => {
   const { run, store } = await fixture(t);
   await store('invalid: [synthetic');
   const env = { DSH_INSTALL_DIR: installDir ?? '', TEST_FORBID_STORE_IO: '1', OPENCODE_GO_API_KEY: 'fake-env-go' };
@@ -153,7 +155,7 @@ test('env keys take precedence and keep the Go default and explicit endpoint ove
   );
 });
 
-test('HTTP failures report only status and fixed guidance, not reflected credentials or input', async (t) => {
+test('HTTP failures report only status and fixed guidance, not reflected credentials or input', async (t: TestContext) => {
   const { run } = await fixture(t);
   const key = 'fake-reflected-key';
   const diagnostics = [
@@ -175,7 +177,7 @@ test('HTTP failures report only status and fixed guidance, not reflected credent
   }
 });
 
-test('uses direct v1 refs with the host parser and preserves their precedence', dshOnly, async (t) => {
+test('uses direct v1 refs with the host parser and preserves their precedence', dshOnly, async (t: TestContext) => {
   const { home, run, store } = await fixture(t);
   const env = { DSH_INSTALL_DIR: installDir };
   await store('{version: 1, refs: {OPENCODE_GO_API_KEY: "fake-store-go", "OPENCODE_API_KEY": \'fake:primary#key\'}}');
@@ -188,7 +190,7 @@ test('uses direct v1 refs with the host parser and preserves their precedence', 
   expectPost(run(inline, { ...env, DSH_HOME: '' }), 'fake-home');
 });
 
-test('rejects malformed, unsupported, misplaced, or oversized store data without echoing it', dshOnly, async (t) => {
+test('rejects malformed, unsupported, misplaced, or oversized store data without echoing it', dshOnly, async (t: TestContext) => {
   const { run, store } = await fixture(t);
   const env = { DSH_INSTALL_DIR: installDir };
   for (const [name, text] of Object.entries({
@@ -222,9 +224,9 @@ test('rejects malformed, unsupported, misplaced, or oversized store data without
 test(
   'rejects non-regular and unsafe POSIX credential files without reading them',
   {
-    skip: dshOnly.skip || (process.platform === 'win32' && 'POSIX permission and FIFO checks'),
+    skip: !dshAvailable || process.platform === 'win32',
   },
-  async (t) => {
+  async (t: TestContext) => {
     const { dir, filename, run, store } = await fixture(t);
     const env = { DSH_INSTALL_DIR: installDir };
     await store('version: 1\nrefs: {OPENCODE_API_KEY: fake-insecure}');
@@ -241,7 +243,7 @@ test(
   },
 );
 
-test('fails closed without the host interface and does not load a NODE_PATH parser', async (t) => {
+test('fails closed without the host interface and does not load a NODE_PATH parser', async (t: TestContext) => {
   const { dir, run, store } = await fixture(t);
   await store('version: 1\nrefs: {OPENCODE_API_KEY: fake-sensitive}');
   expectNoKey(run());
