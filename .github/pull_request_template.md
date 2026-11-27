@@ -11,7 +11,7 @@
 - [ ] Claims about host behavior, billing or limits cite evidence: command and host version.
 - [ ] Agent-rule text changed (`common.md`, `config/*/AGENTS.md`, `skills/*`): scenario table with trigger scenarios and counter-examples below, dry-run outcome recorded.
 - [ ] `CHANGELOG.md` Unreleased updated.
-- [ ] Verification run (list results): `lint:comments` with full SHAs, `lint:versions`, `check:test-wiring`, `lint:invariants`, `npm test`, python unittest.
+- [ ] Verification run (list results): `lint:comments` with full SHAs, `lint:versions`, `check:test-wiring`, `lint:invariants`, `npm run check`, `npm test`, python unittest.
 
 ## Evidence
 

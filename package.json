@@ -24,10 +24,11 @@
   "scripts": {
     "check:test-wiring": "node scripts/check-test-wiring.ts",
     "lint:invariants": "node scripts/check-invariants.ts",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "vp check --no-fmt --no-lint",
+    "check": "vp check",
     "fmt": "vp fmt --write .",
     "fmt:check": "vp fmt --check .",
-    "lint:ox": "oxlint",
+    "lint:ox": "vp lint",
     "lint:comments": "node scripts/check-comments.ts",
     "lint:versions": "node scripts/check-version-literals.ts",
     "test": "vp test run",
@@ -42,7 +43,6 @@
     "@ast-grep/cli": "0.43.0",
     "@ast-grep/napi": "0.43.0",
     "@types/node": "26.6.11",
-    "oxlint": "1.95.0",
     "typescript": "7.0.2",
     "vite-plus": "1.8.0",
     "yaml": "2.9.1"
