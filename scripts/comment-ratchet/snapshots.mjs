@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { command, decode, formatFor, inspect } from '../comment-ratchet.mjs';
 
 const protectedPaths = new Map([
@@ -15,6 +16,7 @@ const protectedPaths = new Map([
 const statePath = /^\.agent-teams\//u;
 const vendoredPath = /^skills\/(?:benchmark-checklist|writing-for-agents)(?:\/|$)/u;
 const sha = /^[0-9a-f]{40}$/u;
+const renameSimilarity = '50%';
 
 export function repository(cwd, bin) {
   const git = (args, at = cwd) => command('git', ['--no-replace-objects', ...args], { cwd: at });
@@ -107,7 +109,33 @@ export function repository(cwd, bin) {
       ordinaryCommentOnlyLines: files.reduce((sum, file) => sum + file.ordinaryCommentOnlyLines.length, 0),
     }, files };
   }
-  return { inventory, resolveCommit, verifyRange };
+  function renames(base, snapshot) {
+    const from = resolveCommit(base);
+    const flags = ['-z', '--name-status', '--no-ext-diff', '--no-textconv', `--find-renames=${renameSimilarity}`, '--diff-filter=R'];
+    let out;
+    if (snapshot === 'worktree') {
+      const dir = mkdtempSync(join(tmpdir(), 'kitto-ratchet-index-'));
+      try {
+        const source = resolve(root, decode(run('rev-parse', '--git-path', 'index')).trim());
+        const index = join(dir, 'index');
+        if (existsSync(source)) copyFileSync(source, index);
+        const env = { ...process.env, GIT_INDEX_FILE: index };
+        command('git', ['--no-replace-objects', 'add', '-A', '--', '.'], { cwd: root, env });
+        out = decode(command('git', ['--no-replace-objects', 'diff', '--cached', ...flags, from], { cwd: root, env }));
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    } else if (snapshot === 'index') {
+      out = decode(run('diff', '--cached', ...flags, from));
+    } else {
+      out = decode(run('diff', ...flags, from, resolveCommit(snapshot)));
+    }
+    const fields = out.split('\0').filter(Boolean);
+    const pairs = new Map();
+    for (let i = 0; i + 2 < fields.length; i += 3) {
+      if (fields[i].startsWith('R')) pairs.set(fields[i + 2], fields[i + 1]);
+    }
+    return pairs;
+  }
+  return { inventory, renames, resolveCommit, verifyRange };
 }
 
 function lstatSafe(path) {
@@ -119,7 +147,8 @@ function lstatSafe(path) {
 }
 
 function key(token) {
-  return JSON.stringify([token.language, token.fragment, token.kind, token.raw, token.occurrence, token.directiveAnchor]);
+  const language = token.language === 'TypeScript' ? 'JavaScript' : token.language;
+  return JSON.stringify([language, token.fragment, token.kind, token.raw, token.occurrence, token.directiveAnchor]);
 }
 
 function allowedShebang(token) {
@@ -128,14 +157,20 @@ function allowedShebang(token) {
     Python: /^#!\/usr\/bin\/env python3$/u })[token.language]?.test(token.text) ?? false;
 }
 
-export function compare(base, head) {
+export function compare(base, head, renames = new Map()) {
   const old = new Map(base.files.map(file => [file.path, file]));
+  const present = new Set(head.files.map(file => file.path));
+  const grants = new Map();
+  for (const [path, from] of renames) {
+    if (!old.has(path) && old.has(from) && !present.has(from) && ![...grants.values()].includes(from)) grants.set(path, from);
+  }
   const added = [];
   const removed = [];
   const violations = [];
   for (const file of head.files) {
-    const prior = old.get(file.path)?.tokens ?? [];
-    old.delete(file.path);
+    const source = grants.get(file.path) ?? file.path;
+    const prior = old.get(source)?.tokens ?? [];
+    old.delete(source);
     const before = new Set(prior.map(key));
     const after = new Set(file.tokens.map(key));
     for (const token of file.tokens) {

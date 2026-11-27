@@ -15,8 +15,8 @@ export function decode(bytes) {
   return utf8.decode(bytes);
 }
 
-export function command(bin, args, { cwd = root, input, emptyMatch = false, rejectStderr = false } = {}) {
-  const result = spawnSync(bin, args, { cwd, input, timeout: 15_000, maxBuffer: limit });
+export function command(bin, args, { cwd = root, input, emptyMatch = false, rejectStderr = false, env } = {}) {
+  const result = spawnSync(bin, args, { cwd, input, env, timeout: 15_000, maxBuffer: limit });
   const noMatch = emptyMatch && result.status === 1 && !result.stderr?.length && result.stdout?.toString().trim() === '[]';
   if (result.error || (result.status !== 0 && !noMatch) || (rejectStderr && result.stderr?.length)) {
     const stderr = result.stderr?.toString().trim();

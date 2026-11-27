@@ -19,7 +19,7 @@ function main() {
   if (head) repo.verifyRange(base, head, prHead);
   const baseline = repo.inventory(repo.resolveCommit(base));
   const snapshots = head ? [head] : ['index', 'worktree'];
-  const reports = snapshots.map(snapshot => compare(baseline, repo.inventory(snapshot)));
+  const reports = snapshots.map(snapshot => compare(baseline, repo.inventory(snapshot), repo.renames(base, snapshot)));
   const violations = reports.flatMap(report => report.violations.map(item => ({ snapshot: report.head, ...item })));
   if (json) console.log(JSON.stringify(reports, null, 2));
   else if (!violations.length) console.log(`Comment ratchet passed: ${base} -> ${snapshots.join(', ')}`);
