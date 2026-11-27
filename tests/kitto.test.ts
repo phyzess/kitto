@@ -1740,6 +1740,32 @@ function installAsSchemaOne(f: Fixture, packages: string[] = []) {
   };
 }
 
+test('a failed configuration fetch leaves the schema 1 state and writes no backup', (t) => {
+  const f = fixture(t);
+  const v1 = installAsSchemaOne(f);
+  withRemote(f);
+  commitAll(f, 'fixture');
+  good(command('git', ['push', 'origin', 'main'], f.env, f.source));
+  const shim = join(f.temp, 'bin', 'git');
+  const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+  assert.ok(realGit, 'git must be on PATH');
+  writeFileSync(
+    shim,
+    `#!/bin/sh
+case " $* " in
+  *" fetch "*|*" pull "*|*" push "*|*" clone "*|*" ls-remote "*) echo "simulated network failure" >&2; exit 128;;
+esac
+exec ${realGit} "$@"
+`,
+    { mode: 0o755 },
+  );
+  const result = f.cli('update', '--apply');
+  assert.notEqual(result.status, 0, 'a failed fetch must fail the update');
+  assert.match(result.stderr + result.stdout, /simulated network failure/);
+  assert.equal(readFileSync(v1.statePath, 'utf8'), v1.original, 'the schema 1 state must be untouched when the fetch fails');
+  assert.equal(existsSync(v1.backup), false, 'a failed fetch must not leave a migration backup');
+});
+
 test('a schema 1 state migrates on the first apply: one backup, imported Pi packages, file removed', (t) => {
   const f = fixture(t);
   const v1 = installAsSchemaOne(f, ['npm:shared-one']);

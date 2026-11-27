@@ -24,7 +24,7 @@ import { CURRENT_SCHEMA, MANAGED_PACKAGES_FILE, downgradeState, rollbackState } 
 import { loadKittoState, saveKittoState, stateFile } from './state-io.ts';
 import { atomicJson, present, readJson, replaceDirectory, treeHash } from './fs-atomic.ts';
 import { allowStaleLockBreak, locked } from './locks.ts';
-import { available, git, run } from './process.ts';
+import { available, GIT_NETWORK_TIMEOUT_MS, git, run } from './process.ts';
 import { adapterFor, connectNative, planConnect, planDeploy } from './hosts/index.ts';
 import { availableHost, checkSelectedHosts, hostCliVersions, installMissingHosts } from './hosts/cli.ts';
 import type { HostAction } from './hosts/action.ts';
@@ -496,8 +496,8 @@ async function checkRestoreRef(state: State, url: string): Promise<void> {
   if (!ref) return;
   let heads: string, tags: string;
   try {
-    heads = run('git', ['ls-remote', '--heads', url, `refs/heads/${ref}`], { capture: true, timeout: 30_000 });
-    tags = run('git', ['ls-remote', '--tags', url, `refs/tags/${ref}`], { capture: true, timeout: 30_000 });
+    heads = run('git', ['ls-remote', '--heads', url, `refs/heads/${ref}`], { capture: true, timeout: GIT_NETWORK_TIMEOUT_MS });
+    tags = run('git', ['ls-remote', '--tags', url, `refs/tags/${ref}`], { capture: true, timeout: GIT_NETWORK_TIMEOUT_MS });
   } catch (error) {
     throw restoreError(state, `Cannot inspect ${redactUrl(url)}: ${(error as Error).message}.`);
   }
@@ -583,7 +583,7 @@ async function updateSource(state: State, apply: boolean): Promise<boolean> {
   if (remote === '.') throw new Error('A remote-tracking branch is required for update.');
   const before = sourceRevision(state.source).commit;
   if (!apply) {
-    const head = run('git', ['-C', state.source, 'ls-remote', remote, ref], { capture: true, timeout: 30_000 })
+    const head = run('git', ['-C', state.source, 'ls-remote', remote, ref], { capture: true, timeout: GIT_NETWORK_TIMEOUT_MS })
       .split('\n')[0]
       ?.split(/\s+/)[0];
     console.log(
@@ -630,10 +630,10 @@ export async function update(args: string[] = []): Promise<void> {
   console.log(`Kitto ${state.version} update${apply ? '' : ' preview (no writes)'}.`);
   hostCliVersions(state);
   const work = async () => {
-    if (apply) await loadKittoState(home);
     if (includePrivate !== undefined) state.includePrivate = includePrivate;
     await backfillSource(state);
     const updated = await updateSource(state, apply);
+    if (apply) await loadKittoState(home);
     if (!updated) {
       if (await present(state.source)) {
         await syncSourceLocation(state, false);
