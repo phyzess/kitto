@@ -1,5 +1,9 @@
 # Kitto
 
+## Unreleased
+
+- CLI: `kitto --version` (or `-v`) prints the packaged version, read from the installed `package.json`, and is listed in `--help`. It touches no state and needs no setup.
+
 ## 0.5.0
 
 - Tests: the comment-ratchet history audit skips itself when the checkout has no Git history, so `npm run release` can run its `prepublishOnly` suite against the `git archive` snapshot it publishes; a real checkout still runs it.
