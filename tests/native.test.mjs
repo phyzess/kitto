@@ -14,7 +14,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   const temp = mkdtempSync(join(tmpdir(), "kitto native's "));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const home = join(temp, 'home'), source = join(temp, 'config'), previous = join(temp, 'previous');
-  for (const dir of [home, previous, join(source, 'config/pi'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
+  for (const dir of [home, previous, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
   const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'),
     PI_CODING_AGENT_DIR: join(home, 'pi'), PI_AGENTS_DIR: join(home, '.agents'), CODEX_HOME: join(home, 'codex'),
     DSH_HOME: join(home, 'dsh'), DSH_AGENTS_HOME: join(home, '.agents'), KITTO_UPDATE_CHECK: '0',
@@ -31,6 +31,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   const files = {
     '.gitignore': 'config/pi/local/\n',
     'config/pi/settings.json': '{"packages":[],"quietStartup":true}',
+    'config/instructions/common.md': '# Shared native fixture rules\n',
     'config/pi/mcp.json': JSON.stringify({ mcpServers: kittoMcp }), 'config/pi/AGENTS.md': 'Personal configuration fixture.',
     'config/pi/i-have-adhd-always': '', 'config/env.example': '# no credentials\n',
     'skills/example/SKILL.md': '---\nname: example\ndescription: A personal example task.\n---\nPreserve this personal skill.\n',
@@ -134,7 +135,7 @@ test('native hosts load and remove reference-only MCP credentials', { skip: !nat
   const temp = mkdtempSync(join(tmpdir(), "kitto native creds's "));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const home = join(temp, 'home'), source = join(temp, 'config');
-  for (const dir of [home, join(source, 'config/pi'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
+  for (const dir of [home, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
   const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'),
     PI_CODING_AGENT_DIR: join(home, 'pi'), PI_AGENTS_DIR: join(home, '.agents'), CODEX_HOME: join(home, 'codex'),
     DSH_HOME: join(home, 'dsh'), DSH_AGENTS_HOME: join(home, '.agents'), KITTO_UPDATE_CHECK: '0',
@@ -147,6 +148,7 @@ test('native hosts load and remove reference-only MCP credentials', { skip: !nat
   const files = {
     '.gitignore': 'config/pi/local/\n',
     'config/pi/settings.json': '{"packages":[],"quietStartup":true}',
+    'config/instructions/common.md': '# Shared native fixture rules\n',
     'config/pi/mcp.json': JSON.stringify({ mcpServers: {
       'plain-fixture': { command: 'kitto-plain-mcp', args: ['serve'] },
       'dsh-env-fixture': { command: 'kitto-env-mcp', env: { FIXTURE_TOKEN: '${KITTO_TEST_TOKEN}' } },

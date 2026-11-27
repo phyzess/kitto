@@ -18,7 +18,8 @@ function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-codex-mcp-'));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const bin = join(temp, 'bin'), codexHome = join(temp, 'codex'), source = join(temp, 'source');
-  for (const dir of [bin, codexHome, join(source, 'config/pi')]) mkdirSync(dir, { recursive: true });
+  for (const dir of [bin, codexHome, join(source, 'config/pi'), join(source, 'config/instructions')]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(source, 'config/instructions/common.md'), '# Shared\n');
   writeFileSync(join(bin, 'codex'), `#!${process.execPath}\nrequire(${JSON.stringify(fakeAgent)});\n`, { mode: 0o755 });
   const log = join(temp, 'calls.jsonl');
   const stateFile = join(codexHome, '_fake-codex.json');

@@ -22,7 +22,7 @@ function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), "kitto's test "));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const home = join(temp, 'home'), source = join(temp, 'source'), bin = join(temp, 'bin');
-  for (const dir of [home, bin, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example'), join(source, 'lists')]) mkdirSync(dir, { recursive: true });
+  for (const dir of [home, bin, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
   const files = {
     'config/pi/settings.json': '{"packages": []}', 'config/pi/mcp.json': '{"mcpServers": {}}',
     'config/pi/AGENTS.md': 'Pi instructions', 'config/pi/i-have-adhd-always': '',
@@ -163,35 +163,17 @@ test('Codex and DSH i-have-adhd skills are model-invocable and loaded at startup
   assert.match(policy, /allow_implicit_invocation: true/);
 });
 
-test('JS and Python compose the shared layer byte-identically after BOM/CRLF normalization', t => {
-  const temp = mkdtempSync(join(tmpdir(), 'kitto-compose-'));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
-  const common = join(temp, 'common.md'), addendum = join(temp, 'addendum.md'), out = join(temp, 'out.md');
-  writeFileSync(common, '\uFEFF# 共享\r\n\r\n- 规则一\r\n\r\n- 规则二\r\n');
-  writeFileSync(addendum, '## Host\r\n\r\n- 宿主规则\r\n');
-  const result = command('python3', [join(root, 'lib/pi_config.py'), 'compose-agents', common, addendum, out], process.env);
-  assert.equal(result.status, 0, result.stderr);
+test('composeInstructions normalizes BOM and CRLF and joins sections at the boundary', () => {
   const expected = '# 共享\n\n- 规则一\n\n- 规则二\n\n<!-- kitto:host-addendum -->\n\n## Host\n\n- 宿主规则\n';
-  assert.equal(readFileSync(out, 'utf8'), expected);
-  assert.equal(composeInstructions(readFileSync(common, 'utf8'), readFileSync(addendum, 'utf8')), expected);
+  assert.equal(composeInstructions('\uFEFF# 共享\r\n\r\n- 规则一\r\n\r\n- 规则二\r\n', '## Host\r\n\r\n- 宿主规则\r\n'), expected);
 });
 
-test('hosts without the shared layer keep their legacy addendum block', t => {
+test('a source without the shared layer fails before deploying Codex or DSH rules', t => {
   const f = fixture(t);
   rmSync(join(f.source, 'config/instructions'), { recursive: true });
-  for (const [host, text] of [['codex', 'Legacy codex rules'], ['dsh', 'Legacy dsh rules']]) {
-    mkdirSync(join(f.source, 'config', host), { recursive: true });
-    writeFileSync(join(f.source, 'config', host, 'AGENTS.md'), text);
-  }
-  good(f.cli('setup', '--agents', 'codex,dsh', '--source', f.source));
-  const codex = readFileSync(join(f.env.CODEX_HOME, 'AGENTS.md'), 'utf8');
-  const dsh = readFileSync(join(f.env.DSH_HOME, 'AGENTS.md'), 'utf8');
-  assert.match(codex, /<!-- kitto:begin -->\nLegacy codex rules\n<!-- kitto:end -->/);
-  assert.match(dsh, /<!-- kitto:begin -->\nLegacy dsh rules\n<!-- kitto:end -->/);
-  assert.doesNotMatch(codex, /shared-marker/);
-  assert.doesNotMatch(dsh, /shared-marker/);
-  assert.doesNotMatch(codex, /kitto:host-addendum/);
-  assert.doesNotMatch(dsh, /kitto:host-addendum/);
+  const result = f.cli('setup', '--agents', 'codex,dsh', '--source', f.source);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /config\/instructions\/common\.md/);
 });
 
 test('shared rules compose into all three hosts with addenda kept host-specific', t => {
@@ -261,18 +243,6 @@ test('Pi export writes only the Pi addendum back to the source', t => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /host-specific section/);
   assert.equal(readFileSync(addendumPath, 'utf8'), exported);
-});
-
-test('a legacy whole-file Pi AGENTS is replaced once without duplicating shared rules', t => {
-  const f = fixture(t);
-  mkdirSync(join(f.env.PI_CODING_AGENT_DIR), { recursive: true });
-  writeFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), '# Pi Agent — 全局适配\n\n- legacy Pi-only rule\n');
-  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
-  const text = readFileSync(join(f.env.PI_CODING_AGENT_DIR, 'AGENTS.md'), 'utf8');
-  assert.equal(text.split('shared-marker').length - 1, 1);
-  assert.equal(text.split('<!-- kitto:host-addendum -->').length - 1, 1);
-  assert.match(text, /Pi instructions/);
-  assert.doesNotMatch(text, /legacy Pi-only rule/);
 });
 
 test('self-update notice is rate-limited, ignores prereleases, and tolerates offline', async t => {
@@ -1234,7 +1204,11 @@ test('dependency previews use enabled Pi MCP commands and deduplicate shared too
   const f = fixture(t);
   mkdirSync(join(f.source, 'skills/codegraph'));
   writeFileSync(join(f.source, 'skills/codegraph/SKILL.md'), 'CodeGraph skill');
-  writeFileSync(join(f.source, 'lists/mise-tools.txt'), 'dap-mcp-server 0.1.17\n');
+  writeFileSync(join(f.source, 'config/dependencies.json'), JSON.stringify([
+    { skill: 'codegraph', executable: 'codegraph' },
+    { piCommand: 'codegraph', executable: 'codegraph' },
+    { piCommand: 'dap-mcp-server', executable: 'dap-mcp-server', install: { mise: 'npm:dap-mcp-server@0.1.17' } },
+  ]));
   writeFileSync(join(f.source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: {
     codegraph: { command: 'codegraph' },
     debug: { command: 'dap-mcp-server', enabled: false },
@@ -1284,7 +1258,9 @@ test('first setup retries from its own clone and rejects unregistered or changed
 
 test('dependency apply reports missing installers and checks successful installs', t => {
   const f = fixture(t);
-  writeFileSync(join(f.source, 'lists/mise-tools.txt'), 'dap-mcp-server 0.1.17\n');
+  writeFileSync(join(f.source, 'config/dependencies.json'), JSON.stringify([
+    { piCommand: 'dap-mcp-server', executable: 'dap-mcp-server', install: { mise: 'npm:dap-mcp-server@0.1.17' } },
+  ]));
   writeFileSync(join(f.source, 'config/pi/mcp.json'), '{"mcpServers":{"debug":{"command":"dap-mcp-server"}}}');
   good(f.cli('setup', '--agents', 'pi', '--source', f.source));
   const bin = join(f.temp, 'bin');

@@ -13,6 +13,7 @@
 ### Breaking
 
 - Remove `kitto route preflight`, `kitto route reselect` and `kitto route audit`. Use `kitto route plan` and `kitto route check` for task routing, and `kitto route permit` for the controlled DSH `subagent` path.
+- Remove legacy compatibility. `sync.sh` can no longer be run directly (the deprecated direct-use warnings, `KITTO_ALLOW_LEGACY_SKILL_SYNC` and the direct skill sync are gone). A configuration source without `config/instructions/common.md` is rejected for every host instead of falling back to whole-file or addendum-only deployment, and `pi_config.py legacy-agents` is removed. Dependency rules come only from `config/dependencies.json`; the built-in rules and `lists/*.txt` are no longer read, and a missing manifest means no declared dependencies.
 - Remove `kitto route migrate --apply-fixture` and `--rollback-fixture`. `kitto route migrate --home DIRECTORY` remains a read-only preview.
 
 ## 0.4.0

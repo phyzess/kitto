@@ -18,7 +18,6 @@ ok()   { printf '%s[ok]%s   %s\n' "$GREEN" "$NC" "$*"; }
 same() { printf '%s[=]%s    %s\n' "$DIM" "$NC" "$*"; }
 warn() { printf '%s[skip]%s %s\n' "$YELLOW" "$NC" "$*"; }
 fail() { printf '%s[fail]%s %s\n' "$RED" "$NC" "$*"; }
-deprecated() { printf '%s[deprecated]%s %s\n' "$YELLOW" "$NC" "$*"; }
 
 case "$(uname -s)" in
     Darwin) PLATFORM=macos ;;
@@ -35,39 +34,13 @@ for arg in "$@"; do
         --dry-run|-n) DRY=1 ;;
         --commit)     COMMIT=1 ;;
         --force|-f)   ;;
-        -h|--help)    printf '%s\n' '# ============================================================
-# sync.sh — Kitto 内部的 Pi 适配器（仓库 <-> 本机）
-#
-# 这是 `lib/kitto.mjs` 的 syncCommand 调用的内部实现，不是公开入口。
-# 直接 `bash sync.sh` 会打印 deprecated 警告；请用 `kitto setup`，
-# 或在 Kitto 会话里让维护 skill 执行 sync。
-#
-# 兼容保留的命令（settings/mcp/AGENTS.md/extensions/packages 仍可用）：
-#   bash sync.sh status           看仓库与本机差异（只读）
-#   bash sync.sh pull             仓库 -> 本机（内容不同才覆盖；settings/mcp 走结构化合并）
-#   bash sync.sh push             本机 -> 仓库（脱敏导出，运行时键与私钥不落盘；
-#                                 AGENTS.md 只导出 Pi 专属段，共享规则不回写）
-#   bash sync.sh push --commit    导出并提交
-#   bash sync.sh deps             按平台装 CLI 依赖（brew / mise / npm / pip）
-#
-# 共享 skills（~/.agents/skills）由 Kitto JS 管理（hash 所有权 + 锁）。
-# 直接运行 sync.sh 默认跳过；确需旧行为时显式设置：
-#   KITTO_ALLOW_LEGACY_SKILL_SYNC=1 bash sync.sh pull
-#
-# 机器专属配置放 config/pi/local/（gitignore），不会回流到仓库：
-#   packages.txt       本机额外 pi 包
-#   packages.skip.txt  不装的包（如与已有扩展工具名冲突）
-#   settings.json      覆盖仓库 settings 的键
-#   mcp.json           本机额外 / 覆盖的 MCP 服务器'; exit 0 ;;
         *)            fail "unknown option: $arg"; exit 2 ;;
     esac
 done
 
 if [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" != 1 ]; then
-    deprecated "deprecated direct entry; use kitto setup/sync (or the Kitto maintenance skill) instead."
-    if [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
-        deprecated "shared skills ~/.agents/skills are managed by Kitto JS; opt in with KITTO_ALLOW_LEGACY_SKILL_SYNC=1 only for legacy compatibility."
-    fi
+    fail "sync.sh is Kitto's internal Pi adapter; run kitto setup or kitto sync instead."
+    exit 2
 fi
 
 TMP="$(mktemp -d)"
@@ -159,20 +132,11 @@ pi_agents_source() {
 
 deploy_pi_agents() {
     local src
-    if [ -f "$COMMON_AGENTS" ]; then
-        src="$(pi_agents_source "$TMP/AGENTS.md")" || { fail "组合 $COMMON_AGENTS 与 $PI_AGENTS 失败"; return 1; }
-    else
-        src="$PI_AGENTS"
-    fi
+    src="$(pi_agents_source "$TMP/AGENTS.md")" || { fail "组合 $COMMON_AGENTS 与 $PI_AGENTS 失败"; return 1; }
     deploy_file "$src" "$DOT_PI/AGENTS.md" "~/.pi/agent/AGENTS.md"
 }
 
 prepare_pi_agents_export() {
-    if [ ! -f "$COMMON_AGENTS" ]; then
-        python3 "$PY" legacy-agents "$DOT_PI/AGENTS.md" "$TMP/AGENTS.md" \
-            || { fail "配置源没有共享层，但本机 AGENTS.md 已含共享段；拒绝整文件导出"; return 1; }
-        return 0
-    fi
     info "AGENTS.md（只导出 Pi 专属段）"
     python3 "$PY" extract-agents "$DOT_PI/AGENTS.md" "$COMMON_AGENTS" "$TMP/AGENTS.md" \
         || { fail "AGENTS.md 未按共享层组合，拒绝把 common 写回 config/pi/AGENTS.md"; return 1; }
@@ -266,23 +230,6 @@ step_extensions() {
     done
 }
 
-step_skills() {
-    [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" = 1 ] && return 0
-    if [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
-        warn "shared skills（~/.agents/skills）由 Kitto JS 管理，直接 sync.sh 跳过部署"
-        info "确需旧行为: KITTO_ALLOW_LEGACY_SKILL_SYNC=1 bash sync.sh pull"
-        return 0
-    fi
-    info "skills（legacy direct-sync，KITTO_ALLOW_LEGACY_SKILL_SYNC=1）"
-    run mkdir -p "$DOT_AGENTS/skills"
-    local dir name
-    for dir in "$ROOT"/skills/*/; do
-        [ -d "$dir" ] || continue
-        name="$(basename "$dir")"
-        deploy_dir "$dir" "$DOT_AGENTS/skills/$name" "~/.agents/skills/$name"
-    done
-}
-
 step_env() {
     info "环境变量"
     if [ -e "$HOME/.pi-agent-env" ] || [ -L "$HOME/.pi-agent-env" ]; then
@@ -321,7 +268,6 @@ cmd_pull() {
     deploy_pi_agents
     deploy_file "$ROOT/config/pi/i-have-adhd-always" "$DOT_PI/.i-have-adhd-always" "~/.pi/agent/.i-have-adhd-always"
     step_extensions
-    step_skills
     step_env
     echo
     if [ "$DRY" = 1 ]; then
@@ -423,12 +369,11 @@ cmd_status() {
     fi
     if [ ! -e "$DOT_PI/AGENTS.md" ]; then
         printf '  %smissing%s  AGENTS.md\n' "$YELLOW" "$NC"
-    elif [ -f "$COMMON_AGENTS" ]; then
+    else
         pi_agents_source "$TMP/AGENTS.md" >/dev/null || { fail "组合 $COMMON_AGENTS 与 $PI_AGENTS 失败"; return 1; }
         if cmp -s "$TMP/AGENTS.md" "$DOT_PI/AGENTS.md"; then printf '  %s=%s  AGENTS.md\n' "$DIM" "$NC"
         else printf '  %sdiffers%s  AGENTS.md（pull 会更新）\n' "$RED" "$NC"; fi
-    elif cmp -s "$PI_AGENTS" "$DOT_PI/AGENTS.md"; then printf '  %s=%s  AGENTS.md\n' "$DIM" "$NC"
-    else printf '  %sdiffers%s  AGENTS.md（pull 会更新）\n' "$RED" "$NC"; fi
+    fi
     if [ ! -e "$HOME/.pi-agent-env" ]; then printf '  %smissing%s  ~/.pi-agent-env\n' "$YELLOW" "$NC"
     else printf '  %slocal%s  ~/.pi-agent-env（保留本机内容）\n' "$DIM" "$NC"; fi
     local ext name
@@ -438,16 +383,12 @@ cmd_status() {
         if [ ! -e "$DOT_PI/extensions/$name" ]; then printf '  %smissing%s  extensions/%s\n' "$YELLOW" "$NC" "$name"
         elif cmp -s "$ext" "$DOT_PI/extensions/$name"; then :; else printf '  %sdiffers%s  extensions/%s\n' "$RED" "$NC" "$name"; fi
     done
-    if [ "${KITTO_SHARED_SKILLS_MANAGED:-0}" != 1 ] && [ "${KITTO_ALLOW_LEGACY_SKILL_SYNC:-0}" != 1 ]; then
-        info "shared skills：由 Kitto JS 管理，直接 sync.sh 不比较/部署（KITTO_ALLOW_LEGACY_SKILL_SYNC=1 查看旧逻辑）"
-    else
-        local dir sname
-        for dir in "$ROOT"/skills/*/; do
-            sname="$(basename "$dir")"
-            if [ ! -d "$DOT_AGENTS/skills/$sname" ]; then printf '  %smissing%s  skills/%s\n' "$YELLOW" "$NC" "$sname"
-            elif diff -rq "$dir" "$DOT_AGENTS/skills/$sname" >/dev/null 2>&1; then :; else printf '  %sdiffers%s  skills/%s\n' "$RED" "$NC" "$sname"; fi
-        done
-    fi
+    local dir sname
+    for dir in "$ROOT"/skills/*/; do
+        sname="$(basename "$dir")"
+        if [ ! -d "$DOT_AGENTS/skills/$sname" ]; then printf '  %smissing%s  skills/%s\n' "$YELLOW" "$NC" "$sname"
+        elif diff -rq "$dir" "$DOT_AGENTS/skills/$sname" >/dev/null 2>&1; then :; else printf '  %sdiffers%s  skills/%s\n' "$RED" "$NC" "$sname"; fi
+    done
     echo
     info "包"
     python3 - "$ROOT/config/pi/settings.json" "$DOT_PI/settings.json" "$LOCAL" <<'PY'
@@ -494,67 +435,12 @@ PY
 }
 
 cmd_deps() {
-    if [ -f "$ROOT/config/dependencies.json" ]; then
-        node --input-type=module - "$SCRIPT_ROOT/lib/dependencies.mjs" "$ROOT" "$DOT_PI" "$DRY" <<'JS'
+    node --input-type=module - "$SCRIPT_ROOT/lib/dependencies.mjs" "$ROOT" "$DOT_PI" "$DRY" <<'JS'
 import { pathToFileURL } from 'node:url';
 const [module, source, piHome, dry] = process.argv.slice(2);
 const { installDependencies } = await import(pathToFileURL(module));
 await installDependencies({ source, piHome, agents: ['pi'] }, dry === '0');
 JS
-        return
-    fi
-    printf '\n%s==> deps%s  platform: %s\n\n' "$CYAN" "$NC" "$PLATFORM"
-    if [ "$PLATFORM" = macos ] && command -v brew >/dev/null 2>&1; then
-        info "Homebrew"
-        while IFS= read -r pkg; do
-            [ -z "$pkg" ] && continue
-            brew list "$pkg" >/dev/null 2>&1 && { same "brew: $pkg"; continue; }
-            info "brew install $pkg"
-            run brew install "$pkg" || warn "brew $pkg 失败，继续"
-        done < <(grep -v '^#' "$ROOT/lists/brew.txt" | sed 's/#.*//' | awk 'NF{print $1}')
-    elif [ "$PLATFORM" = macos ]; then
-        warn "Homebrew 未安装，跳过 lists/brew.txt"
-    fi
-
-    if command -v mise >/dev/null 2>&1; then
-        info "mise npm 工具"
-        local pkg ver
-        while read -r pkg ver; do
-            [ -z "${pkg:-}" ] && continue
-            mise ls "npm:$pkg" --global --installed --no-header 2>/dev/null | awk -v v="$ver" '$2 == v { found=1 } END { exit !found }' && { same "mise: $pkg@$ver"; continue; }
-            info "mise use -g npm:$pkg@$ver"
-            run mise use -g "npm:$pkg@$ver" || warn "mise $pkg 失败，继续"
-        done < <(grep -v '^#' "$ROOT/lists/mise-tools.txt" | awk 'NF==2{print $1, $2}')
-        if [ -f "$ROOT/lists/npm.txt" ]; then
-            info "npm CLI（mise 托管）"
-            while read -r pkg ver; do
-                [ -z "${pkg:-}" ] && continue
-                mise ls "npm:$pkg" --global --installed --no-header 2>/dev/null | awk -v v="$ver" '$2 == v { found=1 } END { exit !found }' && { same "mise: $pkg@$ver"; continue; }
-                info "mise use -g npm:$pkg@$ver"
-                run mise use -g "npm:$pkg@$ver" || warn "mise $pkg 失败，继续"
-            done < <(grep -v '^#' "$ROOT/lists/npm.txt" | awk 'NF==2{print $1, $2}')
-        fi
-    else
-        warn "mise 未安装，跳过 CLI 工具（lists/mise-tools.txt, lists/npm.txt）"
-    fi
-
-    info "Python"
-    local pipcmd=""
-    command -v pip3 >/dev/null 2>&1 && pipcmd="pip3"
-    python3 -m pip --version >/dev/null 2>&1 && pipcmd="python3 -m pip"
-    if [ -n "$pipcmd" ]; then
-        local pkg
-        while IFS= read -r pkg; do
-            [ -z "$pkg" ] && continue
-            $pipcmd show "$pkg" >/dev/null 2>&1 && { same "pip: $pkg"; continue; }
-            info "$pipcmd install $pkg"
-            run $pipcmd install --quiet "$pkg" || warn "pip $pkg 失败，继续"
-        done < <(grep -v '^#' "$ROOT/lists/pip.txt" | sed 's/#.*//' | awk 'NF{print $1}')
-    else
-        warn "没有可用的 pip，跳过 lists/pip.txt（Ubuntu: apt install python3-pip 或 uv）"
-    fi
-    echo
-    ok "deps 结束（失败项只是 warning）"
 }
 
 case "$CMD" in
@@ -562,5 +448,5 @@ case "$CMD" in
     push)   cmd_push ;;
     status) cmd_status ;;
     deps)   cmd_deps ;;
-    *)      fail "unknown command: $CMD"; sed -n '2,25p' "$0"; exit 2 ;;
+    *)      fail "unknown command: $CMD"; exit 2 ;;
 esac

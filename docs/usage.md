@@ -228,9 +228,9 @@ Kitto 部署时直接按文件拼接组合，不使用模板。共享段与宿�
 | Codex | `common.md` + `config/codex/AGENTS.md` 写入 `$CODEX_HOME/AGENTS.md` 的 Kitto 标记块 |
 | DSH | `common.md` + `config/dsh/AGENTS.md` 写入 `$DSH_HOME/AGENTS.md` 的 Kitto 标记块 |
 
-Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖，旧版遗留的全文件会被新组合替换一次，不会重复共享规则。`sync.sh push` 只把 `$PI_CODING_AGENT_DIR/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件缺少分隔哨兵、共享段与当前 `common.md` 不完全一致，或组合结果不规范（例如整段删除共享规则但本机尚未 pull）时，push 会在写仓库前拒绝导出。
+Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖。`sync.sh push` 只把 `$PI_CODING_AGENT_DIR/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件缺少分隔哨兵、共享段与当前 `common.md` 不完全一致，或组合结果不规范（例如整段删除共享规则但本机尚未 pull）时，push 会在写仓库前拒绝导出。
 
-只改这台机器的规则写在 Codex/DSH 标记块外，或使用工作区/仓库自己的 `AGENTS.md`；不要直接编辑 Pi 的全局 `AGENTS.md`，它会在下次 pull 时被整份重写。配置源还没有 `config/instructions/common.md` 时（旧的配置 checkout），Pi 回退到旧的整文件部署，Codex/DSH 则把旧的宿主文件内容作为 addendum 写入标记块，先同步配置源即可恢复共享层。这种 legacy 配置源的 Pi push 仍按整文件导出，但本机文件已含共享层哨兵时会拒绝，避免把哨兵和共享段写进旧 addendum。
+只改这台机器的规则写在 Codex/DSH 标记块外，或使用工作区/仓库自己的 `AGENTS.md`；不要直接编辑 Pi 的全局 `AGENTS.md`，它会在下次 pull 时被整份重写。配置源缺少 `config/instructions/common.md` 时 setup/sync 会直接报错，不再有整文件回退；先把配置源更新到含共享层的版本。
 
 ## i-have-adhd 回复风格
 
@@ -250,7 +250,7 @@ Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工�
 
 默认配置来源是这个 GitHub 仓库。使用自己的 fork 时，首次 setup 加 `--source <Git-URL>`；要复用已有仓库，则传入本地路径。让 Kitto “检查配置状态”可以看到本机使用的源目录。共享 skills 默认由 Kitto 部署到 `~/.agents/skills/`。
 
-`sync.sh` 只是 Kitto 内部的 Pi 适配器，不是公开入口。直接运行 `bash sync.sh` 会打印 deprecated 警告，并跳过共享 skills（`~/.agents/skills` 由 Kitto JS 按 hash 所有权和锁管理）；只有显式设置 `KITTO_ALLOW_LEGACY_SKILL_SYNC=1` 才按旧行为写入，直接运行时 `status` 也不再报告这些被跳过的 skills。`AGENTS.md` 仍走共享层组合；`push` 只导出 Pi 专属段，详见上文「规则共享层与宿主 addendum」。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告，并按旧的非交互语义运行 setup（不会启动向导）。
+`sync.sh` 只是 Kitto 内部的 Pi 适配器，不是公开入口，直接运行会被拒绝；共享 skills（`~/.agents/skills`）由 Kitto JS 按 hash 所有权和锁管理。`AGENTS.md` 仍走共享层组合；`push` 只导出 Pi 专属段，详见上文「规则共享层与宿主 addendum」。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告，并按旧的非交互语义运行 setup（不会启动向导）。
 
 ## 换机与更新
 
