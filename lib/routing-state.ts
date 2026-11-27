@@ -18,19 +18,28 @@ import { fresh, timestamp } from './go-allowance.ts';
 import { routeId } from './routing-policy.ts';
 import type { RouteSelection } from '../types/kitto.d.ts';
 
-interface DispatchPermit {
+export interface DispatchPermit {
   schema?: number;
   id?: string;
   status?: string;
-  binding?: unknown;
-  request?: unknown;
+  binding?: Record<string, unknown>;
+  request?: Record<string, unknown>;
   selected?: RouteSelection;
   pool?: string;
+  meterAt?: string;
+  task?: { id?: string; data?: string; effects?: string; role?: string };
+  review?: { implementers: Array<{ canonicalModel?: string }>; reviewer: { canonicalModel?: string } };
   issuedAt?: number;
   expiresAt?: number;
   consumedAt?: number;
   activatedAt?: number;
   failure?: { code?: string; observedAt?: string };
+}
+
+export interface ValidDispatchPermit extends DispatchPermit {
+  status: string;
+  issuedAt: number;
+  expiresAt: number;
 }
 
 interface GoPoolHold {
@@ -153,7 +162,7 @@ export function createRoutingStore(home: string) {
     if (!ticketId(id)) throw new Error('Invalid dispatch permit ID.');
     return `attempt-${id}.json`;
   }
-  function readTicket(path: string, id: string): DispatchPermit {
+  function readTicket(path: string, id: string): ValidDispatchPermit {
     const row = readPrivate(path) as DispatchPermit;
     if (
       row?.schema !== 1 ||
@@ -167,7 +176,7 @@ export function createRoutingStore(home: string) {
     ) {
       throw new Error('Invalid dispatch permit state.');
     }
-    return row;
+    return row as ValidDispatchPermit;
   }
   function readPool(path: string, key: string): GoPoolHold | null {
     let row: GoPoolHold;
@@ -211,7 +220,7 @@ export function createRoutingStore(home: string) {
     peek(id: string) {
       return readTicket(unlocked(ticketPath(id)), id);
     },
-    consume(id: string, check: (row: DispatchPermit) => void, now: number) {
+    consume(id: string, check: (row: ValidDispatchPermit) => void, now: number) {
       return transaction(ticketPath(id), (path: string) => {
         const row = readTicket(path, id);
         if (row.status !== 'pending') throw new Error('Dispatch permit already spent.');
@@ -228,7 +237,7 @@ export function createRoutingStore(home: string) {
         writePrivate(path, { ...row, status: 'activated', activatedAt: now });
       });
     },
-    poolStatus(pool: string, now: number = Date.now(), meterObservedAt?: string): string {
+    poolStatus(pool: string, now: number = Date.now(), meterObservedAt?: string | null): string {
       try {
         const key = poolKey(pool),
           row = readPool(unlocked(`pool-${key}.json`), key);

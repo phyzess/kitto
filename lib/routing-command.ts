@@ -12,7 +12,7 @@ interface CommandInput extends Record<string, unknown> {
     surface?: string;
     session?: string;
     profile?: string;
-    native?: { sessionId?: string; model?: unknown; thinkingLevel?: unknown };
+    native?: { sessionId?: string; model?: string; thinkingLevel?: string };
   };
   approval?: unknown;
 }

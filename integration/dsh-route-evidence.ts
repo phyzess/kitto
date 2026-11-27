@@ -7,12 +7,12 @@ import { kittoHome } from '../lib/kitto-home.ts';
 import { sameLocation } from '../lib/paths.ts';
 import { EVIDENCE_TTL, exactRoute, parseNativeModelResult } from '../lib/routing-evidence.ts';
 import { activeRoutingBoundary, routeId, routeKey } from '../lib/routing-policy.ts';
-import type { Json, DshPluginContext } from '../types/kitto.d.ts';
+import type { DshPluginContext, DshPluginHost, DshToolExecution, DshToolResult } from '../types/kitto.d.ts';
 
 interface ObservedRow {
   provider: string;
   model: string;
-  reasoningEfforts: unknown;
+  reasoningEfforts: string[];
   observedAt: string;
 }
 
@@ -32,21 +32,22 @@ export function createRouteObserver({
   clock?: () => number;
 }) {
   const agents = new WeakMap<object, ObservedSession>();
-  function session(exec: Json | null | undefined): ObservedSession | null {
-    const agent = exec?.agent;
-    if (!agent || typeof agent !== 'object' || !routeId(agent.session?.id) || typeof exec.token !== 'symbol') return null;
+  function session(exec: DshToolExecution | null | undefined): ObservedSession | null {
+    const agent = exec?.agent,
+      agentSession = agent?.session;
+    if (!agent || !agentSession || !routeId(agentSession.id) || typeof exec?.token !== 'symbol') return null;
     if (!enabled()) {
       agents.delete(agent);
       return null;
     }
     const previous = agents.get(agent);
-    if (previous && previous.session === agent.session && previous.id === agent.session.id) return previous;
-    const next: ObservedSession = { session: agent.session, id: agent.session.id, rows: new Map() };
+    if (previous && previous.session === agentSession && previous.id === agentSession.id) return previous;
+    const next: ObservedSession = { session: agentSession, id: agentSession.id, rows: new Map() };
     agents.set(agent, next);
     return next;
   }
   return {
-    observe(exec: Json, result: Json) {
+    observe(exec: DshToolExecution, result: DshToolResult) {
       if (exec?.name !== 'list_subagent_models' || !exactRoute(exec.arguments) || Object.keys(exec.arguments).length !== 2) return;
       const record = session(exec);
       if (!record) return;
@@ -60,7 +61,7 @@ export function createRouteObserver({
       if (record.rows.size >= 64 && !oldest.done) record.rows.delete(oldest.value);
       record.rows.set(key, { provider, model, reasoningEfforts, observedAt: new Date(clock()).toISOString() });
     },
-    export(exec: Json) {
+    export(exec: DshToolExecution) {
       const record = exec?.signal?.aborted ? null : session(exec);
       if (!record) return null;
       const now = clock();
@@ -71,9 +72,10 @@ export function createRouteObserver({
 }
 
 export function registerRouteEvidence(ctx: DshPluginContext): void {
-  ctx.inject(['profileContext', 'tools'], (host: Json) => {
+  ctx.inject(['profileContext', 'tools'], (injected) => {
+    const host = injected as DshPluginHost;
     const { name, home, installAnchor } = host.profileContext;
-    if (name !== 'web' || !isAbsolute(installAnchor ?? '') || !isAbsolute(home ?? '')) return;
+    if (name !== 'web' || !installAnchor || !isAbsolute(installAnchor) || !home || !isAbsolute(home)) return;
     let defineTool: any;
     try {
       const require = createRequire(installAnchor);
@@ -101,7 +103,7 @@ export function registerRouteEvidence(ctx: DshPluginContext): void {
           'Export exact list_subagent_models results observed for this agent and session in the last five minutes. No account, credential, or Team fallback verification.',
         parameters: {},
         output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text', text: value }] },
-        execute: (_args: unknown, exec: Json) => JSON.stringify(observer.export(exec)),
+        execute: (_args: unknown, exec: DshToolExecution) => JSON.stringify(observer.export(exec)),
       }),
     );
   });

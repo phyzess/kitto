@@ -10,10 +10,12 @@ const SURFACES: Record<string, Set<string>> = {
 const DATA = new Set(['public', 'personal', 'internal', 'restricted']);
 const BILLING = new Set(['subscription', 'go-included', 'metered']);
 const EFFORTS = new Set(['default', 'none', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-const exact = (route: RouteRef | null | undefined): route is RouteRef =>
-  route !== null && route !== undefined && routeId(route.provider) && !route.provider.includes('/') && routeId(route.model);
-const sameRoute = (a: RouteRef | null | undefined, b: RouteRef | null | undefined) =>
-  exact(a) && exact(b) && a.provider === b.provider && a.model === b.model;
+const exact = (route: unknown): route is RouteRef => {
+  if (typeof route !== 'object' || route === null) return false;
+  const { provider, model } = route as { provider?: unknown; model?: unknown };
+  return routeId(provider) && !provider.includes('/') && routeId(model);
+};
+const sameRoute = (a: unknown, b: unknown) => exact(a) && exact(b) && a.provider === b.provider && a.model === b.model;
 const nonnegative = (n: unknown): n is number => Number.isFinite(n) && (n as number) >= 0;
 const digest = (fields: unknown[]) => createHash('sha256').update(JSON.stringify(fields)).digest('hex');
 const pair = ({ provider, model }: RouteRef) => ({ provider, model });
@@ -23,7 +25,7 @@ interface RoleIdentity {
   family?: string;
 }
 
-interface PlanRole {
+export interface PlanRole {
   id: string;
   workRevision: string;
   data: string;
@@ -38,16 +40,16 @@ interface PlanRole {
   requireDifferentFamily?: unknown;
 }
 
-interface PlanHost {
+export interface PlanHost {
   kind?: string;
   surface?: string;
   session?: string;
   observedAt?: string;
-  current?: RouteSelection;
+  current?: { provider?: string; model?: string };
   routes?: HostRoute[];
 }
 
-interface PlanInput {
+export interface PlanInput {
   id?: string;
   host?: PlanHost;
   roles?: PlanRole[];
@@ -79,7 +81,7 @@ interface PlanOption extends RouteRef {
 
 export type PlanChoice = Omit<PlanOption, 'selected'>;
 
-interface PlanRow {
+export interface PlanRow {
   id: string;
   status: 'deferred' | 'ready' | 'decision-required' | 'unavailable';
   reason?: string;
@@ -102,11 +104,23 @@ export interface TaskRoutePlan {
   ready?: string[];
 }
 
-interface ReadyPlanRow {
+export interface ReadyPlanRow {
   id: string;
   status: 'ready';
   route: SelectedRoute;
   blockedBy?: string[];
+}
+
+export interface TaskRouteEvaluation {
+  status: string;
+  reason?: string;
+  role?: string;
+  rows?: PlanRow[];
+  routes?: ReadyPlanRow[];
+  plan?: TaskRoutePlan;
+  questions?: PlanQuestion[];
+  ready?: string[];
+  decisionPrompt?: Array<{ id: string; question: string; options: Array<{ label: string; choice?: unknown }> }>;
 }
 
 interface ApprovalEntry {
@@ -121,7 +135,7 @@ function decision(
   host: PlanHost,
   planId: string,
   route: HostRoute,
-  preferred: RouteSelection | undefined,
+  preferred: { provider?: string; model?: string; effort?: string } | undefined,
 ): [OptionStatus, string, SelectedRoute?] {
   if (route.available !== true) return ['unavailable', 'host-route-unavailable'];
   if (host.surface !== 'current' && route.dispatchable !== true) return ['unavailable', 'host-cannot-select-route'];

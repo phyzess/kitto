@@ -20,7 +20,7 @@ interface RouteIdentity {
   family?: string;
 }
 
-interface RouteTask {
+export interface RouteTask {
   role: string;
   data: string;
   authorized: RouteSelection[];
@@ -38,7 +38,7 @@ interface GoReadClaim extends RouteSelection {
   credentialKind?: string;
 }
 
-interface RoutingRequest {
+export interface RoutingRequest {
   task?: RouteTask;
   host?: HostEvidence;
   go?: GoEvidence;

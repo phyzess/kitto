@@ -8,6 +8,30 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { evaluateDshTaskRoutes, registerDshTaskRouting } from '../integration/dsh-task-routing.ts';
+
+const readyRow = (evaluation: ReturnType<typeof evaluateDshTaskRoutes>) => {
+  const row = evaluation.rows?.[0];
+  assert.ok(row?.route, 'evaluation has no ready row');
+  return { id: row.id, route: row.route };
+};
+
+const firstQuestion = (evaluation: ReturnType<typeof evaluateDshTaskRoutes>) => {
+  const question = evaluation.questions?.[0];
+  assert.ok(question, 'evaluation has no questions');
+  return question;
+};
+
+const firstOption = (evaluation: ReturnType<typeof evaluateCodexTaskRoutes>) => {
+  const option = evaluation.rows?.[0]?.options?.[0];
+  assert.ok(option, 'evaluation has no first option');
+  return option;
+};
+
+const decisionPrompt = (evaluation: ReturnType<typeof evaluateCodexTaskRoutes>) => {
+  const prompt = evaluation.decisionPrompt;
+  assert.ok(prompt, 'evaluation has no decision prompt');
+  return prompt;
+};
 import { evaluatePiTaskRoutes, registerPiTaskRouting } from '../integration/pi-task-routing.ts';
 import { evaluateCodexTaskRoutes } from '../integration/codex-task-routing.ts';
 import type { DshPluginContext, Json, PiExtensionApi, PiSessionContext } from '../types/kitto.d.ts';
@@ -61,7 +85,7 @@ test('DSH planner binds to the native session and does not launch a role', () =>
 
 test('DSH staged check rejects extra native work, route edits and unresolved fallback', () => {
   const request = input('dsh', 'teams');
-  const ready = evaluateDshTaskRoutes(request, session, now).rows[0];
+  const ready = readyRow(evaluateDshTaskRoutes(request, session, now));
   request.approval = [{ id: ready.id, approvalKey: ready.route.approvalKey }];
   const task = {
     id: 'review',
@@ -87,7 +111,7 @@ test('Pi binds a current model check to the actual model; headless command does 
   const request = input('pi', 'current');
   assert.equal(evaluatePiTaskRoutes(request, { session, current: { provider: route.provider, id: route.model } }, now).status, 'ready');
   assert.equal(
-    evaluatePiTaskRoutes(request, { session, current: { provider: 'other', id: route.model } }, now).questions[0].reason,
+    firstQuestion(evaluatePiTaskRoutes(request, { session, current: { provider: 'other', id: route.model } }, now)).reason,
     'select-in-native-host',
   );
   const commands: Array<{ handler(args: string, ctx: PiSessionContext): Promise<void> }> = [];
@@ -118,9 +142,9 @@ test('Codex groups outstanding decisions and presents paid estimates without tre
   delete request.roles[0].authorization;
   const result = evaluateCodexTaskRoutes(request, now);
   assert.equal(result.status, 'pending');
-  assert.equal(result.decisionPrompt.length, 1);
-  assert.match(result.decisionPrompt[0].options[0].label, /estimated \$0\.15/);
-  assert.equal(result.decisionPrompt[0].options.at(-1).choice, 'defer');
+  assert.equal(decisionPrompt(result).length, 1);
+  assert.match(decisionPrompt(result)[0].options[0].label, /estimated \$0\.15/);
+  assert.equal(decisionPrompt(result)[0].options.at(-1)?.choice, 'defer');
   assert.deepEqual(result.ready, []);
 });
 
@@ -135,8 +159,8 @@ test('current route requires an observed non-default effort and ignores a route-
       request.host.native = { thread: { id: session }, model: route.model, modelProvider: route.provider, reasoningEffort: effort };
       return evaluateCodexTaskRoutes(request, now);
     };
-    assert.equal(evaluate(undefined).questions[0].reason, 'native-effort-unverified');
-    assert.equal(evaluate('low').questions[0].reason, 'set-effort-in-native-host');
+    assert.equal(firstQuestion(evaluate(undefined)).reason, 'native-effort-unverified');
+    assert.equal(firstQuestion(evaluate('low')).reason, 'set-effort-in-native-host');
     assert.equal(evaluate('high').status, 'ready');
   }
 });
@@ -160,11 +184,11 @@ test('Codex model override does not imply an upstream override', () => {
     modelProvider: 'openai',
     spawnParameters: ['model', 'reasoning_effort'],
   };
-  assert.equal(evaluateCodexTaskRoutes(request, now).rows[0].options[0].reason, 'host-cannot-select-route');
+  assert.equal(firstOption(evaluateCodexTaskRoutes(request, now)).reason, 'host-cannot-select-route');
   request.host.native.modelProvider = route.provider;
   assert.equal(evaluateCodexTaskRoutes(request, now).status, 'ready');
   request.host.native.spawnParameters = [];
-  assert.equal(evaluateCodexTaskRoutes(request, now).rows[0].options[0].reason, 'host-cannot-select-route');
+  assert.equal(firstOption(evaluateCodexTaskRoutes(request, now)).reason, 'host-cannot-select-route');
 });
 
 test('public CLI plan and check accept only the approved official DSH task and matching staged scope', (t) => {
@@ -231,7 +255,7 @@ test('independently recomputing the native work fingerprint rejects a stale scop
   const [role] = request.roles;
   role.workRevision = fingerprint('Review billing only', 'original diff');
   role.authorization.workRevision = role.workRevision;
-  const ready = evaluateDshTaskRoutes(request, session, now).rows[0];
+  const ready = readyRow(evaluateDshTaskRoutes(request, session, now));
   request.approval = [{ id: ready.id, approvalKey: ready.route.approvalKey }];
   const task = {
     id: role.id,
