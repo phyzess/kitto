@@ -1,27 +1,39 @@
-export type HostName = 'pi' | 'codex' | 'dsh';
-export type OwnershipKind = 'skill' | 'instructions' | 'mcp' | 'pi-package';
-export type OwnershipStatus = 'owned' | 'pending' | 'kept';
+import type { HostAction } from '../lib/hosts/action.ts';
+import type { CodexAdapterDeps } from '../lib/hosts/codex.ts';
+import type { DshWebAdapterDeps } from '../lib/hosts/dsh-web.ts';
+import type { PiAdapterDeps } from '../lib/hosts/pi.ts';
+import type { RunFunction } from '../lib/process.ts';
+import type { OwnershipLedger } from '../lib/ownership.ts';
+import type { MigrationRecord } from '../lib/state-schema.ts';
 
-export interface OwnershipEntry {
-  hash: string | null;
-  status: OwnershipStatus;
-  previous?: string;
-  spec?: unknown;
+export type HostName = 'pi' | 'codex' | 'dsh';
+
+export type Json = Record<string, any>;
+
+export interface RoutingBoundary {
+  schema: 1;
+  mode: 'personal' | 'company' | 'custom' | 'skip';
+  routes?: string[];
+  identity: string;
+  profile: string;
 }
 
-export type OwnershipScope = Record<string, OwnershipEntry>;
-export type OwnershipLedger = Partial<Record<OwnershipKind, Record<string, OwnershipScope>>>;
+export interface RuntimeRecord {
+  version: string;
+  hash: string;
+}
 
-export interface MigrationRecord {
-  from: 1;
-  present: string[];
-  pi: { imported: boolean };
+export interface SourceRevision {
+  commit: string;
+  dirty: boolean;
+  detached: boolean;
 }
 
 export interface State {
   schema: 1 | 2;
   source: string;
   agents: HostName[];
+  version?: string;
   dshProfile?: string;
   piHome?: string;
   codexHome?: string;
@@ -34,37 +46,15 @@ export interface State {
   removedAgents?: string[];
   owned?: OwnershipLedger;
   migration?: MigrationRecord;
+  sourceUrl?: string;
+  sourceRef?: string | null;
+  pendingRuntime?: RuntimeRecord;
+  runtimeHash?: string;
+  deployed?: SourceRevision;
+  keepExistingSkills?: boolean;
+  routingInstallKind?: 'local' | 'service';
+  routingBoundary?: RoutingBoundary;
   [key: string]: unknown;
-}
-
-export interface StateV1 extends Omit<State, 'schema' | 'owned' | 'migration'> {
-  schema?: 1;
-  skills?: Record<string, string>;
-  hostSkills?: Record<string, Record<string, string>>;
-  keptSkills?: Record<string, string[]>;
-  instructions?: Record<string, string>;
-  mcp?: { codex?: Record<string, string>; codexPending?: Record<string, string>; [key: string]: unknown };
-}
-
-export interface MigrationResult {
-  state: State;
-  changed: boolean;
-  removable: string[];
-}
-
-export type HostActionPhase = 'sync' | 'post-skills' | 'connect' | 'detach';
-
-export interface PreviewOptions {
-  announce?: boolean;
-}
-
-export interface HostAction {
-  host: HostName;
-  kind: string;
-  phase?: HostActionPhase;
-  describe(): string;
-  preview(options?: PreviewOptions): Promise<unknown>;
-  apply(): Promise<unknown>;
 }
 
 export interface DeployPlan {
@@ -105,8 +95,8 @@ export interface PiAdapter extends HostAdapter {
 }
 
 export interface HostAdapterDeps {
-  common?: Record<string, unknown>;
-  pi?: Record<string, unknown>;
-  codex?: Record<string, unknown>;
-  dsh?: Record<string, unknown>;
+  common?: { home?: string; run?: RunFunction };
+  pi?: PiAdapterDeps;
+  codex?: CodexAdapterDeps;
+  dsh?: DshWebAdapterDeps;
 }
