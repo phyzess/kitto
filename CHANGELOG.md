@@ -4,6 +4,7 @@
 
 - Maintenance: retire the one-time comment-ratchet rollout bootstrap, closed issue drafts, the progress log and the comment audit ledgers (kept in git history at `fb9e292`).
 - Tests: `npm test` now runs every `tests/*.test.mjs`, and `npm run check:test-wiring` (also a CI step) fails if a test file is not covered.
+- Paths: compare filesystem locations by identity through the shared `sameLocation` helper instead of resolved strings, so symlinked roots such as macOS `/var` are no longer mistaken for different locations. CI now also runs the test suites with `TMPDIR` behind a symlink.
 
 ## 0.4.0
 
