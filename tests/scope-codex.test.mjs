@@ -3,14 +3,15 @@ import { execFile, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { hosts } from '../lib/host-pins.mjs';
 
 const run = promisify(execFile);
-const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
+const packageRoot = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT) : fileURLToPath(new URL('../', import.meta.url));
+const cli = join(packageRoot, 'bin/kitto.mjs');
 
 test('Codex scopes preserve existing hooks and compose with native repo discovery', async t => {
   const fixture = await mkdtemp(join(tmpdir(), 'kitto-codex-'));
