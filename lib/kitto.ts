@@ -100,26 +100,52 @@ export function parseOptions(args: string[]): KittoOptions {
   const options: Record<string, any> = {};
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (['--dry-run', '--install-agents', '--recover', '--require-baseline', '--global', '--include-private', '--no-include-private'].includes(arg)) options[arg.slice(2)] = true;
-    else if (['--agents', '--source', '--ref', '--dsh-profile', '--workspace', '--workspace-parent', '--dsh-service',
-      '--routing-boundary', '--routing-routes'].includes(arg) && args[i + 1] && !args[i + 1].startsWith('-')) {
+    if (
+      [
+        '--dry-run',
+        '--install-agents',
+        '--recover',
+        '--require-baseline',
+        '--global',
+        '--include-private',
+        '--no-include-private',
+      ].includes(arg)
+    )
+      options[arg.slice(2)] = true;
+    else if (
+      [
+        '--agents',
+        '--source',
+        '--ref',
+        '--dsh-profile',
+        '--workspace',
+        '--workspace-parent',
+        '--dsh-service',
+        '--routing-boundary',
+        '--routing-routes',
+      ].includes(arg) &&
+      args[i + 1] &&
+      !args[i + 1].startsWith('-')
+    ) {
       const name = arg.slice(2);
       if (name.startsWith('routing-') && Object.hasOwn(options, name)) throw new Error(`Specify ${arg} at most once.`);
       options[name] = args[++i];
-    }
-    else throw new Error(`Unknown option or missing value: ${arg}`);
+    } else throw new Error(`Unknown option or missing value: ${arg}`);
   }
   if (options.agents) {
     options.agents = [...new Set(options.agents.split(','))];
     if (options.agents.some((name: HostName) => !hosts[name])) throw new Error('Agents must be pi,codex,dsh.');
   }
-  if (options['include-private'] && options['no-include-private']) throw new Error('Choose either --include-private or --no-include-private.');
-  if (options.recover && Object.keys(options).some(key => !['recover', 'dry-run'].includes(key))) throw new Error('--recover only accepts --dry-run; it uses the saved installation.');
+  if (options['include-private'] && options['no-include-private'])
+    throw new Error('Choose either --include-private or --no-include-private.');
+  if (options.recover && Object.keys(options).some((key) => !['recover', 'dry-run'].includes(key)))
+    throw new Error('--recover only accepts --dry-run; it uses the saved installation.');
   return options as KittoOptions;
 }
 
 async function validateSource({ source, agents }: Pick<State, 'source' | 'agents'>): Promise<void> {
-  if (git(source, ['rev-parse', '--show-toplevel']) !== await realpath(source)) throw new Error('Source must be the root of a Git checkout.');
+  if (git(source, ['rev-parse', '--show-toplevel']) !== (await realpath(source)))
+    throw new Error('Source must be the root of a Git checkout.');
   if (agents.includes('codex')) {
     try {
       await codexMcpSource(source);
@@ -135,11 +161,14 @@ async function validateSource({ source, agents }: Pick<State, 'source' | 'agents
 }
 
 async function replaceRuntime(home: string, next: string): Promise<void> {
-  const runtime = join(home, 'runtime'), replacing = join(home, 'runtime.replacing');
-  if (!await present(runtime) && await present(replacing)) await rename(replacing, runtime);
+  const runtime = join(home, 'runtime'),
+    replacing = join(home, 'runtime.replacing');
+  if (!(await present(runtime)) && (await present(replacing))) await rename(replacing, runtime);
   await rm(replacing, { recursive: true, force: true });
   if (await present(runtime)) await rename(runtime, replacing);
-  try { await rename(next, runtime); } catch (error) {
+  try {
+    await rename(next, runtime);
+  } catch (error) {
     if (await present(replacing)) await rename(replacing, runtime);
     throw error;
   }
@@ -149,8 +178,10 @@ async function replaceRuntime(home: string, next: string): Promise<void> {
 async function assertBuiltPackage(): Promise<void> {
   for (const name of ['bin', 'lib', 'integration']) {
     const entries = await readdir(join(packageRoot, name), { recursive: true });
-    if (entries.some(entry => entry.endsWith('.ts'))) {
-      throw new Error(`Cannot install a runtime from TypeScript sources at ${packageRoot}. Run \`npm ci --ignore-scripts && npm run build\`, then run \`node dist/bin/kitto.mjs\` (or ./setup.sh from the checkout).`);
+    if (entries.some((entry) => entry.endsWith('.ts'))) {
+      throw new Error(
+        `Cannot install a runtime from TypeScript sources at ${packageRoot}. Run \`npm ci --ignore-scripts && npm run build\`, then run \`node dist/bin/kitto.mjs\` (or ./setup.sh from the checkout).`,
+      );
     }
   }
 }
@@ -170,15 +201,20 @@ async function installRuntime(home: string, old: Partial<State>, agentsHome: str
   const entries: Record<string, string> = { KITTO_RUNNER: 'maintain.mjs', KITTO_CLI: 'kitto.mjs' };
   const launcher = shellQuote(launcherPath(agentsHome));
   const template = await readFile(skillPath, 'utf8');
-  await writeFile(skillPath, template.replace(/KITTO_NODE|KITTO_RUNNER|KITTO_CLI/g, (key: string) => key === 'KITTO_NODE' ? launcher : shellQuote(join(runtime, 'bin', entries[key]))));
+  await writeFile(
+    skillPath,
+    template.replace(/KITTO_NODE|KITTO_RUNNER|KITTO_CLI/g, (key: string) =>
+      key === 'KITTO_NODE' ? launcher : shellQuote(join(runtime, 'bin', entries[key])),
+    ),
+  );
   const hash = await treeHash(next);
-  if (await present(runtime) && await treeHash(runtime) === hash) {
+  if ((await present(runtime)) && (await treeHash(runtime)) === hash) {
     await rm(next, { recursive: true });
     return runtime;
   }
-  const currentIsVerified = await present(runtime) && (old.runtimeHash
-    ? await treeHash(runtime) === old.runtimeHash
-    : (await json(join(runtime, 'package.json'))).version === old.version);
+  const currentIsVerified =
+    (await present(runtime)) &&
+    (old.runtimeHash ? (await treeHash(runtime)) === old.runtimeHash : (await json(join(runtime, 'package.json'))).version === old.version);
   if (old.ready && !old.detached && currentIsVerified) {
     const staging = join(home, 'checkpoint.next');
     await rm(staging, { recursive: true, force: true });
@@ -186,14 +222,22 @@ async function installRuntime(home: string, old: Partial<State>, agentsHome: str
     await rm(previous, { recursive: true, force: true });
     await rename(staging, previous);
     await atomicJson(join(home, 'runtime.previous.json'), {
-      version: (await json(join(previous, 'package.json'))).version, dshProfile: old.dshProfile || 'web', hash: await treeHash(previous),
+      version: (await json(join(previous, 'package.json'))).version,
+      dshProfile: old.dshProfile || 'web',
+      hash: await treeHash(previous),
     });
   }
   await replaceRuntime(home, next);
   return runtime;
 }
 
-async function existingSkillAction(target: string, source: string, nextHash: string, previous: string | null | undefined, keepUnowned: boolean): Promise<SkillAction> {
+async function existingSkillAction(
+  target: string,
+  source: string,
+  nextHash: string,
+  previous: string | null | undefined,
+  keepUnowned: boolean,
+): Promise<SkillAction> {
   const stat = await lstat(target);
   if (stat.isSymbolicLink()) {
     if (sameLocation(resolve(dirname(target), await readlink(target)), source)) return 'linked';
@@ -214,31 +258,35 @@ async function existingSkillAction(target: string, source: string, nextHash: str
 async function skillPlan(root: string, destination: string, state: State, group: string): Promise<SkillPlanItem[]> {
   const plans: SkillPlanItem[] = [];
   const keepExisting = state.keepExistingSkills === true;
-  const owned = list(state, 'skill', group, 'owned').map(entry => entry.name);
-  const kept = list(state, 'skill', group, 'kept').map(entry => entry.name);
-  const entries = await present(root) ? await readdir(root, { withFileTypes: true }) : [];
+  const owned = list(state, 'skill', group, 'owned').map((entry) => entry.name);
+  const kept = list(state, 'skill', group, 'kept').map((entry) => entry.name);
+  const entries = (await present(root)) ? await readdir(root, { withFileTypes: true }) : [];
   for (const entry of entries) {
     if (!entry.isDirectory() || !existsSync(join(root, entry.name, 'SKILL.md'))) continue;
-    const source = join(root, entry.name), target = join(destination, entry.name);
+    const source = join(root, entry.name),
+      target = join(destination, entry.name);
     const nextHash = await treeHash(source);
     let action: SkillAction = 'copy';
     if (await present(target)) {
       const keepUnowned = keepExisting && get(state, 'skill', group, entry.name)?.status !== 'owned';
-      action = keepUnowned && kept.includes(entry.name) ? 'keep'
-        : await existingSkillAction(target, source, nextHash, recordedHash(state, 'skill', group, entry.name), keepUnowned);
+      action =
+        keepUnowned && kept.includes(entry.name)
+          ? 'keep'
+          : await existingSkillAction(target, source, nextHash, recordedHash(state, 'skill', group, entry.name), keepUnowned);
     }
     plans.push({ name: entry.name, source, target, hash: nextHash, action });
   }
   for (const name of owned) {
-    if (plans.some(plan => plan.name === name)) continue;
+    if (plans.some((plan) => plan.name === name)) continue;
     const target = join(destination, name);
     if (await present(target)) {
-      if ((await lstat(target)).isSymbolicLink() || await treeHash(target) !== recordedHash(state, 'skill', group, name)) throw new Error(`Removed skill has local changes: ${target}. Preserved.`);
+      if ((await lstat(target)).isSymbolicLink() || (await treeHash(target)) !== recordedHash(state, 'skill', group, name))
+        throw new Error(`Removed skill has local changes: ${target}. Preserved.`);
       plans.push({ name, target, action: 'remove' });
     }
   }
   for (const name of kept) {
-    if (plans.some(plan => plan.name === name)) continue;
+    if (plans.some((plan) => plan.name === name)) continue;
     const target = join(destination, name);
     if (await present(target)) plans.push({ name, target, action: 'keep' });
   }
@@ -246,8 +294,10 @@ async function skillPlan(root: string, destination: string, state: State, group:
 }
 
 async function configurationPlan(state: State): Promise<ConfigurationPlan> {
-  const groups: SkillGroup[] = [{ name: 'shared', source: join(state.source, 'skills'), target: join(state.agentsHome, 'skills') },
-    ...hostSkillRoots(state)];
+  const groups: SkillGroup[] = [
+    { name: 'shared', source: join(state.source, 'skills'), target: join(state.agentsHome, 'skills') },
+    ...hostSkillRoots(state),
+  ];
   for (const group of groups) {
     group.plans = await skillPlan(group.source, group.target, state, group.name);
     for (const plan of group.plans) console.log(`skill ${plan.action}: ${plan.name} (${group.name})`);
@@ -261,12 +311,16 @@ async function configurationPlan(state: State): Promise<ConfigurationPlan> {
 }
 
 async function deploy(state: State, apply: boolean, plan: ConfigurationPlan | undefined = undefined): Promise<void> {
-  const { groups, instructions, toolNode } = plan ?? await configurationPlan(state);
+  const { groups, instructions, toolNode } = plan ?? (await configurationPlan(state));
   const deployment = apply ? sourceRevision(state.source) : undefined;
   const { sync, postSkills } = planDeploy(state);
   for (const action of sync) await (apply ? action.apply() : action.preview());
   if (!apply) {
-    const connectable = state.ready ? [] : planConnect(state).filter(action => action.kind !== 'note').map(action => action.host);
+    const connectable = state.ready
+      ? []
+      : planConnect(state)
+          .filter((action) => action.kind !== 'note')
+          .map((action) => action.host);
     if (connectable.length) console.log(`Connect native Kitto integrations: ${connectable.join(', ')}`);
     return;
   }
@@ -305,19 +359,25 @@ async function dropImportedPiFile(state: State): Promise<void> {
 }
 
 async function recover(state: State, apply: boolean): Promise<void> {
-  if (state.detached || state.removing) throw new Error('Kitto integrations are being removed or already detached. Use setup to reconnect them.');
-  const home = kittoHome(), previous = join(home, 'runtime.previous');
-  if (!await present(join(home, 'runtime.previous.json'))) throw new Error('No verified runtime checkpoint. Rerun setup with a known working package version.');
+  if (state.detached || state.removing)
+    throw new Error('Kitto integrations are being removed or already detached. Use setup to reconnect them.');
+  const home = kittoHome(),
+    previous = join(home, 'runtime.previous');
+  if (!(await present(join(home, 'runtime.previous.json'))))
+    throw new Error('No verified runtime checkpoint. Rerun setup with a known working package version.');
   const checkpoint: RuntimeCheckpoint = await json(join(home, 'runtime.previous.json'));
   if (state.agents.includes('dsh') && (state.dshProfile || 'web') !== (checkpoint.dshProfile || 'web')) {
     throw new Error('The runtime checkpoint was verified with a different DSH profile.');
   }
-  if (await treeHash(previous) !== checkpoint.hash) throw new Error('The runtime checkpoint was modified. Preserved; use a known working package version instead.');
-  console.log(`Restore Kitto code ${state.pendingRuntime?.version || state.version} -> ${checkpoint.version}; reconnect ${state.agents.join(', ')}. Personal configuration and skills stay as deployed.`);
+  if ((await treeHash(previous)) !== checkpoint.hash)
+    throw new Error('The runtime checkpoint was modified. Preserved; use a known working package version instead.');
+  console.log(
+    `Restore Kitto code ${state.pendingRuntime?.version || state.version} -> ${checkpoint.version}; reconnect ${state.agents.join(', ')}. Personal configuration and skills stay as deployed.`,
+  );
   if (!apply) return;
   state.ready = false;
   await saveKittoState(home, state);
-  if (!await present(join(home, 'runtime')) || await treeHash(join(home, 'runtime')) !== checkpoint.hash) {
+  if (!(await present(join(home, 'runtime'))) || (await treeHash(join(home, 'runtime'))) !== checkpoint.hash) {
     const next = join(home, 'runtime.next');
     await rm(next, { recursive: true, force: true });
     await cp(previous, next, { recursive: true });
@@ -333,8 +393,10 @@ async function recover(state: State, apply: boolean): Promise<void> {
 }
 
 async function remove(state: State, apply: boolean): Promise<void> {
-  console.log(`Detach Kitto from ${state.agents.join(', ')}. Keep configuration, shared skills, agent CLIs and Kitto files for recovery/reinstallation.`);
-  const remaining = state.agents.filter(name => !(state.removedAgents || []).includes(name));
+  console.log(
+    `Detach Kitto from ${state.agents.join(', ')}. Keep configuration, shared skills, agent CLIs and Kitto files for recovery/reinstallation.`,
+  );
+  const remaining = state.agents.filter((name) => !(state.removedAgents || []).includes(name));
   const detachments: Array<{ name: HostName; actions: HostAction[] }> = [];
   const launcher = await planLauncherRemoval(state);
   if (launcher.action !== 'absent') console.log(`launcher ${launcher.action}: ${launcher.target}`);
@@ -345,7 +407,8 @@ async function remove(state: State, apply: boolean): Promise<void> {
   }
   if (!apply) return;
   const home = kittoHome();
-  state.ready = false; state.removing = true;
+  state.ready = false;
+  state.removing = true;
   await saveKittoState(home, state);
   for (const { name, actions } of detachments) {
     for (const action of actions) await action.apply();
@@ -353,35 +416,46 @@ async function remove(state: State, apply: boolean): Promise<void> {
     await saveKittoState(home, state);
   }
   await applyLauncherRemoval(state, launcher);
-  state.removing = false; state.detached = true;
+  state.removing = false;
+  state.detached = true;
   await saveKittoState(home, state);
 }
 
 async function refreshRuntime(state: State, apply: boolean): Promise<RuntimeRecord | undefined> {
-  const home = kittoHome(), runtime = join(home, 'runtime');
+  const home = kittoHome(),
+    runtime = join(home, 'runtime');
   const fromInstalledRuntime = sameLocation(packageRoot, runtime);
   const current = state.version;
   if (!apply) {
-    if (fromInstalledRuntime) console.log(`Runtime: ${current} (this entry runs from the installed copy; run update with the intended Kitto package to replace it).`);
+    if (fromInstalledRuntime)
+      console.log(
+        `Runtime: ${current} (this entry runs from the installed copy; run update with the intended Kitto package to replace it).`,
+      );
     else {
       const next = (await json(join(packageRoot, 'package.json'))).version;
-      console.log(next === current
-        ? `Runtime: ${current} (re-synced from the executing package only if its files differ).`
-        : `Runtime: ${current} -> ${next} (the previous verified version stays recoverable).`);
+      console.log(
+        next === current
+          ? `Runtime: ${current} (re-synced from the executing package only if its files differ).`
+          : `Runtime: ${current} -> ${next} (the previous verified version stays recoverable).`,
+      );
     }
     return undefined;
   }
   if (fromInstalledRuntime) {
-    console.log(`Runtime: ${current} (the installed maintenance runner cannot replace itself; run update with the intended Kitto package to refresh the code copy).`);
+    console.log(
+      `Runtime: ${current} (the installed maintenance runner cannot replace itself; run update with the intended Kitto package to refresh the code copy).`,
+    );
     return undefined;
   }
   const installed = await installRuntime(home, state, state.agentsHome);
   const pending = { version: (await json(join(installed, 'package.json'))).version, hash: await treeHash(installed) };
   state.pendingRuntime = pending;
   await saveKittoState(home, state);
-  console.log(pending.version === current
-    ? `Runtime: ${pending.version} (re-synced; verified after deployment)`
-    : `Runtime: ${current} -> ${pending.version} (verified after deployment; recover keeps ${current} until then)`);
+  console.log(
+    pending.version === current
+      ? `Runtime: ${pending.version} (re-synced; verified after deployment)`
+      : `Runtime: ${current} -> ${pending.version} (verified after deployment; recover keeps ${current} until then)`,
+  );
   return pending;
 }
 
@@ -397,7 +471,9 @@ function upstreamOf(state: State, branch: string): string {
   try {
     return git(state.source, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
   } catch {
-    throw new Error(`Branch ${branch} has no upstream. Set one with 'git branch --set-upstream-to=<remote>/${branch} ${branch}' or 'git push -u <remote> ${branch}', then retry.`);
+    throw new Error(
+      `Branch ${branch} has no upstream. Set one with 'git branch --set-upstream-to=<remote>/${branch} ${branch}' or 'git push -u <remote> ${branch}', then retry.`,
+    );
   }
 }
 
@@ -422,7 +498,8 @@ async function checkRestoreRef(state: State): Promise<void> {
   } catch (error) {
     throw restoreError(state, `Cannot inspect ${redactUrl(state.sourceUrl)}: ${(error as Error).message}.`);
   }
-  if (heads && tags) throw restoreError(state, `The recorded ref ${ref} exists as both a branch and a tag on ${redactUrl(state.sourceUrl)}.`);
+  if (heads && tags)
+    throw restoreError(state, `The recorded ref ${ref} exists as both a branch and a tag on ${redactUrl(state.sourceUrl)}.`);
   if (tags) throw restoreError(state, `The checkout was pinned to tag ${ref} and Kitto does not guess pinned snapshots.`);
   if (!heads) throw restoreError(state, `Branch ${ref} no longer exists on ${redactUrl(state.sourceUrl)}.`);
 }
@@ -430,7 +507,11 @@ async function checkRestoreRef(state: State): Promise<void> {
 async function syncSourceLocation(state: State, apply: boolean): Promise<void> {
   if (!state.sourceUrl) return;
   let origin: string;
-  try { origin = git(state.source, ['config', '--local', '--get', 'remote.origin.url']); } catch { return; }
+  try {
+    origin = git(state.source, ['config', '--local', '--get', 'remote.origin.url']);
+  } catch {
+    return;
+  }
   if (!origin || origin === state.sourceUrl) return;
   if (!isGitUrl(origin)) {
     console.log(`Configuration origin is not a Git URL; keeping ${redactUrl(state.sourceUrl)} for recovery.`);
@@ -448,33 +529,51 @@ async function syncSourceLocation(state: State, apply: boolean): Promise<void> {
 }
 
 async function backfillSource(state: State): Promise<void> {
-  if (!await present(state.source)) return;
+  if (!(await present(state.source))) return;
   const markerPath = bootstrapMarker(state.source);
-  if (!await present(markerPath)) return;
+  if (!(await present(markerPath))) return;
   const marker = await json(markerPath).catch((): undefined => undefined);
   if (!marker) return;
   let changed = false;
-  if (marker.url && !state.sourceUrl) { state.sourceUrl = marker.url; changed = true; }
-  if (state.sourceRef === undefined) { state.sourceRef = marker.ref ?? null; changed = true; }
+  if (marker.url && !state.sourceUrl) {
+    state.sourceUrl = marker.url;
+    changed = true;
+  }
+  if (state.sourceRef === undefined) {
+    state.sourceRef = marker.ref ?? null;
+    changed = true;
+  }
   if (!changed) return;
-  console.log(`Recovered the configuration source from the bootstrap marker: ${redactUrl(state.sourceUrl)}${state.sourceRef ? ` (${state.sourceRef})` : ''}.`);
+  console.log(
+    `Recovered the configuration source from the bootstrap marker: ${redactUrl(state.sourceUrl)}${state.sourceRef ? ` (${state.sourceRef})` : ''}.`,
+  );
 }
 
 async function updateSource(state: State, apply: boolean): Promise<boolean> {
-  if (!await present(state.source)) {
+  if (!(await present(state.source))) {
     if (!state.sourceUrl) throw restoreError(state, 'The Kitto configuration checkout is missing and no source URL was recorded.');
-    if (state.deployed?.detached) throw restoreError(state, `The configuration checkout was pinned to a detached revision${state.sourceRef ? ` (${state.sourceRef})` : ''} and is missing. Kitto does not guess pinned snapshots.`);
-    if (state.sourceRef === undefined) throw restoreError(state, 'The configuration checkout is missing and state.json does not record its branch or tag.');
+    if (state.deployed?.detached)
+      throw restoreError(
+        state,
+        `The configuration checkout was pinned to a detached revision${state.sourceRef ? ` (${state.sourceRef})` : ''} and is missing. Kitto does not guess pinned snapshots.`,
+      );
+    if (state.sourceRef === undefined)
+      throw restoreError(state, 'The configuration checkout is missing and state.json does not record its branch or tag.');
     if (!isGitUrl(state.sourceUrl)) throw restoreError(state, 'The recorded source URL is not an HTTPS/SSH Git URL.');
     await checkRestoreRef(state);
-    console.log(`Restore configuration checkout from ${redactUrl(state.sourceUrl)}${state.sourceRef ? ` (${state.sourceRef})` : ' (remote default branch)'}: ${state.source}`);
+    console.log(
+      `Restore configuration checkout from ${redactUrl(state.sourceUrl)}${state.sourceRef ? ` (${state.sourceRef})` : ' (remote default branch)'}: ${state.source}`,
+    );
     if (!apply) return false;
     await cloneSource(kittoHome(), state.source, state.sourceUrl, state.sourceRef ?? undefined);
   }
   if (sourceRevision(state.source).detached) {
-    throw new Error('Configuration is pinned to a detached revision. Run kitto setup --ref TAG to switch a Kitto-created checkout to another snapshot.');
+    throw new Error(
+      'Configuration is pinned to a detached revision. Run kitto setup --ref TAG to switch a Kitto-created checkout to another snapshot.',
+    );
   }
-  if (git(state.source, ['status', '--porcelain'])) throw new Error('Source has local changes. Commit or resolve them before update; nothing was stashed or reset.');
+  if (git(state.source, ['status', '--porcelain']))
+    throw new Error('Source has local changes. Commit or resolve them before update; nothing was stashed or reset.');
   const branch = git(state.source, ['symbolic-ref', '--short', 'HEAD']);
   const upstream = upstreamOf(state, branch);
   const remote = git(state.source, ['config', `branch.${branch}.remote`]);
@@ -482,40 +581,50 @@ async function updateSource(state: State, apply: boolean): Promise<boolean> {
   if (remote === '.') throw new Error('A remote-tracking branch is required for update.');
   const before = sourceRevision(state.source).commit;
   if (!apply) {
-    const head = run('git', ['-C', state.source, 'ls-remote', remote, ref], { capture: true, timeout: 30_000 }).split('\n')[0]?.split(/\s+/)[0];
-    console.log(`Configuration ${branch}: local ${before.slice(0, 7)}; remote ${head ? head.slice(0, 7) : '(no matching ref)'} (not fetched).`);
+    const head = run('git', ['-C', state.source, 'ls-remote', remote, ref], { capture: true, timeout: 30_000 })
+      .split('\n')[0]
+      ?.split(/\s+/)[0];
+    console.log(
+      `Configuration ${branch}: local ${before.slice(0, 7)}; remote ${head ? head.slice(0, 7) : '(no matching ref)'} (not fetched).`,
+    );
     return false;
   }
   git(state.source, ['fetch', remote]);
-  const isAncestor = (earlier: string, later: string) => spawnSync('git', ['-C', state.source, 'merge-base', '--is-ancestor', earlier, later],
-    { stdio: 'ignore', timeout: 30_000 }).status === 0;
+  const isAncestor = (earlier: string, later: string) =>
+    spawnSync('git', ['-C', state.source, 'merge-base', '--is-ancestor', earlier, later], { stdio: 'ignore', timeout: 30_000 }).status ===
+    0;
   if (!isAncestor(before, upstream) && !isAncestor(upstream, before)) {
-    throw new Error(`The remote branch ${upstream} and the local branch ${branch} have diverged (neither is an ancestor of the other). Kitto only fast-forwards; reconcile manually (for example git pull --rebase) and retry. Nothing was changed.`);
+    throw new Error(
+      `The remote branch ${upstream} and the local branch ${branch} have diverged (neither is an ancestor of the other). Kitto only fast-forwards; reconcile manually (for example git pull --rebase) and retry. Nothing was changed.`,
+    );
   }
   git(state.source, ['pull', '--ff-only']);
   const after = sourceRevision(state.source).commit;
-  console.log(after === before
-    ? `Configuration ${branch} is already at ${after.slice(0, 7)}.`
-    : `Configuration ${branch} fast-forwarded ${before.slice(0, 7)} -> ${after.slice(0, 7)}.`);
+  console.log(
+    after === before
+      ? `Configuration ${branch} is already at ${after.slice(0, 7)}.`
+      : `Configuration ${branch} fast-forwarded ${before.slice(0, 7)} -> ${after.slice(0, 7)}.`,
+  );
   await validateSource(state);
   return true;
 }
 
 export async function update(args: string[] = []): Promise<void> {
   if (args.includes('--check') && args.includes('--apply')) throw new Error('Choose either --check or --apply for update.');
-  if (args.includes('--include-private') && args.includes('--no-include-private')) throw new Error('Choose either --include-private or --no-include-private for update.');
+  if (args.includes('--include-private') && args.includes('--no-include-private'))
+    throw new Error('Choose either --include-private or --no-include-private for update.');
   const unknown = args.filter((flag: string) => !['--check', '--apply', '--include-private', '--no-include-private'].includes(flag));
   if (unknown.length) throw new Error(`Unknown update option: ${unknown[0]}. Read the Kitto skill.`);
   const apply = args.includes('--apply');
-  const includePrivate = args.includes('--include-private') ? true
-    : args.includes('--no-include-private') ? false : undefined;
+  const includePrivate = args.includes('--include-private') ? true : args.includes('--no-include-private') ? false : undefined;
   const home = kittoHome();
   const state = await loadKittoState(home, { dryRun: true }).catch((error: NodeJS.ErrnoException): null => {
     if (error.code === 'ENOENT') return null;
     throw error;
   });
   if (!state) throw new Error(`Kitto is not set up in ${home}. Run kitto setup first.`);
-  if (state.detached || state.removing) throw new Error('Kitto is detached or removal is incomplete. Use setup to reconnect, or finish remove.');
+  if (state.detached || state.removing)
+    throw new Error('Kitto is detached or removal is incomplete. Use setup to reconnect, or finish remove.');
   console.log(`Kitto ${state.version} update${apply ? '' : ' preview (no writes)'}.`);
   hostCliVersions(state);
   const work = async () => {
@@ -530,7 +639,9 @@ export async function update(args: string[] = []): Promise<void> {
         await deploy(state, false, plan);
       }
       await refreshRuntime(state, false);
-      console.log('Preview only: restore the checkout if missing, fetch and fast-forward the source branch, refresh the Kitto runtime copy, then deploy configuration, skills and MCP. No writes.');
+      console.log(
+        'Preview only: restore the checkout if missing, fetch and fast-forward the source branch, refresh the Kitto runtime copy, then deploy configuration, skills and MCP. No writes.',
+      );
       return;
     }
     await syncSourceLocation(state, true);
@@ -539,14 +650,20 @@ export async function update(args: string[] = []): Promise<void> {
     try {
       await deploy(state, true, plan);
     } catch (error) {
-      if (pending) console.error(`kitto: runtime ${pending.version} stays unverified because the deployment did not finish. `
-        + 'Rerun `kitto update --apply` to finish, or `kitto setup --recover` to return to the previous runtime.');
+      if (pending)
+        console.error(
+          `kitto: runtime ${pending.version} stays unverified because the deployment did not finish. ` +
+            'Rerun `kitto update --apply` to finish, or `kitto setup --recover` to return to the previous runtime.',
+        );
       throw error;
     }
     await finalizeRuntime(state, pending);
-    console.log(`Kitto update complete: runtime ${state.version}, configuration ${sourceRevision(state.source).commit.slice(0, 7)}. Restart native hosts to load new plugin code.`);
+    console.log(
+      `Kitto update complete: runtime ${state.version}, configuration ${sourceRevision(state.source).commit.slice(0, 7)}. Restart native hosts to load new plugin code.`,
+    );
   };
-  if (apply) await locked(home, work); else await work();
+  if (apply) await locked(home, work);
+  else await work();
 }
 
 function sourceRevision(source: string): SourceRevision {
@@ -573,7 +690,8 @@ async function cloneSource(home: string, source: string, url: string, ref?: stri
 }
 
 export async function setup(options: KittoOptions = {}): Promise<void> {
-  const boundary = options['routing-boundary'], routingRoutes = options['routing-routes'];
+  const boundary = options['routing-boundary'],
+    routingRoutes = options['routing-routes'];
   if (routingRoutes !== undefined && boundary === undefined) throw new Error('--routing-routes requires --routing-boundary custom.');
   if (options.global || Object.hasOwn(options, 'workspace') || Object.hasOwn(options, 'workspace-parent')) {
     if (boundary !== undefined) throw new Error('Routing boundary requires full local Kitto setup, not scoped setup.');
@@ -584,25 +702,29 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
     return setupScope(options);
   }
   if (options['dsh-service']) throw new Error('--dsh-service requires --workspace PATH.');
-  const home = kittoHome(), statePath = join(home, 'state.json');
+  const home = kittoHome(),
+    statePath = join(home, 'state.json');
   if (options.recover) {
     const dryRun = options['dry-run'] === true;
     const work = async () => recover(await loadKittoState(home, { dryRun }), !dryRun);
     return options['dry-run'] ? work() : locked(home, work);
   }
-  const readState = () => readFile(statePath, 'utf8').catch((error: NodeJS.ErrnoException): null => {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  });
+  const readState = () =>
+    readFile(statePath, 'utf8').catch((error: NodeJS.ErrnoException): null => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
   const baseline = await readState();
   const old: Partial<State> = baseline ? await loadKittoState(home, { dryRun: true }) : {};
-  const agents = options.agents ? [...new Set([...(old.agents || []), ...options.agents])]
+  const agents = options.agents
+    ? [...new Set([...(old.agents || []), ...options.agents])]
     : old.agents || (Object.keys(hosts) as HostName[]).filter(availableHost);
   if (!agents.length) throw new Error('No agent detected. Select --agents pi,codex,dsh; add --install-agents to install missing CLIs.');
   const dshProfile = validateDshProfile(options['dsh-profile'] ?? old.dshProfile ?? 'web');
   if (options['dsh-profile'] && !agents.includes('dsh')) throw new Error('--dsh-profile requires DSH.');
   const installPnpm = agents.includes('dsh') && !isDesktopProfile(dshProfile) && !available('pnpm');
-  if (installPnpm && !options['install-agents']) throw new Error('DSH native plugin operations require pnpm on PATH. Add --install-agents to install the missing prerequisite.');
+  if (installPnpm && !options['install-agents'])
+    throw new Error('DSH native plugin operations require pnpm on PATH. Add --install-agents to install the missing prerequisite.');
   if (installPnpm) console.log(`Install missing DSH prerequisite: pnpm@${pnpmVersion}`);
   if (!available('git')) throw new Error('git is required.');
   if (old.agents?.includes('dsh') && !old.detached && dshProfile !== (old.dshProfile || 'web')) {
@@ -610,52 +732,83 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
   }
   const requested = options.source || old.source || defaultSource;
   const local = existsSync(requested);
-  const source = local ? await realpath(requested) : join(await realpath(home).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') return home;
-    throw error;
-  }), 'config');
+  const source = local
+    ? await realpath(requested)
+    : join(
+        await realpath(home).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return home;
+          throw error;
+        }),
+        'config',
+      );
   if (old.source && source !== old.source) {
     const sameSource = basename(source) === basename(old.source) && sameLocation(dirname(source), dirname(old.source));
-    if (!sameSource) throw new Error('This installation already has a source. Keep it or use a separate KITTO_HOME; source switching is not implicit.');
+    if (!sameSource)
+      throw new Error('This installation already has a source. Keep it or use a separate KITTO_HOME; source switching is not implicit.');
   }
   if (!local && !isGitUrl(requested)) throw new Error('Source must be an existing checkout or HTTPS/SSH Git URL.');
-  let switchTag = false, ownedSource = false;
+  let switchTag = false,
+    ownedSource = false;
   const markerPath = bootstrapMarker(source);
-  if (options.ref && await present(markerPath)) {
+  if (options.ref && (await present(markerPath))) {
     const marker: BootstrapMarker = await json(markerPath);
     const origin = git(source, ['config', '--local', '--get', 'remote.origin.url']);
     ownedSource = (local || requested === marker.url) && origin === marker.url;
-    switchTag = ownedSource && (marker.ref !== options.ref || (Boolean(old.source)
-        && git(source, ['rev-parse', '--abbrev-ref', 'HEAD']) !== options.ref));
+    switchTag =
+      ownedSource &&
+      (marker.ref !== options.ref || (Boolean(old.source) && git(source, ['rev-parse', '--abbrev-ref', 'HEAD']) !== options.ref));
     if (switchTag) {
-      if (!local && await realpath(source) !== source) throw new Error('Kitto checkout is a symlink. Preserved.');
+      if (!local && (await realpath(source)) !== source) throw new Error('Kitto checkout is a symlink. Preserved.');
       git(source, ['check-ref-format', `refs/tags/${options.ref}`]);
       if (sourceRevision(source).dirty) throw new Error('Source has local changes. Commit or resolve them before switching tags.');
     }
   }
   let resume = false;
-  if (!local && await present(source)) {
-    if (await present(bootstrapMarker(source)) && await realpath(source) === source) {
+  if (!local && (await present(source))) {
+    if ((await present(bootstrapMarker(source))) && (await realpath(source)) === source) {
       const marker = await json(bootstrapMarker(source));
-      resume = marker.url === requested && (switchTag || marker.ref === (options.ref ?? null))
-        && git(source, ['config', '--local', '--get', 'remote.origin.url']) === requested;
+      resume =
+        marker.url === requested &&
+        (switchTag || marker.ref === (options.ref ?? null)) &&
+        git(source, ['config', '--local', '--get', 'remote.origin.url']) === requested;
     }
-    if (!resume) throw new Error(`Unregistered checkout already exists at ${source}. Inspect it and rerun with --source ${shellQuote(source)}.`);
+    if (!resume)
+      throw new Error(`Unregistered checkout already exists at ${source}. Inspect it and rerun with --source ${shellQuote(source)}.`);
     console.log(`Resume setup from Kitto checkout: ${source}`);
   }
-  if (local && options.ref && !ownedSource) throw new Error('Switch tags only in a Kitto-created checkout. For your own checkout, use Git.');
-  const marker: BootstrapMarker | undefined = await present(markerPath) ? await json(markerPath).catch((): undefined => undefined) : undefined;
+  if (local && options.ref && !ownedSource)
+    throw new Error('Switch tags only in a Kitto-created checkout. For your own checkout, use Git.');
+  const marker: BootstrapMarker | undefined = (await present(markerPath))
+    ? await json(markerPath).catch((): undefined => undefined)
+    : undefined;
   const sourceUrl = local ? marker?.url : requested;
   const sourceRef: string | null = options.ref ?? marker?.ref ?? old.sourceRef ?? null;
   console.log(`Global setup: ${agents.join(', ')}; source: ${requested}; Kitto home: ${home}`);
-  const checkedAgents = agents.filter(name => !(name === 'dsh' && isDesktopProfile(dshProfile)));
+  const checkedAgents = agents.filter((name) => !(name === 'dsh' && isDesktopProfile(dshProfile)));
   checkSelectedHosts(checkedAgents, options['install-agents'], { requireBaseline: options['require-baseline'] === true });
-  const includePrivate = options['include-private'] === true ? true
-    : options['no-include-private'] === true ? false : old.includePrivate === true;
-  const state: State = { ...old, schema: CURRENT_SCHEMA as 2, ready: false, detached: false, removing: false, removedAgents: [], source, agents, dshProfile,
-    includePrivate, sourceUrl: sourceUrl || old.sourceUrl, sourceRef, pendingRuntime: undefined,
-    agentsHome: old.agentsHome || resolve((agents.includes('pi') && process.env.PI_AGENTS_DIR)
-      || (agents.includes('dsh') && process.env.DSH_AGENTS_HOME) || join(homedir(), '.agents')),
+  const includePrivate =
+    options['include-private'] === true ? true : options['no-include-private'] === true ? false : old.includePrivate === true;
+  const state: State = {
+    ...old,
+    schema: CURRENT_SCHEMA as 2,
+    ready: false,
+    detached: false,
+    removing: false,
+    removedAgents: [],
+    source,
+    agents,
+    dshProfile,
+    includePrivate,
+    sourceUrl: sourceUrl || old.sourceUrl,
+    sourceRef,
+    pendingRuntime: undefined,
+    agentsHome:
+      old.agentsHome ||
+      resolve(
+        (agents.includes('pi') && process.env.PI_AGENTS_DIR) ||
+          (agents.includes('dsh') && process.env.DSH_AGENTS_HOME) ||
+          join(homedir(), '.agents'),
+      ),
     piHome: old.piHome || resolve(process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi/agent')),
     codexHome: old.codexHome || resolve(process.env.CODEX_HOME || join(homedir(), '.codex')),
     dshHome: old.dshHome || resolve(process.env.DSH_HOME || join(homedir(), '.dsh')),
@@ -665,14 +818,17 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
     if (boundary !== undefined) throw new Error('Do not copy a local routing boundary to a service account.');
     state.routingInstallKind = 'service';
   } else if (boundary !== undefined) {
-    if (old.routingInstallKind === 'service' && boundary !== 'skip') throw new Error('Routing is not supported for a Kitto service account.');
+    if (old.routingInstallKind === 'service' && boundary !== 'skip')
+      throw new Error('Routing is not supported for a Kitto service account.');
     state.routingInstallKind = old.routingInstallKind === 'service' ? 'service' : 'local';
     setRoutingBoundary(state, boundary, routingRoutes);
     console.log(`Local model routing boundary: ${state.routingBoundary.mode}`);
   }
   if (options.keepExistingSkills === true) state.keepExistingSkills = true;
   if (agents.includes('codex') && !sameLocation(state.agentsHome, resolve(homedir(), '.agents'))) {
-    throw new Error('Codex discovers shared skills in ~/.agents. Use that common root for PI_AGENTS_DIR / DSH_AGENTS_HOME when selecting Codex.');
+    throw new Error(
+      'Codex discovers shared skills in ~/.agents. Use that common root for PI_AGENTS_DIR / DSH_AGENTS_HOME when selecting Codex.',
+    );
   }
   if (agents.includes('dsh') && process.env.DSH_AGENTS_HOME && !sameLocation(process.env.DSH_AGENTS_HOME, state.agentsHome)) {
     throw new Error('DSH_AGENTS_HOME and the shared skill root differ. Use the same root so native DSH sessions can discover your skills.');
@@ -684,7 +840,7 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
       console.log(desktopProfileNotice);
     } else {
       const builtIn = ['web', 'headless', 'sdk', 'sdk-minimal', 'acp'];
-      if (!builtIn.includes(dshProfile) && !await present(join(state.dshHome, 'profiles', dshProfile, 'package.json'))) {
+      if (!builtIn.includes(dshProfile) && !(await present(join(state.dshHome, 'profiles', dshProfile, 'package.json')))) {
         throw new Error(`Initialize the native DSH profile ${dshProfile} before setup.`);
       }
       console.log(`DSH profile: ${dshProfile}`);
@@ -696,17 +852,20 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
       await validateSource(state);
       await deploy(state, false);
     }
-    console.log(isDesktopProfile(dshProfile)
-      ? 'Preview only: clone if needed, persist Kitto runtime, deploy global rules and skills; the app-managed DSH desktop bundle and scopes stay untouched. No writes.'
-      : 'Preview only: clone if needed, persist Kitto runtime, deploy selected configuration and skills, register native integrations. No writes.');
+    console.log(
+      isDesktopProfile(dshProfile)
+        ? 'Preview only: clone if needed, persist Kitto runtime, deploy global rules and skills; the app-managed DSH desktop bundle and scopes stay untouched. No writes.'
+        : 'Preview only: clone if needed, persist Kitto runtime, deploy selected configuration and skills, register native integrations. No writes.',
+    );
     return;
   }
   await locked(home, async () => {
-    if (await readState() !== baseline) throw new Error('Kitto installation changed during setup. Run the same command again.');
+    if ((await readState()) !== baseline) throw new Error('Kitto installation changed during setup. Run the same command again.');
     if (baseline) await loadKittoState(home);
     if (installPnpm) {
       run('npm', ['install', '--global', `pnpm@${pnpmVersion}`]);
-      if (!available('pnpm')) throw new Error('pnpm was installed but cannot run. Check PATH and allow pnpm native-binary install scripts, then rerun setup.');
+      if (!available('pnpm'))
+        throw new Error('pnpm was installed but cannot run. Check PATH and allow pnpm native-binary install scripts, then rerun setup.');
     }
     installMissingHosts(checkedAgents);
     if (!local && !resume) await cloneSource(home, source, requested, options.ref);
@@ -723,9 +882,11 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
     await saveKittoState(home, state);
     await deploy(state, true, plan);
   });
-  console.log(isDesktopProfile(dshProfile)
-    ? 'Kitto setup complete. Fully quit and reopen DeepSeek Harness Desktop to load the deployed global rules and skills; ask the Kitto skill to maintain configuration.'
-    : 'Kitto setup complete. Start your agent with its native command; ask the Kitto skill to maintain configuration.');
+  console.log(
+    isDesktopProfile(dshProfile)
+      ? 'Kitto setup complete. Fully quit and reopen DeepSeek Harness Desktop to load the deployed global rules and skills; ask the Kitto skill to maintain configuration.'
+      : 'Kitto setup complete. Start your agent with its native command; ask the Kitto skill to maintain configuration.',
+  );
 }
 
 async function stateRollback(home: string, apply: boolean): Promise<void> {
@@ -755,29 +916,52 @@ async function stateRollback(home: string, apply: boolean): Promise<void> {
 export async function maintain(args: string[]): Promise<void> {
   const [operation = 'status', ...flags] = args;
   if (operation === 'hosts') return hostsCommand(flags);
-  const allowed: Record<string, string[]> = { status: [], versions: ['--online'], sync: ['--apply'], update: ['--check', '--apply'], export: ['--apply'], deps: ['--apply'], recover: ['--apply'], remove: ['--apply'], 'state-rollback': ['--apply'] };
-  if (!allowed[operation] || flags.some((flag: string) => !allowed[operation].includes(flag))) throw new Error('Unsupported maintenance operation or flag. Read the Kitto skill.');
+  const allowed: Record<string, string[]> = {
+    status: [],
+    versions: ['--online'],
+    sync: ['--apply'],
+    update: ['--check', '--apply'],
+    export: ['--apply'],
+    deps: ['--apply'],
+    recover: ['--apply'],
+    remove: ['--apply'],
+    'state-rollback': ['--apply'],
+  };
+  if (!allowed[operation] || flags.some((flag: string) => !allowed[operation].includes(flag)))
+    throw new Error('Unsupported maintenance operation or flag. Read the Kitto skill.');
   if (operation === 'update') return update(flags);
   const home = kittoHome();
   const apply = flags.includes('--apply');
   if (operation === 'state-rollback') return stateRollback(home, apply);
   const state = await loadKittoState(home, { dryRun: true });
-  const migrateThen = (work: () => Promise<void>) => async () => { await loadKittoState(home); return work(); };
+  const migrateThen = (work: () => Promise<void>) => async () => {
+    await loadKittoState(home);
+    return work();
+  };
   if (operation === 'recover' || operation === 'remove') {
-    const work = () => operation === 'recover' ? recover(state, apply) : remove(state, apply);
-    if (apply) await locked(home, migrateThen(work)); else await work();
+    const work = () => (operation === 'recover' ? recover(state, apply) : remove(state, apply));
+    if (apply) await locked(home, migrateThen(work));
+    else await work();
     return;
   }
-  if (operation === 'status' && (state.detached || state.removing || !await present(state.source))) {
+  if (operation === 'status' && (state.detached || state.removing || !(await present(state.source)))) {
     console.log(JSON.stringify(state, null, 2));
     return;
   }
-  if (state.detached || state.removing) throw new Error('Kitto is detached or removal is incomplete. Use setup to reconnect, or finish remove.');
+  if (state.detached || state.removing)
+    throw new Error('Kitto is detached or removal is incomplete. Use setup to reconnect, or finish remove.');
   await validateSource(state);
   if (operation === 'status') {
-    console.log(JSON.stringify({ ...state, checkout: sourceRevision(state.source), git: git(state.source, ['status', '--short', '--branch']) }, null, 2));
+    console.log(
+      JSON.stringify(
+        { ...state, checkout: sourceRevision(state.source), git: git(state.source, ['status', '--short', '--branch']) },
+        null,
+        2,
+      ),
+    );
     await configurationPlan(state);
-    for (const tool of await dependencyPlan(state)) console.log(`dependency ${tool.available ? 'available' : 'missing'}: ${tool.name} (${tool.reason})`);
+    for (const tool of await dependencyPlan(state))
+      console.log(`dependency ${tool.available ? 'available' : 'missing'}: ${tool.name} (${tool.reason})`);
     await reportCodeGraphIndexes(state);
     await printMcpParity(state);
     if (state.agents.includes('pi')) adapterFor(state, 'pi').status(state);
@@ -787,10 +971,12 @@ export async function maintain(args: string[]): Promise<void> {
     const work = async () => {
       if (operation === 'deps') await installDependencies(state, apply);
       else if (operation === 'export') {
-        if (!state.agents.includes('pi')) throw new Error('Pi export requires a Pi installation. Edit shared skills in the source checkout.');
+        if (!state.agents.includes('pi'))
+          throw new Error('Pi export requires a Pi installation. Edit shared skills in the source checkout.');
         adapterFor(state, 'pi').exportConfig(state, apply);
       } else await deploy(state, apply);
     };
-    if (apply) await locked(home, migrateThen(work)); else await work();
+    if (apply) await locked(home, migrateThen(work));
+    else await work();
   }
 }

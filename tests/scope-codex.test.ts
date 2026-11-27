@@ -10,10 +10,12 @@ import { promisify } from 'node:util';
 import { hosts } from '../lib/host-pins.ts';
 
 const run = promisify(execFile);
-const packageRoot = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT) : fileURLToPath(new URL('../dist/', import.meta.url));
+const packageRoot = process.env.KITTO_TEST_PACKAGE_ROOT
+  ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT)
+  : fileURLToPath(new URL('../dist/', import.meta.url));
 const cli = join(packageRoot, 'bin/kitto.mjs');
 
-test('Codex scopes preserve existing hooks and compose with native repo discovery', async t => {
+test('Codex scopes preserve existing hooks and compose with native repo discovery', async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), 'kitto-codex-'));
   t.onTestFinished(() => rm(fixture, { recursive: true, force: true }));
   const home = join(fixture, 'home');
@@ -33,8 +35,10 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
     await writeFile(path, text);
   }
   async function skill(root, name) {
-    await put(join(root, '.agents/skills', name, 'SKILL.md'),
-      `---\nname: ${name}\ndescription: Example skill\n---\nSkill implementation\n`);
+    await put(
+      join(root, '.agents/skills', name, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: Example skill\n---\nSkill implementation\n`,
+    );
   }
   async function readHooks() {
     return JSON.parse(await readFile(hookPath, 'utf8'));
@@ -102,19 +106,32 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
     for await (const chunk of req) body += chunk;
     request = JSON.parse(body);
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    res.end('data: {"type":"response.completed","response":{"id":"resp_fixture","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}}\n\n');
+    res.end(
+      'data: {"type":"response.completed","response":{"id":"resp_fixture","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}}\n\n',
+    );
   });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.onTestFinished(() => server.close());
 
   async function nativePrompt(cwd) {
     request = undefined;
     const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
     const provider = `model_providers.fixture={name="Fixture", base_url="${baseUrl}", wire_api="responses", supports_websockets=false, request_max_retries=0, stream_max_retries=0}`;
-    const session = run('codex', [
-      'exec', '--json', '--ephemeral',
-      '--dangerously-bypass-hook-trust', '-c', provider, '-c', 'model_provider=fixture', 'Fixture prompt',
-    ], { cwd, env: nativeEnv, timeout: 15000 });
+    const session = run(
+      'codex',
+      [
+        'exec',
+        '--json',
+        '--ephemeral',
+        '--dangerously-bypass-hook-trust',
+        '-c',
+        provider,
+        '-c',
+        'model_provider=fixture',
+        'Fixture prompt',
+      ],
+      { cwd, env: nativeEnv, timeout: 15000 },
+    );
     session.child.stdin.end();
     await session;
     assert.ok(request?.input);

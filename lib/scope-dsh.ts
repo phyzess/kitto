@@ -21,12 +21,18 @@ async function readPatch(path: string): Promise<{ content: string | null; mode: 
   }
 }
 
-export async function installDshScope({ dryRun, home, runtime = defaultRuntime, dshProfile = 'web' }: ScopeInstallOptions & { home: string }): Promise<void> {
+export async function installDshScope({
+  dryRun,
+  home,
+  runtime = defaultRuntime,
+  dshProfile = 'web',
+}: ScopeInstallOptions & { home: string }): Promise<void> {
   const profile = validateDshProfile(dshProfile);
   if (isDesktopProfile(profile)) throw new Error(desktopScopeError);
   const configuredHome = process.env.DSH_HOME?.trim() || join(home, '.dsh');
-  const dshHome = resolve(configuredHome === '~' ? home
-    : configuredHome.startsWith('~/') ? join(home, configuredHome.slice(2)) : configuredHome);
+  const dshHome = resolve(
+    configuredHome === '~' ? home : configuredHome.startsWith('~/') ? join(home, configuredHome.slice(2)) : configuredHome,
+  );
   const path = join(dshHome, 'profiles', profile, 'cordis.patch.yml');
   const plugin = join(runtime, 'integration', 'scoped-dsh', 'index.mjs');
   let executable: string;
@@ -51,7 +57,10 @@ export async function installDshScope({ dryRun, home, runtime = defaultRuntime, 
   if (document.errors.length) throw document.errors[0];
   if (!isSeq(document.contents)) throw new Error(`DSH profile patch must be a YAML sequence: ${path}`);
 
-  const rows = document.toJS().flatMap((item: Json) => item?.insert ?? []).filter((row: Json) => row?.id === pluginId);
+  const rows = document
+    .toJS()
+    .flatMap((item: Json) => item?.insert ?? [])
+    .filter((row: Json) => row?.id === pluginId);
   if (rows.length) {
     if (rows.length === 1 && rows[0].name === plugin) {
       if (dryRun) console.log(`DSH scoped configuration already registered: ${path}`);

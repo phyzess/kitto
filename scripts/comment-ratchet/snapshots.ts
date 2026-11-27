@@ -22,7 +22,10 @@ export function repository(cwd, bin) {
   const git = (args, at = cwd) => command('git', ['--no-replace-objects', ...args], { cwd: at });
   const root = realpathSync(decode(git(['rev-parse', '--show-toplevel'])).replace(/\n$/u, ''));
   const run = (...args) => git(args, root);
-  const list = (...args) => decode(run(...args)).split('\0').filter(Boolean);
+  const list = (...args) =>
+    decode(run(...args))
+      .split('\0')
+      .filter(Boolean);
   const cache = new Map();
   function resolveCommit(value) {
     if (sha.test(value) && !/^0+$/u.test(value)) {
@@ -40,20 +43,25 @@ export function repository(cwd, bin) {
     if (prHead) {
       resolveCommit(prHead);
       const ancestry = decode(run('rev-list', '--parents', '-n', '1', head)).trim();
-      if (ancestry !== `${head} ${base} ${prHead}`) throw new Error('PR merge commit does not have the event base and head as its two parents');
+      if (ancestry !== `${head} ${base} ${prHead}`)
+        throw new Error('PR merge commit does not have the event base and head as its two parents');
     } else {
-      try { run('merge-base', '--is-ancestor', base, head); }
-      catch (error) { throw new Error('Push predecessor is not an available ancestor of the checked commit', { cause: error }); }
+      try {
+        run('merge-base', '--is-ancestor', base, head);
+      } catch (error) {
+        throw new Error('Push predecessor is not an available ancestor of the checked commit', { cause: error });
+      }
     }
   }
   function entries(snapshot) {
     const staged = snapshot === 'index' || snapshot === 'worktree';
     const raw = staged ? list('ls-files', '--stage', '-z') : list('ls-tree', '-r', '-z', resolveCommit(snapshot));
-    const files = raw.map(item => {
+    const files = raw.map((item) => {
       const i = item.indexOf('\t');
       const path = item.slice(i + 1);
       const fields = item.slice(0, i).split(' ');
-      if (i < 0 || fields.length !== 3 || (staged && fields[2] !== '0')) throw new Error(`Invalid snapshot entry or unresolved merge: ${path}`);
+      if (i < 0 || fields.length !== 3 || (staged && fields[2] !== '0'))
+        throw new Error(`Invalid snapshot entry or unresolved merge: ${path}`);
       return { path, mode: fields[0], id: fields[staged ? 1 : 2] };
     });
     if (snapshot === 'worktree') {
@@ -98,16 +106,20 @@ export function repository(cwd, bin) {
     }
     if (protect) {
       for (const path of protectedPaths.keys()) {
-        if (!files.some(file => file.path === path)) throw new Error(`${snapshot} ${path}: protected third-party path missing`);
+        if (!files.some((file) => file.path === path)) throw new Error(`${snapshot} ${path}: protected third-party path missing`);
       }
     }
-    return { snapshot, totals: {
-      files: files.length,
-      physicalLines: files.reduce((sum, file) => sum + file.physicalLines, 0),
-      tokens: files.reduce((sum, file) => sum + file.tokens.length, 0),
-      commentOnlyLines: files.reduce((sum, file) => sum + file.commentOnlyLines.length, 0),
-      ordinaryCommentOnlyLines: files.reduce((sum, file) => sum + file.ordinaryCommentOnlyLines.length, 0),
-    }, files };
+    return {
+      snapshot,
+      totals: {
+        files: files.length,
+        physicalLines: files.reduce((sum, file) => sum + file.physicalLines, 0),
+        tokens: files.reduce((sum, file) => sum + file.tokens.length, 0),
+        commentOnlyLines: files.reduce((sum, file) => sum + file.commentOnlyLines.length, 0),
+        ordinaryCommentOnlyLines: files.reduce((sum, file) => sum + file.ordinaryCommentOnlyLines.length, 0),
+      },
+      files,
+    };
   }
   function renames(base, snapshot) {
     const from = resolveCommit(base);
@@ -122,7 +134,9 @@ export function repository(cwd, bin) {
         const env = { ...process.env, GIT_INDEX_FILE: index };
         command('git', ['--no-replace-objects', 'add', '-A', '--', '.'], { cwd: root, env });
         out = decode(command('git', ['--no-replace-objects', 'diff', '--cached', ...flags, from], { cwd: root, env }));
-      } finally { rmSync(dir, { recursive: true, force: true }); }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     } else if (snapshot === 'index') {
       out = decode(run('diff', '--cached', ...flags, from));
     } else {
@@ -139,8 +153,9 @@ export function repository(cwd, bin) {
 }
 
 function lstatSafe(path) {
-  try { return lstatSync(path); }
-  catch (error) {
+  try {
+    return lstatSync(path);
+  } catch (error) {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
     throw error;
   }
@@ -153,13 +168,16 @@ function key(token) {
 
 function allowedShebang(token) {
   if (token.kind !== 'shebang' || token.fragment.length || token.byteStart !== 0) return false;
-  return ({ Bash: /^#!\/usr\/bin\/env bash$/u, JavaScript: /^#!\/usr\/bin\/env node$/u,
-    Python: /^#!\/usr\/bin\/env python3$/u })[token.language]?.test(token.text) ?? false;
+  return (
+    { Bash: /^#!\/usr\/bin\/env bash$/u, JavaScript: /^#!\/usr\/bin\/env node$/u, Python: /^#!\/usr\/bin\/env python3$/u }[
+      token.language
+    ]?.test(token.text) ?? false
+  );
 }
 
 export function compare(base, head, renames = new Map()) {
-  const old = new Map(base.files.map(file => [file.path, file]));
-  const present = new Set(head.files.map(file => file.path));
+  const old = new Map(base.files.map((file) => [file.path, file]));
+  const present = new Set(head.files.map((file) => file.path));
   const grants = new Map();
   for (const [path, from] of renames) {
     if (!old.has(path) && old.has(from) && !present.has(from) && ![...grants.values()].includes(from)) grants.set(path, from);
@@ -183,7 +201,8 @@ export function compare(base, head, renames = new Map()) {
       if (after.has(key(token))) continue;
       const item = { path: file.path, ...token };
       removed.push(item);
-      if (token.kind === 'directive' || token.kind === 'shebang') violations.push({ ...item, reason: 'existing semantic directive removed or changed' });
+      if (token.kind === 'directive' || token.kind === 'shebang')
+        violations.push({ ...item, reason: 'existing semantic directive removed or changed' });
     }
   }
   for (const [path, file] of old) for (const token of file.tokens) removed.push({ path, ...token });

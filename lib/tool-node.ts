@@ -64,12 +64,16 @@ async function stableInstall(path: string): Promise<string> {
   const installDir = dirname(dirname(path));
   const parent = dirname(installDir);
   let target: string;
-  try { target = await realpath(installDir); } catch { return path; }
+  try {
+    target = await realpath(installDir);
+  } catch {
+    return path;
+  }
   const names: string[] = await readdir(parent).catch((): string[] => []);
-  for (const name of names.filter(entry => /^\d+$/.test(entry)).sort()) {
+  for (const name of names.filter((entry) => /^\d+$/.test(entry)).sort()) {
     const candidate = join(parent, name);
     if (!(await lstat(candidate).catch((): null => null))?.isSymbolicLink()) continue;
-    if (await realpath(candidate).catch((): null => null) !== target) continue;
+    if ((await realpath(candidate).catch((): null => null)) !== target) continue;
     const stable = join(candidate, 'bin', basename(path));
     if (existsSync(stable)) return stable;
   }
@@ -82,7 +86,12 @@ async function miseGlobalNode(env: NodeJS.ProcessEnv, home: string): Promise<str
   return found && found.startsWith('/') ? stableInstall(found) : undefined;
 }
 
-export async function resolveToolNode({ env = process.env, home = homedir(), execPath = process.execPath, floor = engineFloor() }: ResolveOptions = {}): Promise<ToolNode> {
+export async function resolveToolNode({
+  env = process.env,
+  home = homedir(),
+  execPath = process.execPath,
+  floor = engineFloor(),
+}: ResolveOptions = {}): Promise<ToolNode> {
   const rejected: string[] = [];
   const candidates: Array<{ path: string; source: ToolNode['source'] }> = [];
   const mise = await miseGlobalNode(env, home);
@@ -93,7 +102,9 @@ export async function resolveToolNode({ env = process.env, home = homedir(), exe
     if (version && meetsBaseline(version, floor)) return { path, version, source };
     rejected.push(`${path} (${version ? `v${version}` : 'does not run'}, from ${source})`);
   }
-  throw new Error(`No Node >=${floor} found for Kitto's tool Node. Tried ${rejected.join('; ')}. Install a global Node >=${floor} (for example \`mise use --global node@26\`) and rerun kitto setup.`);
+  throw new Error(
+    `No Node >=${floor} found for Kitto's tool Node. Tried ${rejected.join('; ')}. Install a global Node >=${floor} (for example \`mise use --global node@26\`) and rerun kitto setup.`,
+  );
 }
 
 export const launcherPath = (agentsHome: string): string => join(agentsHome, 'bin', LAUNCHER_NAME);
@@ -122,7 +133,7 @@ async function liveLauncher(state: State, target: string): Promise<{ stat: Stats
 }
 
 export async function planToolNode(state: State, resolved: ToolNode | undefined = undefined): Promise<ToolNodePlan> {
-  const toolNode = resolved ?? await resolveToolNode();
+  const toolNode = resolved ?? (await resolveToolNode());
   const target = launcherPath(state.agentsHome);
   const content = launcherContent(toolNode.path);
   let action: LauncherAction = 'write';
@@ -136,7 +147,10 @@ export function describeToolNode(plan: ToolNodePlan): void {
   const { toolNode, target, action } = plan;
   console.log(`tool node: ${toolNode.path} (v${toolNode.version}, ${toolNode.source})`);
   console.log(`launcher ${action}: ${target}`);
-  if (action === 'keep') console.warn(`Warning: ${target} exists and is not an unmodified Kitto launcher. Preserved; commands that use it will not follow Kitto's tool Node.`);
+  if (action === 'keep')
+    console.warn(
+      `Warning: ${target} exists and is not an unmodified Kitto launcher. Preserved; commands that use it will not follow Kitto's tool Node.`,
+    );
 }
 
 export async function applyToolNode(state: State, plan: ToolNodePlan): Promise<void> {

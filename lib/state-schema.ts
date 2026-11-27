@@ -47,7 +47,9 @@ function schemaOf(state: unknown): 1 | 2 {
   if (!isObject(state)) throw new Error('Kitto state must be a JSON object.');
   const schema = state.schema ?? 1;
   if (schema !== 1 && schema !== CURRENT_SCHEMA) {
-    throw new Error(`Unsupported Kitto state schema ${JSON.stringify(state.schema)}; this Kitto understands 1 and ${CURRENT_SCHEMA}. Upgrade Kitto to read it.`);
+    throw new Error(
+      `Unsupported Kitto state schema ${JSON.stringify(state.schema)}; this Kitto understands 1 and ${CURRENT_SCHEMA}. Upgrade Kitto to read it.`,
+    );
   }
   return schema;
 }
@@ -62,7 +64,9 @@ function importPiPackages(owned: OwnershipLedger, piLocalDir: string): { importe
   const path = join(piLocalDir, MANAGED_PACKAGES_FILE);
   if (!existsSync(path)) return { imported: false };
   let specs: unknown;
-  try { specs = JSON.parse(readFileSync(path, 'utf8')); } catch (error) {
+  try {
+    specs = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
     throw new Error(`Cannot import ${path}: ${(error as Error).message}`);
   }
   if (!Array.isArray(specs)) throw new Error(`Cannot import ${path}: expected a JSON array.`);
@@ -149,7 +153,12 @@ export function downgradeState(input: AnyState): AnyState {
   const state: LegacyJson = structuredClone(input);
   if (schema === 1) return state as StateV1;
   const present = new Set<string>(state.migration?.present ?? []);
-  const skills: Record<string, string> = {}, hostSkills: Record<string, Record<string, string>> = {}, keptSkills: Record<string, string[]> = {}, instructions: Record<string, string> = {}, codex: Record<string, string> = {}, codexPending: Record<string, string> = {};
+  const skills: Record<string, string> = {},
+    hostSkills: Record<string, Record<string, string>> = {},
+    keptSkills: Record<string, string[]> = {},
+    instructions: Record<string, string> = {},
+    codex: Record<string, string> = {},
+    codexPending: Record<string, string> = {};
   for (const [kind, scopes] of entriesOf<Record<string, Record<string, OwnershipEntry>>>(state.owned)) {
     for (const [scope, entries] of Object.entries(scopes)) {
       if (kind === 'skill') {
@@ -182,7 +191,7 @@ export function downgradeState(input: AnyState): AnyState {
   }
   for (const group of Object.keys(hostSkills)) {
     const entries: Record<string, OwnershipEntry> = state.owned?.skill?.[group] ?? {};
-    const owns = Object.values(entries).some(entry => entry.status === 'owned');
+    const owns = Object.values(entries).some((entry) => entry.status === 'owned');
     if (!owns && !present.has(`hostSkills.${group}`)) delete hostSkills[group];
   }
   delete state.owned;
@@ -201,7 +210,7 @@ export function downgradeState(input: AnyState): AnyState {
 }
 
 export function importedPiPackages(state: State): unknown[] {
-  return Object.values(state.owned?.['pi-package']?.pi ?? {}).map(entry => entry.spec);
+  return Object.values(state.owned?.['pi-package']?.pi ?? {}).map((entry) => entry.spec);
 }
 
 async function atomicJson(path: string, value: unknown): Promise<void> {
@@ -210,11 +219,15 @@ async function atomicJson(path: string, value: unknown): Promise<void> {
   try {
     await writeFile(temporary, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
     await rename(temporary, path);
-  } finally { await rm(temporary, { force: true }); }
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 async function readText(path: string): Promise<string | undefined> {
-  try { return await readFile(path, 'utf8'); } catch (error) {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw error;
   }
@@ -230,7 +243,10 @@ async function writeBackupOnce(path: string, text: string): Promise<boolean> {
   }
 }
 
-export async function loadState(path: string, { dryRun = false, piLocalDir = undefined }: { dryRun?: boolean; piLocalDir?: string } = {}): Promise<LoadedState | undefined> {
+export async function loadState(
+  path: string,
+  { dryRun = false, piLocalDir = undefined }: { dryRun?: boolean; piLocalDir?: string } = {},
+): Promise<LoadedState | undefined> {
   const text = await readText(path);
   if (text === undefined) return undefined;
   const result = migrateState(JSON.parse(text), { piLocalDir });
@@ -249,7 +265,10 @@ export async function saveState(path: string, state: State, { dryRun = false }: 
   return true;
 }
 
-export async function rollbackState(path: string, { dryRun = false }: { dryRun?: boolean } = {}): Promise<{ state: AnyState; wrote: boolean } | undefined> {
+export async function rollbackState(
+  path: string,
+  { dryRun = false }: { dryRun?: boolean } = {},
+): Promise<{ state: AnyState; wrote: boolean } | undefined> {
   const text = await readText(path);
   if (text === undefined) return undefined;
   const state = downgradeState(JSON.parse(text));

@@ -7,7 +7,7 @@ import { hosts, routingHostVersion } from '../lib/host-pins.ts';
 import { compareVersions } from '../lib/hosts.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const json = name => JSON.parse(readFileSync(new URL(`../${name}`, import.meta.url), 'utf8'));
+const json = (name) => JSON.parse(readFileSync(new URL(`../${name}`, import.meta.url), 'utf8'));
 
 test('package engines.dsh lower bound equals the DSH baseline', () => {
   const { engines } = json('package.json');

@@ -1,22 +1,29 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import {
-  existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  applyCodexMcp, defaultCodexRun, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
+  applyCodexMcp,
+  defaultCodexRun,
+  planCodexMcp,
+  removeCodexMcp,
+  sourceServers,
+  sourceTransport,
+  transportHash,
 } from '../lib/codex-mcp.ts';
 import { list, markPending } from '../lib/ownership.ts';
 
-const confirmedOf = state => Object.fromEntries(list(state, 'mcp', 'codex').flatMap(entry => {
-  const hash = entry.status === 'owned' ? entry.hash : entry.previous;
-  return hash === undefined ? [] : [[entry.name, hash]];
-}));
-const pendingOf = state => Object.fromEntries(list(state, 'mcp', 'codex', 'pending').map(entry => [entry.name, entry.hash]));
+const confirmedOf = (state) =>
+  Object.fromEntries(
+    list(state, 'mcp', 'codex').flatMap((entry) => {
+      const hash = entry.status === 'owned' ? entry.hash : entry.previous;
+      return hash === undefined ? [] : [[entry.name, hash]];
+    }),
+  );
+const pendingOf = (state) => Object.fromEntries(list(state, 'mcp', 'codex', 'pending').map((entry) => [entry.name, entry.hash]));
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = join(root, 'dist');
@@ -25,16 +32,24 @@ const fakeAgent = join(root, 'tests/helpers/fake-agent.cjs');
 function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-codex-mcp-'));
   t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
-  const bin = join(temp, 'bin'), codexHome = join(temp, 'codex'), source = join(temp, 'source');
+  const bin = join(temp, 'bin'),
+    codexHome = join(temp, 'codex'),
+    source = join(temp, 'source');
   for (const dir of [bin, codexHome, join(source, 'config/pi'), join(source, 'config/instructions')]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(source, 'config/instructions/common.md'), '# Shared\n');
   writeFileSync(join(bin, 'codex'), `#!${process.execPath}\nrequire(${JSON.stringify(fakeAgent)});\n`, { mode: 0o755 });
   const log = join(temp, 'calls.jsonl');
   const stateFile = join(codexHome, '_fake-codex.json');
   const env = {
-    ...process.env, HOME: join(temp, 'home'), KITTO_HOME: join(temp, 'kitto'), CODEX_HOME: codexHome,
-    FAKE_CODEX_STATE: stateFile, CALL_LOG: log, PATH: `${bin}:${process.env.PATH}`,
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+    ...process.env,
+    HOME: join(temp, 'home'),
+    KITTO_HOME: join(temp, 'kitto'),
+    CODEX_HOME: codexHome,
+    FAKE_CODEX_STATE: stateFile,
+    CALL_LOG: log,
+    PATH: `${bin}:${process.env.PATH}`,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
   };
   const run = (args, options = {}) => {
     const result = spawnSync('codex', args, { env, encoding: 'utf8', timeout: 15_000, ...options });
@@ -43,36 +58,50 @@ function fixture(t) {
     }
     return result.stdout.trim();
   };
-  const codexState = () => existsSync(stateFile)
-    ? JSON.parse(readFileSync(stateFile, 'utf8'))
-    : { mcpServers: {} };
-  const saveCodex = data => {
+  const codexState = () => (existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, 'utf8')) : { mcpServers: {} });
+  const saveCodex = (data) => {
     mkdirSync(codexHome, { recursive: true });
     writeFileSync(stateFile, JSON.stringify(data));
   };
-  const writeSource = servers => {
+  const writeSource = (servers) => {
     writeFileSync(join(source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: servers }));
   };
-  const calls = () => existsSync(log)
-    ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
-    : [];
-  const mcpCalls = action => calls().filter(call => call.command === 'codex'
-    && call.args[0] === 'mcp' && call.args[1] === action);
-  const state = (owned = {}) => ({ source, codexHome, agents: ['codex'], schema: 2,
-    owned: { mcp: { codex: Object.fromEntries(Object.entries(owned).map(([name, hash]) => [name, { hash, status: 'owned' }])) } } });
-  const plan = async current => {
+  const calls = () =>
+    existsSync(log)
+      ? readFileSync(log, 'utf8')
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : [];
+  const mcpCalls = (action) => calls().filter((call) => call.command === 'codex' && call.args[0] === 'mcp' && call.args[1] === action);
+  const state = (owned = {}) => ({
+    source,
+    codexHome,
+    agents: ['codex'],
+    schema: 2,
+    owned: { mcp: { codex: Object.fromEntries(Object.entries(owned).map(([name, hash]) => [name, { hash, status: 'owned' }])) } },
+  });
+  const plan = async (current) => {
     const lines = [];
     const operations = await planCodexMcp(current, {
-      run, env, home: codexHome, platform: 'linux', log: line => lines.push(line),
+      run,
+      env,
+      home: codexHome,
+      platform: 'linux',
+      log: (line) => lines.push(line),
     });
     return { operations, lines };
   };
-  const apply = async current => {
+  const apply = async (current) => {
     const warnings = [];
     const operations = await applyCodexMcp(current, {
-      run, env, home: codexHome, platform: 'linux',
+      run,
+      env,
+      home: codexHome,
+      platform: 'linux',
       save: async () => writeFileSync(join(temp, 'state.json'), JSON.stringify(current)),
-      warn: line => warnings.push(line),
+      warn: (line) => warnings.push(line),
     });
     return { operations, warnings };
   };
@@ -81,48 +110,89 @@ function fixture(t) {
     assert.equal(result.status, 0, result.stdout + result.stderr);
   };
   const initSource = () => {
-    for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'],
-      ['config', 'user.name', 'Kitto test'], ['add', '.'], ['commit', '-m', 'fixture']]) git(...args);
+    for (const args of [
+      ['init', '-b', 'main'],
+      ['config', 'user.email', 'test@example.invalid'],
+      ['config', 'user.name', 'Kitto test'],
+      ['add', '.'],
+      ['commit', '-m', 'fixture'],
+    ])
+      git(...args);
   };
-  const cli = (...args) => spawnSync(process.execPath, [join(dist, 'bin/kitto.mjs'), ...args], {
-    env, encoding: 'utf8', cwd: root, timeout: 60_000,
-  });
-  const maintain = (...args) => spawnSync(process.execPath, [join(env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args], {
-    env, encoding: 'utf8', cwd: root, timeout: 60_000,
-  });
+  const cli = (...args) =>
+    spawnSync(process.execPath, [join(dist, 'bin/kitto.mjs'), ...args], {
+      env,
+      encoding: 'utf8',
+      cwd: root,
+      timeout: 60_000,
+    });
+  const maintain = (...args) =>
+    spawnSync(process.execPath, [join(env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args], {
+      env,
+      encoding: 'utf8',
+      cwd: root,
+      timeout: 60_000,
+    });
   return {
-    temp, bin, codexHome, source, env, run, stateFile, codexState, saveCodex, writeSource,
-    calls, mcpCalls, state, plan, apply, git, initSource, cli, maintain,
+    temp,
+    bin,
+    codexHome,
+    source,
+    env,
+    run,
+    stateFile,
+    codexState,
+    saveCodex,
+    writeSource,
+    calls,
+    mcpCalls,
+    state,
+    plan,
+    apply,
+    git,
+    initSource,
+    cli,
+    maintain,
   };
 }
 
-const good = result => assert.equal(result.status, 0, result.stdout + result.stderr);
+const good = (result) => assert.equal(result.status, 0, result.stdout + result.stderr);
 
-test('source servers merge the platform overlay and skip credentials or unsupported fields', async t => {
+test('source servers merge the platform overlay and skip credentials or unsupported fields', async (t) => {
   const f = fixture(t);
-  writeFileSync(join(f.source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: {
-    plain: { command: 'npx', args: ['-y', 'demo'] },
-    http: { url: 'https://example.invalid/mcp' },
-    withEnv: { command: 'node', args: ['server.mjs'], env: { TOKEN: '${TOKEN}' } },
-    withHeaders: { url: 'https://example.invalid/headers', headers: { Authorization: 'Bearer x' } },
-    withEnvHeaders: { url: 'https://example.invalid/env', env_http_headers: { 'X-Token': 'TOKEN' } },
-    withTemplate: { command: '${BIN}', args: [] },
-    withCwd: { command: 'node', args: [], cwd: '/tmp' },
-    withOauth: { url: 'https://example.invalid/oauth', oauth: { clientId: 'x' } },
-    withTools: { command: 'node', args: [], tools: ['read'] },
-    'dot.name': { command: 'dot-mcp', args: [] },
-    disabled: { command: 'off', args: [], enabled: false },
-    _hidden: { command: 'hidden' },
-    'bad name': { command: 'bad' },
-  } }));
+  writeFileSync(
+    join(f.source, 'config/pi/mcp.json'),
+    JSON.stringify({
+      mcpServers: {
+        plain: { command: 'npx', args: ['-y', 'demo'] },
+        http: { url: 'https://example.invalid/mcp' },
+        withEnv: { command: 'node', args: ['server.mjs'], env: { TOKEN: '${TOKEN}' } },
+        withHeaders: { url: 'https://example.invalid/headers', headers: { Authorization: 'Bearer x' } },
+        withEnvHeaders: { url: 'https://example.invalid/env', env_http_headers: { 'X-Token': 'TOKEN' } },
+        withTemplate: { command: '${BIN}', args: [] },
+        withCwd: { command: 'node', args: [], cwd: '/tmp' },
+        withOauth: { url: 'https://example.invalid/oauth', oauth: { clientId: 'x' } },
+        withTools: { command: 'node', args: [], tools: ['read'] },
+        'dot.name': { command: 'dot-mcp', args: [] },
+        disabled: { command: 'off', args: [], enabled: false },
+        _hidden: { command: 'hidden' },
+        'bad name': { command: 'bad' },
+      },
+    }),
+  );
   mkdirSync(join(f.source, 'config/pi/platform/linux'), { recursive: true });
-  writeFileSync(join(f.source, 'config/pi/platform/linux/mcp.json'), JSON.stringify({ mcpServers: {
-    plain: { args: ['-y', 'demo@2'] },
-    http: { enabled: false },
-    platformOnly: { url: 'https://example.invalid/platform' },
-  } }));
+  writeFileSync(
+    join(f.source, 'config/pi/platform/linux/mcp.json'),
+    JSON.stringify({
+      mcpServers: {
+        plain: { args: ['-y', 'demo@2'] },
+        http: { enabled: false },
+        platformOnly: { url: 'https://example.invalid/platform' },
+      },
+    }),
+  );
   const servers = await sourceServers(f.source, 'linux');
-  const byName = new Map(servers.map(server => [server.name, server]));
+  const byName = new Map(servers.map((server) => [server.name, server]));
   assert.deepEqual(byName.get('plain').transport, { type: 'stdio', command: 'npx', args: ['-y', 'demo@2'] });
   assert.equal(byName.get('plain').hash, transportHash(byName.get('plain').transport));
   assert.deepEqual(byName.get('platformOnly').transport, { type: 'http', url: 'https://example.invalid/platform' });
@@ -137,7 +207,7 @@ test('source servers merge the platform overlay and skip credentials or unsuppor
   assert.deepEqual(sourceTransport({ command: 'npx', args: [] }), { transport: { type: 'stdio', command: 'npx', args: [] } });
 });
 
-test('new source servers are added once and ownership fingerprints are recorded', async t => {
+test('new source servers are added once and ownership fingerprints are recorded', async (t) => {
   const f = fixture(t);
   f.writeSource({
     alpha: { command: 'alpha-mcp', args: ['serve'] },
@@ -145,42 +215,48 @@ test('new source servers are added once and ownership fingerprints are recorded'
   });
   const state = f.state();
   const first = await f.plan(state);
-  assert.deepEqual(first.operations.map(operation => `${operation.action}:${operation.name}`).sort(),
-    ['add:alpha', 'add:remote']);
+  assert.deepEqual(first.operations.map((operation) => `${operation.action}:${operation.name}`).sort(), ['add:alpha', 'add:remote']);
   assert.match(first.lines.join('\n'), /mcp add: alpha \(codex\)/);
   await f.apply(state);
-  assert.deepEqual(f.codexState().mcpServers.alpha.transport,
-    { type: 'stdio', command: 'alpha-mcp', args: ['serve'] });
+  assert.deepEqual(f.codexState().mcpServers.alpha.transport, { type: 'stdio', command: 'alpha-mcp', args: ['serve'] });
   assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://example.invalid/mcp');
   assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: ['serve'] }));
   assert.equal(confirmedOf(state).remote, transportHash({ type: 'http', url: 'https://example.invalid/mcp' }));
-  assert.deepEqual(f.mcpCalls('add').map(call => call.args.slice(2)),
-    [['alpha', '--', 'alpha-mcp', 'serve'], ['remote', '--url', 'https://example.invalid/mcp']]);
+  assert.deepEqual(
+    f.mcpCalls('add').map((call) => call.args.slice(2)),
+    [
+      ['alpha', '--', 'alpha-mcp', 'serve'],
+      ['remote', '--url', 'https://example.invalid/mcp'],
+    ],
+  );
   const saves = JSON.parse(readFileSync(join(f.temp, 'state.json'), 'utf8'));
   assert.equal(confirmedOf(saves).alpha, confirmedOf(state).alpha);
 
   const before = JSON.stringify(f.codexState().mcpServers);
   const second = await f.plan(state);
-  assert.deepEqual(second.operations.map(operation => operation.action).sort(), ['same', 'same']);
+  assert.deepEqual(second.operations.map((operation) => operation.action).sort(), ['same', 'same']);
   await f.apply(state);
   assert.equal(f.mcpCalls('add').length, 2, 'an idempotent sync must not add again');
   assert.equal(JSON.stringify(f.codexState().mcpServers), before);
 });
 
-test('a missing Codex home is treated as empty for preview and created only on apply', async t => {
+test('a missing Codex home is treated as empty for preview and created only on apply', async (t) => {
   const f = fixture(t);
   rmSync(f.codexHome, { recursive: true, force: true });
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
   const state = f.state();
   const preview = await f.plan(state);
-  assert.deepEqual(preview.operations.map(operation => operation.action), ['add']);
+  assert.deepEqual(
+    preview.operations.map((operation) => operation.action),
+    ['add'],
+  );
   assert.equal(existsSync(f.codexHome), false, 'preview must not create CODEX_HOME');
   await f.apply(state);
   assert(existsSync(join(f.codexHome, '_fake-codex.json')));
   assert.equal(f.codexState().mcpServers.alpha.transport.command, 'alpha-mcp');
 });
 
-test('an owned server is updated when its source transport changes', async t => {
+test('an owned server is updated when its source transport changes', async (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: ['serve'] } });
   const state = f.state();
@@ -189,19 +265,18 @@ test('an owned server is updated when its source transport changes', async t => 
   const { operations } = await f.plan(state);
   assert.equal(operations[0].action, 'update');
   await f.apply(state);
-  assert.deepEqual(f.codexState().mcpServers.alpha.transport,
-    { type: 'stdio', command: 'alpha-v2-mcp', args: ['serve', '--new'] });
-  assert.equal(confirmedOf(state).alpha,
-    transportHash({ type: 'stdio', command: 'alpha-v2-mcp', args: ['serve', '--new'] }));
+  assert.deepEqual(f.codexState().mcpServers.alpha.transport, { type: 'stdio', command: 'alpha-v2-mcp', args: ['serve', '--new'] });
+  assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-v2-mcp', args: ['serve', '--new'] }));
   assert.equal(f.mcpCalls('add').length, 2);
   const again = await f.plan(state);
   assert.equal(again.operations[0].action, 'same');
 });
 
-test('an interrupted add leaves pending ownership that the next run adopts', async t => {
+test('an interrupted add leaves pending ownership that the next run adopts', async (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: ['serve'] } });
-  const state = f.state(), statePath = join(f.temp, 'state.json');
+  const state = f.state(),
+    statePath = join(f.temp, 'state.json');
   const hash = transportHash({ type: 'stdio', command: 'alpha-mcp', args: ['serve'] });
   let saves = 0;
   const save = async () => {
@@ -209,9 +284,17 @@ test('an interrupted add leaves pending ownership that the next run adopts', asy
     if (saves === 2) throw new Error('simulated state write failure');
     writeFileSync(statePath, JSON.stringify(state));
   };
-  await assert.rejects(applyCodexMcp(state, {
-    run: f.run, env: f.env, home: f.codexHome, platform: 'linux', save, warn: () => {},
-  }), /simulated state write failure/);
+  await assert.rejects(
+    applyCodexMcp(state, {
+      run: f.run,
+      env: f.env,
+      home: f.codexHome,
+      platform: 'linux',
+      save,
+      warn: () => {},
+    }),
+    /simulated state write failure/,
+  );
   assert(f.codexState().mcpServers.alpha);
   const interrupted = JSON.parse(readFileSync(statePath, 'utf8'));
   assert.equal(confirmedOf(interrupted).alpha, undefined);
@@ -226,12 +309,16 @@ test('an interrupted add leaves pending ownership that the next run adopts', asy
   assert.deepEqual(pendingOf(retry), {});
 });
 
-test('a verification failure after the native write is adopted on retry', async t => {
+test('a verification failure after the native write is adopted on retry', async (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: ['serve'] } });
-  const state = f.state(), statePath = join(f.temp, 'state.json'), hash = transportHash({
-    type: 'stdio', command: 'alpha-mcp', args: ['serve'],
-  });
+  const state = f.state(),
+    statePath = join(f.temp, 'state.json'),
+    hash = transportHash({
+      type: 'stdio',
+      command: 'alpha-mcp',
+      args: ['serve'],
+    });
   let failNextList = false;
   const run = (args, options = {}) => {
     if (args[0] === 'mcp' && args[1] === 'add') {
@@ -246,9 +333,17 @@ test('a verification failure after the native write is adopted on retry', async 
     return f.run(args, options);
   };
   const save = async () => writeFileSync(statePath, JSON.stringify(state));
-  await assert.rejects(applyCodexMcp(state, {
-    run, env: f.env, home: f.codexHome, platform: 'linux', save, warn: () => {},
-  }), /simulated list failure/);
+  await assert.rejects(
+    applyCodexMcp(state, {
+      run,
+      env: f.env,
+      home: f.codexHome,
+      platform: 'linux',
+      save,
+      warn: () => {},
+    }),
+    /simulated list failure/,
+  );
   const interrupted = JSON.parse(readFileSync(statePath, 'utf8'));
   assert.equal(confirmedOf(interrupted).alpha, undefined);
   assert.equal(pendingOf(interrupted).alpha, hash);
@@ -259,24 +354,33 @@ test('a verification failure after the native write is adopted on retry', async 
   assert.deepEqual(pendingOf(retry), {});
 });
 
-test('pending-only servers are reconciled when the source disappears', async t => {
+test('pending-only servers are reconciled when the source disappears', async (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
-  const state = f.state(), statePath = join(f.temp, 'state.json');
+  const state = f.state(),
+    statePath = join(f.temp, 'state.json');
   let saves = 0;
   const save = async () => {
     saves++;
     if (saves === 2) throw new Error('simulated state write failure');
     writeFileSync(statePath, JSON.stringify(state));
   };
-  await assert.rejects(applyCodexMcp(state, {
-    run: f.run, env: f.env, home: f.codexHome, platform: 'linux', save, warn: () => {},
-  }), /simulated state write failure/);
+  await assert.rejects(
+    applyCodexMcp(state, {
+      run: f.run,
+      env: f.env,
+      home: f.codexHome,
+      platform: 'linux',
+      save,
+      warn: () => {},
+    }),
+    /simulated state write failure/,
+  );
   const interrupted = JSON.parse(readFileSync(statePath, 'utf8'));
   assert(pendingOf(interrupted).alpha);
   f.writeSource({});
   const plan = await f.plan(interrupted);
-  assert(plan.operations.some(operation => operation.action === 'remove' && operation.name === 'alpha'));
+  assert(plan.operations.some((operation) => operation.action === 'remove' && operation.name === 'alpha'));
   await f.apply(interrupted);
   assert.equal(f.codexState().mcpServers.alpha, undefined);
   assert.deepEqual(pendingOf(interrupted), {});
@@ -298,10 +402,11 @@ test('pending-only servers are reconciled when the source disappears', async t =
   assert.deepEqual(pendingOf(changed), {});
 });
 
-test('a native add timeout after writing the server is adopted with a warning', async t => {
+test('a native add timeout after writing the server is adopted with a warning', async (t) => {
   const f = fixture(t);
   f.writeSource({ remote: { url: 'https://example.invalid/mcp' } });
-  const state = f.state(), statePath = join(f.temp, 'state.json');
+  const state = f.state(),
+    statePath = join(f.temp, 'state.json');
   const warnings = [];
   const run = (args, options = {}) => {
     if (args[0] === 'mcp' && args[1] === 'add') {
@@ -311,9 +416,12 @@ test('a native add timeout after writing the server is adopted with a warning', 
     return f.run(args, options);
   };
   await applyCodexMcp(state, {
-    run, env: f.env, home: f.codexHome, platform: 'linux',
+    run,
+    env: f.env,
+    home: f.codexHome,
+    platform: 'linux',
     save: async () => writeFileSync(statePath, JSON.stringify(state)),
-    warn: line => warnings.push(line),
+    warn: (line) => warnings.push(line),
   });
   assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://example.invalid/mcp');
   assert.equal(confirmedOf(state).remote, transportHash({ type: 'http', url: 'https://example.invalid/mcp' }));
@@ -323,27 +431,36 @@ test('a native add timeout after writing the server is adopted with a warning', 
   assert.equal(f.mcpCalls('add').length, 1);
 });
 
-test('a native add timeout without a live server is retried, not adopted', async t => {
+test('a native add timeout without a live server is retried, not adopted', async (t) => {
   const f = fixture(t);
   f.writeSource({ remote: { url: 'https://example.invalid/mcp' } });
-  const state = f.state(), statePath = join(f.temp, 'state.json');
+  const state = f.state(),
+    statePath = join(f.temp, 'state.json');
   const run = (args, options = {}) => {
     if (args[0] === 'mcp' && args[1] === 'add') throw new Error('codex mcp add timed out');
     return f.run(args, options);
   };
-  await assert.rejects(applyCodexMcp(state, {
-    run, env: f.env, home: f.codexHome, platform: 'linux',
-    save: async () => writeFileSync(statePath, JSON.stringify(state)), warn: () => {},
-  }), /timed out/);
+  await assert.rejects(
+    applyCodexMcp(state, {
+      run,
+      env: f.env,
+      home: f.codexHome,
+      platform: 'linux',
+      save: async () => writeFileSync(statePath, JSON.stringify(state)),
+      warn: () => {},
+    }),
+    /timed out/,
+  );
   assert.equal(f.codexState().mcpServers.remote, undefined);
   assert.equal(confirmedOf(state).remote, undefined);
   assert(pendingOf(state).remote);
 });
 
-test('a post-write timeout does not adopt a different live transport', async t => {
+test('a post-write timeout does not adopt a different live transport', async (t) => {
   const f = fixture(t);
   f.writeSource({ remote: { url: 'https://target.example/mcp' } });
-  const state = f.state(), statePath = join(f.temp, 'state.json');
+  const state = f.state(),
+    statePath = join(f.temp, 'state.json');
   const run = (args, options = {}) => {
     if (args[0] === 'mcp' && args[1] === 'add') {
       const altered = [...args];
@@ -353,10 +470,17 @@ test('a post-write timeout does not adopt a different live transport', async t =
     }
     return f.run(args, options);
   };
-  await assert.rejects(applyCodexMcp(state, {
-    run, env: f.env, home: f.codexHome, platform: 'linux',
-    save: async () => writeFileSync(statePath, JSON.stringify(state)), warn: () => {},
-  }), /simulated timeout/);
+  await assert.rejects(
+    applyCodexMcp(state, {
+      run,
+      env: f.env,
+      home: f.codexHome,
+      platform: 'linux',
+      save: async () => writeFileSync(statePath, JSON.stringify(state)),
+      warn: () => {},
+    }),
+    /simulated timeout/,
+  );
   assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://user.example/mcp');
   assert.equal(confirmedOf(state).remote, undefined);
   assert(pendingOf(state).remote, 'the pending record stays for a safe retry');
@@ -367,19 +491,29 @@ test('a post-write timeout does not adopt a different live transport', async t =
   assert.deepEqual(pendingOf(state), {});
 });
 
-test('a failed pre-write save never touches live Codex', async t => {
+test('a failed pre-write save never touches live Codex', async (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
   const state = f.state();
-  const save = async () => { throw new Error('simulated disk full'); };
-  await assert.rejects(applyCodexMcp(state, {
-    run: f.run, env: f.env, home: f.codexHome, platform: 'linux', save, warn: () => {},
-  }), /simulated disk full/);
+  const save = async () => {
+    throw new Error('simulated disk full');
+  };
+  await assert.rejects(
+    applyCodexMcp(state, {
+      run: f.run,
+      env: f.env,
+      home: f.codexHome,
+      platform: 'linux',
+      save,
+      warn: () => {},
+    }),
+    /simulated disk full/,
+  );
   assert.equal(f.mcpCalls('add').length, 0);
   assert.deepEqual(f.codexState().mcpServers, {});
 });
 
-test('verified missing live servers prune stale ownership instead of misclaiming a user server', async t => {
+test('verified missing live servers prune stale ownership instead of misclaiming a user server', async (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
   const state = f.state();
@@ -403,7 +537,7 @@ test('verified missing live servers prune stale ownership instead of misclaiming
   assert.deepEqual(confirmedOf(state), {});
 });
 
-test('dotted server names are synced with the name set Codex accepts', async t => {
+test('dotted server names are synced with the name set Codex accepts', async (t) => {
   const f = fixture(t);
   f.writeSource({ 'dot.name': { command: 'dot-mcp', args: [] } });
   const state = f.state();
@@ -414,7 +548,7 @@ test('dotted server names are synced with the name set Codex accepts', async t =
   assert.equal(confirmedOf(state)['dot.name'], transportHash({ type: 'stdio', command: 'dot-mcp', args: [] }));
 });
 
-test('preview probes a scratch CODEX_HOME instead of writing the real one', async t => {
+test('preview probes a scratch CODEX_HOME instead of writing the real one', async (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
   writeFileSync(join(f.codexHome, 'config.toml'), '[mcp_servers.alpha]\ncommand = "alpha-mcp"\n');
@@ -425,7 +559,11 @@ test('preview probes a scratch CODEX_HOME instead of writing the real one', asyn
     throw new Error(`unexpected fake command: ${args.join(' ')}`);
   };
   const operations = await planCodexMcp(f.state(), {
-    run, env: { ...f.env }, home: f.codexHome, platform: 'linux', log: () => {},
+    run,
+    env: { ...f.env },
+    home: f.codexHome,
+    platform: 'linux',
+    log: () => {},
   });
   assert.equal(operations[0].action, 'add');
   assert(seen.length > 0);
@@ -437,11 +575,13 @@ test('preview probes a scratch CODEX_HOME instead of writing the real one', asyn
   assert.deepEqual(readdirSync(f.codexHome), ['config.toml']);
 });
 
-test('a same-name server without Kitto ownership is preserved with a warning', async t => {
+test('a same-name server without Kitto ownership is preserved with a warning', async (t) => {
   const f = fixture(t);
-  f.saveCodex({ mcpServers: {
-    alpha: { transport: { type: 'stdio', command: 'user-mcp', args: [] } },
-  } });
+  f.saveCodex({
+    mcpServers: {
+      alpha: { transport: { type: 'stdio', command: 'user-mcp', args: [] } },
+    },
+  });
   f.writeSource({ alpha: { command: 'kitto-mcp', args: [] } });
   const state = f.state();
   const { operations, lines } = await f.plan(state);
@@ -456,7 +596,7 @@ test('a same-name server without Kitto ownership is preserved with a warning', a
   assert.deepEqual(confirmedOf(state), {});
 });
 
-test('servers changed outside Kitto are preserved instead of overwritten', async t => {
+test('servers changed outside Kitto are preserved instead of overwritten', async (t) => {
   for (const mutation of ['transport', 'settings']) {
     const f = fixture(t);
     f.writeSource({ alpha: { command: 'kitto-mcp', args: ['serve'] } });
@@ -479,7 +619,7 @@ test('servers changed outside Kitto are preserved instead of overwritten', async
   }
 });
 
-test('removing a source server only removes the untouched Kitto-owned live copy', async t => {
+test('removing a source server only removes the untouched Kitto-owned live copy', async (t) => {
   const f = fixture(t);
   f.writeSource({
     alpha: { command: 'alpha-mcp', args: [] },
@@ -493,7 +633,7 @@ test('removing a source server only removes the untouched Kitto-owned live copy'
   f.saveCodex(data);
   f.writeSource({});
   const { operations } = await f.plan(state);
-  const actions = new Map(operations.map(operation => [operation.name, operation.action]));
+  const actions = new Map(operations.map((operation) => [operation.name, operation.action]));
   assert.equal(actions.get('alpha'), 'conflict');
   assert.equal(actions.get('beta'), 'remove');
   assert.equal(actions.has('personal'), false);
@@ -503,10 +643,13 @@ test('removing a source server only removes the untouched Kitto-owned live copy'
   assert(f.codexState().mcpServers.personal);
   assert.equal(confirmedOf(state).beta, undefined);
   assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: [] }));
-  assert.deepEqual(f.mcpCalls('remove').map(call => call.args[2]), ['beta']);
+  assert.deepEqual(
+    f.mcpCalls('remove').map((call) => call.args[2]),
+    ['beta'],
+  );
 });
 
-test('a partial apply saves the successful server and resumes without repeating it', async t => {
+test('a partial apply saves the successful server and resumes without repeating it', async (t) => {
   const f = fixture(t);
   f.writeSource({
     alpha: { command: 'alpha-mcp', args: [] },
@@ -523,15 +666,17 @@ test('a partial apply saves the successful server and resumes without repeating 
   await f.apply(state);
   assert.deepEqual(Object.keys(f.codexState().mcpServers).sort(), ['alpha', 'beta']);
   assert.equal(confirmedOf(state).beta, transportHash({ type: 'stdio', command: 'beta-mcp', args: [] }));
-  assert.equal(f.mcpCalls('add').filter(call => call.args[2] === 'alpha').length, 1);
-  assert.equal(f.mcpCalls('add').filter(call => call.args[2] === 'beta').length, 2);
+  assert.equal(f.mcpCalls('add').filter((call) => call.args[2] === 'alpha').length, 1);
+  assert.equal(f.mcpCalls('add').filter((call) => call.args[2] === 'beta').length, 2);
 });
 
-test('setup preview prints MCP actions without writing; apply owns only Kitto servers', t => {
+test('setup preview prints MCP actions without writing; apply owns only Kitto servers', (t) => {
   const f = fixture(t);
-  f.saveCodex({ mcpServers: {
-    personal: { transport: { type: 'stdio', command: 'personal-mcp', args: [] } },
-  } });
+  f.saveCodex({
+    mcpServers: {
+      personal: { transport: { type: 'stdio', command: 'personal-mcp', args: [] } },
+    },
+  });
   f.writeSource({
     alpha: { command: 'alpha-mcp', args: ['serve'] },
     personal: { command: 'kitto-personal', args: [] },
@@ -571,7 +716,7 @@ test('setup preview prints MCP actions without writing; apply owns only Kitto se
   assert.deepEqual(confirmedOf(detached), {});
 });
 
-test('Codex setup fails with a clear error when the Pi MCP source is missing', t => {
+test('Codex setup fails with a clear error when the Pi MCP source is missing', (t) => {
   const f = fixture(t);
   writeFileSync(join(f.source, 'config/pi/AGENTS.md'), 'No MCP source here.');
   f.initSource();
@@ -582,7 +727,7 @@ test('Codex setup fails with a clear error when the Pi MCP source is missing', t
   assert.equal(existsSync(join(f.env.KITTO_HOME, 'state.json')), false);
 });
 
-test('removeCodexMcp reports ownership conflicts without deleting them', async t => {
+test('removeCodexMcp reports ownership conflicts without deleting them', async (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
   const state = f.state();
@@ -591,28 +736,41 @@ test('removeCodexMcp reports ownership conflicts without deleting them', async t
   data.mcpServers.alpha.enabled_tools = ['read'];
   f.saveCodex(data);
   const preview = await removeCodexMcp(state, {
-    run: f.run, env: f.env, home: f.codexHome, log: () => {}, warn: () => {},
+    run: f.run,
+    env: f.env,
+    home: f.codexHome,
+    log: () => {},
+    warn: () => {},
   });
   assert.equal(preview.operations[0].action, 'conflict');
   assert(f.codexState().mcpServers.alpha);
   await removeCodexMcp(state, {
-    apply: true, run: f.run, env: f.env, home: f.codexHome,
-    save: async () => {}, log: () => {}, warn: () => {},
+    apply: true,
+    run: f.run,
+    env: f.env,
+    home: f.codexHome,
+    save: async () => {},
+    log: () => {},
+    warn: () => {},
   });
   assert(f.codexState().mcpServers.alpha);
   assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: [] }));
 });
 
-test('setup preview and status never invoke Codex with the real CODEX_HOME', t => {
+test('setup preview and status never invoke Codex with the real CODEX_HOME', (t) => {
   const f = fixture(t);
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
   f.initSource();
   const marker = join(f.codexHome, 'invocations.log');
-  writeFileSync(join(f.bin, 'codex'), `#!${process.execPath}\n` +
-    `const fs = require('node:fs'), path = require('node:path');\n` +
-    `if (process.env.CODEX_HOME) { fs.mkdirSync(process.env.CODEX_HOME, { recursive: true }); ` +
-    `fs.appendFileSync(path.join(process.env.CODEX_HOME, 'invocations.log'), 'x'); }\n` +
-    `require(${JSON.stringify(fakeAgent)});\n`, { mode: 0o755 });
+  writeFileSync(
+    join(f.bin, 'codex'),
+    `#!${process.execPath}\n` +
+      `const fs = require('node:fs'), path = require('node:path');\n` +
+      `if (process.env.CODEX_HOME) { fs.mkdirSync(process.env.CODEX_HOME, { recursive: true }); ` +
+      `fs.appendFileSync(path.join(process.env.CODEX_HOME, 'invocations.log'), 'x'); }\n` +
+      `require(${JSON.stringify(fakeAgent)});\n`,
+    { mode: 0o755 },
+  );
   const preview = f.cli('setup', '--agents', 'codex', '--source', f.source, '--dry-run');
   good(preview);
   assert.equal(existsSync(marker), false, 'dry-run must use scratch CODEX_HOME probes');
@@ -623,22 +781,33 @@ test('setup preview and status never invoke Codex with the real CODEX_HOME', t =
   assert.equal(existsSync(marker), false, 'status must use scratch CODEX_HOME probes');
 });
 
-test('an HTTP Authorization reference becomes --bearer-token-env-var', async t => {
+test('an HTTP Authorization reference becomes --bearer-token-env-var', async (t) => {
   const f = fixture(t);
   f.writeSource({ api: { url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer ${API_TOKEN}' } } });
   const state = f.state();
   const { operations } = await f.plan(state);
-  assert.deepEqual(operations.map(operation => `${operation.action}:${operation.name}`), ['add:api']);
-  assert.deepEqual(operations[0].transport,
-    { type: 'http', url: 'https://example.invalid/mcp', bearerTokenEnvVar: 'API_TOKEN' });
+  assert.deepEqual(
+    operations.map((operation) => `${operation.action}:${operation.name}`),
+    ['add:api'],
+  );
+  assert.deepEqual(operations[0].transport, { type: 'http', url: 'https://example.invalid/mcp', bearerTokenEnvVar: 'API_TOKEN' });
 
   await f.apply(state);
-  assert.deepEqual(f.codexState().mcpServers.api.transport,
-    { type: 'streamable_http', url: 'https://example.invalid/mcp', bearer_token_env_var: 'API_TOKEN' });
-  assert.deepEqual(f.mcpCalls('add')[0].args,
-    ['mcp', 'add', 'api', '--url', 'https://example.invalid/mcp', '--bearer-token-env-var', 'API_TOKEN']);
-  assert.equal(confirmedOf(state).api, transportHash(
-    { type: 'http', url: 'https://example.invalid/mcp', bearerTokenEnvVar: 'API_TOKEN' }));
+  assert.deepEqual(f.codexState().mcpServers.api.transport, {
+    type: 'streamable_http',
+    url: 'https://example.invalid/mcp',
+    bearer_token_env_var: 'API_TOKEN',
+  });
+  assert.deepEqual(f.mcpCalls('add')[0].args, [
+    'mcp',
+    'add',
+    'api',
+    '--url',
+    'https://example.invalid/mcp',
+    '--bearer-token-env-var',
+    'API_TOKEN',
+  ]);
+  assert.equal(confirmedOf(state).api, transportHash({ type: 'http', url: 'https://example.invalid/mcp', bearerTokenEnvVar: 'API_TOKEN' }));
   assert(!JSON.stringify(f.calls()).includes('Bearer'), 'the source scheme is not copied into argv');
   assert(!JSON.stringify(f.codexState()).includes('Bearer'));
 
@@ -648,7 +817,7 @@ test('an HTTP Authorization reference becomes --bearer-token-env-var', async t =
   assert.equal(f.mcpCalls('add').length, 1);
 });
 
-test('headers and stdio env Codex cannot express are skipped with a warning', async t => {
+test('headers and stdio env Codex cannot express are skipped with a warning', async (t) => {
   const f = fixture(t);
   f.writeSource({
     otherHeader: { url: 'https://example.invalid/other', headers: { 'X-Api-Key': '${API_KEY}' } },
@@ -658,11 +827,15 @@ test('headers and stdio env Codex cannot express are skipped with a warning', as
   });
   const state = f.state();
   const { operations, lines } = await f.plan(state);
-  assert(operations.every(operation => operation.action === 'skip'));
-  assert.match(operations.find(operation => operation.name === 'otherHeader').reason,
-    /headers are not synced in v1: only Authorization: Bearer \$\{VAR\}/);
-  assert.match(operations.find(operation => operation.name === 'stdioEnv').reason,
-    /env is not synced in v1: codex mcp add --env would store a literal/);
+  assert(operations.every((operation) => operation.action === 'skip'));
+  assert.match(
+    operations.find((operation) => operation.name === 'otherHeader').reason,
+    /headers are not synced in v1: only Authorization: Bearer \$\{VAR\}/,
+  );
+  assert.match(
+    operations.find((operation) => operation.name === 'stdioEnv').reason,
+    /env is not synced in v1: codex mcp add --env would store a literal/,
+  );
   assert.match(lines.join('\n'), /mcp skip: otherHeader \(codex\)/);
 
   const { warnings } = await f.apply(state);
@@ -671,7 +844,7 @@ test('headers and stdio env Codex cannot express are skipped with a warning', as
   assert.deepEqual(f.codexState().mcpServers, {});
 });
 
-test('a literal secret anywhere in a source server is refused without being printed', async t => {
+test('a literal secret anywhere in a source server is refused without being printed', async (t) => {
   const f = fixture(t);
   const token = `ghp_${'c'.repeat(30)}`;
   f.writeSource({
@@ -680,53 +853,77 @@ test('a literal secret anywhere in a source server is refused without being prin
   });
   const state = f.state();
   const { operations } = await f.plan(state);
-  const leaky = operations.find(operation => operation.name === 'leaky');
+  const leaky = operations.find((operation) => operation.name === 'leaky');
   assert.equal(leaky.action, 'skip');
   assert.match(leaky.reason, /contains a literal secret \(GitHub token\) at args\[0\]/);
   assert(!JSON.stringify(operations).includes(token));
   await f.apply(state);
   assert.equal(f.codexState().mcpServers.leaky, undefined);
   assert(f.codexState().mcpServers.plain);
-  assert(!f.mcpCalls('add').some(call => call.args[2] === 'leaky'));
+  assert(!f.mcpCalls('add').some((call) => call.args[2] === 'leaky'));
 });
 
-test('private and local self-hosted servers are opt-in for Codex', async t => {
+test('private and local self-hosted servers are opt-in for Codex', async (t) => {
   const f = fixture(t);
   f.writeSource({ plain: { command: 'plain-mcp' } });
-  writeFileSync(join(f.source, 'config/pi/mcp.private.json'), JSON.stringify({ mcpServers: {
-    privateApi: { url: 'https://private.invalid/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
-  } }));
+  writeFileSync(
+    join(f.source, 'config/pi/mcp.private.json'),
+    JSON.stringify({
+      mcpServers: {
+        privateApi: { url: 'https://private.invalid/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
+      },
+    }),
+  );
   mkdirSync(join(f.source, 'config/pi/local'), { recursive: true });
-  writeFileSync(join(f.source, 'config/pi/local/mcp.json'), JSON.stringify({ mcpServers: {
-    localServer: { command: 'local-mcp' },
-  } }));
+  writeFileSync(
+    join(f.source, 'config/pi/local/mcp.json'),
+    JSON.stringify({
+      mcpServers: {
+        localServer: { command: 'local-mcp' },
+      },
+    }),
+  );
   const state = f.state();
 
   let { operations } = await f.plan(state);
-  assert.deepEqual(operations.map(operation => `${operation.action}:${operation.name}`), ['add:plain']);
+  assert.deepEqual(
+    operations.map((operation) => `${operation.action}:${operation.name}`),
+    ['add:plain'],
+  );
 
   state.includePrivate = true;
   ({ operations } = await f.plan(state));
-  assert.deepEqual(operations.map(operation => `${operation.action}:${operation.name}`).sort(),
-    ['add:localServer', 'add:plain', 'add:privateApi']);
+  assert.deepEqual(operations.map((operation) => `${operation.action}:${operation.name}`).sort(), [
+    'add:localServer',
+    'add:plain',
+    'add:privateApi',
+  ]);
   await f.apply(state);
   assert(f.codexState().mcpServers.privateApi.transport.bearer_token_env_var === 'PRIVATE_TOKEN');
   assert(f.codexState().mcpServers.localServer);
 
   state.includePrivate = false;
   ({ operations } = await f.plan(state));
-  assert.deepEqual(operations.map(operation => `${operation.action}:${operation.name}`).sort(),
-    ['remove:localServer', 'remove:privateApi', 'same:plain']);
+  assert.deepEqual(operations.map((operation) => `${operation.action}:${operation.name}`).sort(), [
+    'remove:localServer',
+    'remove:privateApi',
+    'same:plain',
+  ]);
   await f.apply(state);
   assert.deepEqual(Object.keys(f.codexState().mcpServers).sort(), ['plain']);
 });
 
-test('setup --include-private persists the opt-in and --no-include-private removes it', t => {
+test('setup --include-private persists the opt-in and --no-include-private removes it', (t) => {
   const f = fixture(t);
   f.writeSource({ plain: { command: 'plain-mcp' } });
-  writeFileSync(join(f.source, 'config/pi/mcp.private.json'), JSON.stringify({ mcpServers: {
-    privateApi: { url: 'https://private.invalid/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
-  } }));
+  writeFileSync(
+    join(f.source, 'config/pi/mcp.private.json'),
+    JSON.stringify({
+      mcpServers: {
+        privateApi: { url: 'https://private.invalid/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
+      },
+    }),
+  );
   f.initSource();
   const state = () => JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'), 'utf8'));
 
@@ -744,7 +941,7 @@ test('setup --include-private persists the opt-in and --no-include-private remov
   assert(f.codexState().mcpServers.plain);
 });
 
-test('literal URL and command credentials are refused before argv', async t => {
+test('literal URL and command credentials are refused before argv', async (t) => {
   const f = fixture(t);
   f.writeSource({
     userinfo: { url: 'https://user:pass@example.invalid/mcp' },
@@ -763,7 +960,7 @@ test('literal URL and command credentials are refused before argv', async t => {
   });
   const state = f.state();
   const { operations } = await f.plan(state);
-  const byName = new Map(operations.map(operation => [operation.name, operation]));
+  const byName = new Map(operations.map((operation) => [operation.name, operation]));
   for (const [name, reason] of [
     ['userinfo', /url contains userinfo credentials/],
     ['query', /url has a credential-like query parameter/],
@@ -786,24 +983,28 @@ test('literal URL and command credentials are refused before argv', async t => {
   assert(!JSON.stringify(operations).includes('abcd'));
 
   await f.apply(state);
-  assert.deepEqual(f.mcpCalls('add').map(call => call.args[2]), ['headerSafe', 'safe']);
-  assert(f.mcpCalls('add').some(call => call.args.includes('https://example.invalid/mcp?tenant=acme')));
+  assert.deepEqual(
+    f.mcpCalls('add').map((call) => call.args[2]),
+    ['headerSafe', 'safe'],
+  );
+  assert(f.mcpCalls('add').some((call) => call.args.includes('https://example.invalid/mcp?tenant=acme')));
   assert(!JSON.stringify(f.calls()).includes('user:pass'));
   assert(!JSON.stringify(f.calls()).includes('abcd'));
 });
 
-test('native Codex failures never echo argv', async t => {
+test('native Codex failures never echo argv', async (t) => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-codex-failure-'));
   t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const bin = join(temp, 'bin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'codex'), `#!${process.execPath}\nprocess.exit(9)\n`, { mode: 0o755 });
   const env = { ...process.env, HOME: temp, CODEX_HOME: join(temp, 'codex'), PATH: `${bin}:${process.env.PATH}` };
-  assert.throws(() => defaultCodexRun(
-    ['mcp', 'add', 'secret-server-name', '--url', 'https://user:pass@example.invalid/mcp'], { env },
-  ), error => {
-    assert.match(error.message, /codex mcp add failed/);
-    assert.doesNotMatch(error.message, /secret-server-name|user:pass/);
-    return true;
-  });
+  assert.throws(
+    () => defaultCodexRun(['mcp', 'add', 'secret-server-name', '--url', 'https://user:pass@example.invalid/mcp'], { env }),
+    (error) => {
+      assert.match(error.message, /codex mcp add failed/);
+      assert.doesNotMatch(error.message, /secret-server-name|user:pass/);
+      return true;
+    },
+  );
 });

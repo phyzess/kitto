@@ -8,7 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { sameLocation } from '../lib/paths.ts';
 import { get } from '../lib/ownership.ts';
 import {
-  applyLauncherRemoval, applyToolNode, launcherContent, planLauncherRemoval, planToolNode, resolveToolNode,
+  applyLauncherRemoval,
+  applyToolNode,
+  launcherContent,
+  planLauncherRemoval,
+  planToolNode,
+  resolveToolNode,
 } from '../lib/tool-node.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -31,13 +36,15 @@ function stubNode(path, version) {
 function fakeMise(dir, answer) {
   mkdirSync(dir, { recursive: true });
   const log = join(dir, 'mise.log');
-  writeFileSync(join(dir, 'mise'),
+  writeFileSync(
+    join(dir, 'mise'),
     `#!/bin/sh\n{ pwd; env | grep '^MISE_' | sort; } > ${JSON.stringify(log)}\necho ${JSON.stringify(answer)}\n`,
-    { mode: 0o755 });
+    { mode: 0o755 },
+  );
   return log;
 }
 
-test('mise global node resolves to the stable major symlink, run from home with project env cleared', async t => {
+test('mise global node resolves to the stable major symlink, run from home with project env cleared', async (t) => {
   const temp = scratch(t);
   const installs = join(temp, 'installs/node');
   stubNode(join(installs, '26.9.0/bin/node'), '26.9.0');
@@ -54,7 +61,7 @@ test('mise global node resolves to the stable major symlink, run from home with 
   assert.deepEqual(vars, [`MISE_DATA_DIR=${join(temp, 'data')}`]);
 });
 
-test('mise without a major symlink keeps the reported path', async t => {
+test('mise without a major symlink keeps the reported path', async (t) => {
   const temp = scratch(t);
   const node = join(temp, 'installs/node/26.9.0/bin/node');
   stubNode(node, '26.9.0');
@@ -64,7 +71,7 @@ test('mise without a major symlink keeps the reported path', async t => {
   assert.equal(resolved.path, node);
 });
 
-test('without mise the running node is used and its version is verified', async t => {
+test('without mise the running node is used and its version is verified', async (t) => {
   const temp = scratch(t);
   const resolved = await resolveToolNode({ env: { PATH: join(temp, 'empty') }, home: temp });
   assert.equal(resolved.source, 'execPath');
@@ -72,7 +79,7 @@ test('without mise the running node is used and its version is verified', async 
   assert.equal(resolved.version, process.versions.node);
 });
 
-test('a too-old mise node is skipped for the running node', async t => {
+test('a too-old mise node is skipped for the running node', async (t) => {
   const temp = scratch(t);
   const node = join(temp, 'installs/node/18.20.4/bin/node');
   stubNode(node, '18.20.4');
@@ -82,15 +89,17 @@ test('a too-old mise node is skipped for the running node', async t => {
   assert.equal(resolved.source, 'execPath');
 });
 
-test('no suitable node fails with an actionable message', async t => {
+test('no suitable node fails with an actionable message', async (t) => {
   const temp = scratch(t);
   const old = join(temp, 'old/bin/node');
   stubNode(old, '18.20.4');
-  await assert.rejects(resolveToolNode({ env: { PATH: join(temp, 'empty') }, home: temp, execPath: old, floor: '26.0.0' }),
-    /No Node >=26\.0\.0.*v18\.20\.4.*rerun kitto setup/s);
+  await assert.rejects(
+    resolveToolNode({ env: { PATH: join(temp, 'empty') }, home: temp, execPath: old, floor: '26.0.0' }),
+    /No Node >=26\.0\.0.*v18\.20\.4.*rerun kitto setup/s,
+  );
 });
 
-test('a missing recorded node makes the launcher explain itself and exit 127', t => {
+test('a missing recorded node makes the launcher explain itself and exit 127', (t) => {
   const temp = scratch(t);
   const launcher = join(temp, 'kitto-node');
   writeFileSync(launcher, launcherContent(join(temp, "gone node's/bin/node")), { mode: 0o755 });
@@ -99,7 +108,7 @@ test('a missing recorded node makes the launcher explain itself and exit 127', t
   assert.match(result.stderr, /Rerun kitto setup/);
 });
 
-test('launcher deploy runs the recorded node with every argument, preserves foreign files and is removed on detach', async t => {
+test('launcher deploy runs the recorded node with every argument, preserves foreign files and is removed on detach', async (t) => {
   const temp = scratch(t);
   const agentsHome = join(temp, '.agents');
   const state = { agentsHome };
@@ -135,7 +144,7 @@ test('launcher deploy runs the recorded node with every argument, preserves fore
   assert.equal((await planLauncherRemoval(state)).action, 'keep');
 });
 
-test('a launcher edited after deployment is preserved', async t => {
+test('a launcher edited after deployment is preserved', async (t) => {
   const temp = scratch(t);
   const state = { agentsHome: join(temp, '.agents') };
   const toolNode = { path: process.execPath, version: process.versions.node, source: 'execPath' };
@@ -146,12 +155,19 @@ test('a launcher edited after deployment is preserved', async t => {
 });
 
 test('every command in skill text that runs Kitto-shipped Node code goes through the launcher', () => {
-  const files = ['integration/skills/kitto/SKILL.md', 'skills/context-budget/SKILL.md', 'skills/jev-decide/SKILL.md',
-    'config/instructions/common.md', 'config/dsh/AGENTS.md'];
+  const files = [
+    'integration/skills/kitto/SKILL.md',
+    'skills/context-budget/SKILL.md',
+    'skills/jev-decide/SKILL.md',
+    'config/instructions/common.md',
+    'config/dsh/AGENTS.md',
+  ];
   for (const file of files) {
     const text = readFileSync(join(root, file), 'utf8');
     assert.doesNotMatch(text, /(^|[`\s])node (~|KITTO_|\/)/m, `${file} runs a bare node`);
-    for (const line of text.split('\n').filter(entry => /\.agents\/skills\/[\w-]+\/scripts\//.test(entry) && /^\s*(node|~)/.test(entry))) {
+    for (const line of text
+      .split('\n')
+      .filter((entry) => /\.agents\/skills\/[\w-]+\/scripts\//.test(entry) && /^\s*(node|~)/.test(entry))) {
       assert.match(line, /^\s*~\/\.agents\/bin\/kitto-node /, `${file}: ${line}`);
     }
   }

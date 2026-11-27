@@ -87,19 +87,22 @@ configuration for it.
 
 async function scopePathCandidates(value: string): Promise<string[]> {
   const path = resolve(value);
-  try { return [...new Set([await realpath(path), path])]; }
-  catch (error) {
+  try {
+    return [...new Set([await realpath(path), path])];
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return [path];
     throw error;
   }
 }
 
 function formatScopeList(registry: ScopeRegistry): string {
-  const section = (paths: string[]) => paths.length ? paths.map(path => `  ${path}`) : ['  (none)'];
+  const section = (paths: string[]) => (paths.length ? paths.map((path) => `  ${path}`) : ['  (none)']);
   return [
     `Global: ${registry.global ? 'enabled' : 'disabled'}`,
-    'Workspaces:', ...section(registry.workspaces),
-    'Workspace parents:', ...section(registry.workspaceParents),
+    'Workspaces:',
+    ...section(registry.workspaces),
+    'Workspace parents:',
+    ...section(registry.workspaceParents),
   ].join('\n');
 }
 
@@ -132,8 +135,10 @@ async function removeScope(args: string[]): Promise<void> {
   const lock = join(home, '.scope-setup.lock');
   let locked = false;
   if (existsSync(home)) {
-    try { await mkdir(lock); locked = true; }
-    catch (error) {
+    try {
+      await mkdir(lock);
+      locked = true;
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Scope registry is locked by setup: ' + lock);
       throw error;
     }
@@ -206,28 +211,22 @@ try {
       await worktreeCommand(args);
       console.log(lifecycleUsage);
     } else await worktreeCommand(args);
-  }
-  else if (command === 'scope') await scopeCommand(args);
+  } else if (command === 'scope') await scopeCommand(args);
   else if (command === 'route') {
     const { routeCommand } = await import('../lib/routing-command.ts');
     await routeCommand(args);
-  }
-  else if (command === 'update') {
+  } else if (command === 'update') {
     if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) console.log(help);
     else await update(args);
-  }
-  else if (command === 'hosts') {
+  } else if (command === 'hosts') {
     if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) console.log(help);
     else await hostsCommand(args);
-  }
-  else if (command === 'setup') {
-    if ((args.length === 0 && process.stdin.isTTY && process.stdout.isTTY) ||
-        (args.length === 1 && args[0] === '--interactive')) {
+  } else if (command === 'setup') {
+    if ((args.length === 0 && process.stdin.isTTY && process.stdout.isTTY) || (args.length === 1 && args[0] === '--interactive')) {
       const { runWizard } = await import('../lib/setup-wizard.ts');
       await runWizard();
     } else await setup(parseOptions(args));
-  }
-  else throw new Error(`Unknown command: ${command}. Use kitto --help.`);
+  } else throw new Error(`Unknown command: ${command}. Use kitto --help.`);
 } catch (error) {
   console.error(`Kitto: ${(error as Error).message}`);
   process.exitCode = 1;

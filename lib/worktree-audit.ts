@@ -37,14 +37,23 @@ export interface WorktreeRow {
 const usage = 'kitto worktree audit [--workspace PATH] [--json]';
 const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
-Object.assign(env, { LC_ALL: 'C', GIT_ALLOW_PROTOCOL: '', GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0',
-  GIT_TRACE2: '0', GIT_TRACE2_PERF: '0', GIT_TRACE2_EVENT: '0' });
+Object.assign(env, {
+  LC_ALL: 'C',
+  GIT_ALLOW_PROTOCOL: '',
+  GIT_NO_LAZY_FETCH: '1',
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_TRACE2: '0',
+  GIT_TRACE2_PERF: '0',
+  GIT_TRACE2_EVENT: '0',
+});
 if (process.env.GIT_CONFIG_NOSYSTEM === '1') env.GIT_CONFIG_NOSYSTEM = '1';
 
 export function git(cwd: string, ...args: string[]): SpawnSyncReturns<Buffer> {
-  return spawnSync('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false',
-    '-c', 'core.hooksPath=/dev/null', '-c', 'gc.auto=0', '-C', cwd, ...args],
-  { env, timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
+  return spawnSync(
+    'git',
+    ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'gc.auto=0', '-C', cwd, ...args],
+    { env, timeout: 30000, maxBuffer: 16 * 1024 * 1024 },
+  );
 }
 
 export function cleanExit(result: SpawnSyncReturns<Buffer>, status = 0): boolean {
@@ -63,11 +72,18 @@ export async function commonDir(path: string): Promise<string> {
 }
 
 export function registrations(repo: string): WorktreeRegistration[] {
-  return output(repo, 'worktree', 'list', '--porcelain', '-z').split('\0\0').filter(Boolean).map((record): WorktreeRegistration =>
-    Object.fromEntries(record.split('\0').map((line): [string, string | true] => {
-      const i = line.indexOf(' ');
-      return i < 0 ? [line, true] : [line.slice(0, i), line.slice(i + 1)];
-    })) as unknown as WorktreeRegistration);
+  return output(repo, 'worktree', 'list', '--porcelain', '-z')
+    .split('\0\0')
+    .filter(Boolean)
+    .map(
+      (record): WorktreeRegistration =>
+        Object.fromEntries(
+          record.split('\0').map((line): [string, string | true] => {
+            const i = line.indexOf(' ');
+            return i < 0 ? [line, true] : [line.slice(0, i), line.slice(i + 1)];
+          }),
+        ) as unknown as WorktreeRegistration,
+    );
 }
 
 function diskBytes(path: string): number | null {
@@ -80,25 +96,38 @@ function diskBytes(path: string): number | null {
 
 function changes(path: string): WorktreeRow['changes'] {
   if (!cleanExit(git(path, 'config', '--get-regexp', '^filter\\..*\\.(clean|process)$'), 1)) return null;
-  const result = git(path, 'status', '--porcelain=v1', '-z', '--no-renames', '--ignored=matching',
-    '--untracked-files=normal', '--ignore-submodules=all');
+  const result = git(
+    path,
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--no-renames',
+    '--ignored=matching',
+    '--untracked-files=normal',
+    '--ignore-submodules=all',
+  );
   if (!cleanExit(result)) return null;
   const lines = result.stdout.toString('latin1').split('\0').filter(Boolean);
-  return { tracked: lines.some(line => !['!!', '??'].includes(line.slice(0, 2))),
-    untracked: lines.some(line => line.startsWith('??')), ignored: lines.some(line => line.startsWith('!!')) };
+  return {
+    tracked: lines.some((line) => !['!!', '??'].includes(line.slice(0, 2))),
+    untracked: lines.some((line) => line.startsWith('??')),
+    ignored: lines.some((line) => line.startsWith('!!')),
+  };
 }
 
 export async function checkoutGitDir(path: string, common: string, primary: boolean, bare: boolean): Promise<string> {
   const gitDir = await realpath(output(path, 'rev-parse', '--absolute-git-dir'));
-  if (await commonDir(path) !== common || (!bare && output(path, 'rev-parse', '--show-toplevel') !== path)) {
+  if ((await commonDir(path)) !== common || (!bare && output(path, 'rev-parse', '--show-toplevel') !== path)) {
     throw new Error('Worktree checkout mismatch');
   }
   if (primary) {
     if (gitDir !== common) throw new Error('Primary Git directory mismatch');
   } else {
     const marker = join(path, '.git');
-    if (dirname(gitDir) !== join(common, 'worktrees') ||
-        await realpath(output(path, 'rev-parse', '--resolve-git-dir', marker)) !== gitDir) {
+    if (
+      dirname(gitDir) !== join(common, 'worktrees') ||
+      (await realpath(output(path, 'rev-parse', '--resolve-git-dir', marker))) !== gitDir
+    ) {
       throw new Error('Linked Git directory mismatch');
     }
     const reverse = join(gitDir, 'gitdir');
@@ -109,16 +138,38 @@ export async function checkoutGitDir(path: string, common: string, primary: bool
   return gitDir;
 }
 
-export async function inspect(repo: string, common: string, entry: WorktreeRegistration, primary: boolean, base: string | null | undefined, unique: boolean): Promise<WorktreeRow> {
+export async function inspect(
+  repo: string,
+  common: string,
+  entry: WorktreeRegistration,
+  primary: boolean,
+  base: string | null | undefined,
+  unique: boolean,
+): Promise<WorktreeRow> {
   const path = entry.worktree;
-  const row: WorktreeRow = { path, commonDir: common, gitDir: null, primary, bare: !!entry.bare,
-    branch: entry.branch ?? null, head: entry.HEAD ?? null, detached: !!entry.detached,
-    locked: !!entry.locked, prunable: !!entry.prunable, estimatedBytes: null,
-    changes: null, upstream: null, localBaseHead: base, mergedIntoLocalBase: null,
-    ownership: 'unmanaged', occupancy: 'unknown', blockers: ['unmanaged', 'occupancy-unknown'] };
+  const row: WorktreeRow = {
+    path,
+    commonDir: common,
+    gitDir: null,
+    primary,
+    bare: !!entry.bare,
+    branch: entry.branch ?? null,
+    head: entry.HEAD ?? null,
+    detached: !!entry.detached,
+    locked: !!entry.locked,
+    prunable: !!entry.prunable,
+    estimatedBytes: null,
+    changes: null,
+    upstream: null,
+    localBaseHead: base,
+    mergedIntoLocalBase: null,
+    ownership: 'unmanaged',
+    occupancy: 'unknown',
+    blockers: ['unmanaged', 'occupancy-unknown'],
+  };
   for (const fact of ['primary', 'bare', 'detached', 'locked', 'prunable']) if (row[fact]) row.blockers.push(fact);
   try {
-    if (!unique || await realpath(path) !== path) throw new Error('Worktree registration mismatch');
+    if (!unique || (await realpath(path)) !== path) throw new Error('Worktree registration mismatch');
     row.gitDir = await checkoutGitDir(path, common, primary, row.bare);
   } catch {
     row.blockers.push('identity-unknown');
@@ -128,8 +179,11 @@ export async function inspect(repo: string, common: string, entry: WorktreeRegis
   if (row.estimatedBytes === null) row.blockers.push('size-unknown');
   if (row.bare) return row;
   if (row.branch) {
-    try { row.upstream = output(repo, 'for-each-ref', '--format=%(upstream)', row.branch) || null; }
-    catch { row.blockers.push('upstream-unknown'); }
+    try {
+      row.upstream = output(repo, 'for-each-ref', '--format=%(upstream)', row.branch) || null;
+    } catch {
+      row.blockers.push('upstream-unknown');
+    }
   }
   if (base && row.head) {
     const result = git(repo, 'merge-base', '--is-ancestor', row.head, base);
@@ -138,7 +192,7 @@ export async function inspect(repo: string, common: string, entry: WorktreeRegis
   }
   if (row.mergedIntoLocalBase !== true) row.blockers.push(row.mergedIntoLocalBase === false ? 'not-in-local-base' : 'ancestry-unknown');
   const metadata = await readdir(row.gitDir).catch((): null => null);
-  if (!metadata || metadata.some(name => name.startsWith('sharedindex.'))) {
+  if (!metadata || metadata.some((name) => name.startsWith('sharedindex.'))) {
     row.blockers.push('index-probe-skipped', 'changes-unknown');
     return row;
   }
@@ -149,12 +203,16 @@ export async function inspect(repo: string, common: string, entry: WorktreeRegis
   if (!cleanExit(files)) row.blockers.push('index-flags-unknown');
   else {
     const records = files.stdout.toString('latin1').split('\0');
-    if (records.some(record => /^[a-zS] /.test(record))) row.blockers.push('masked-index-entries');
-    if (records.some(record => /^. 160000 /.test(record))) row.blockers.push('submodules-unknown');
+    if (records.some((record) => /^[a-zS] /.test(record))) row.blockers.push('masked-index-entries');
+    if (records.some((record) => /^. 160000 /.test(record))) row.blockers.push('submodules-unknown');
   }
   for (const marker of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'BISECT_START', 'rebase-merge', 'rebase-apply', 'sequencer']) {
-    try { await lstat(join(row.gitDir, marker)); row.blockers.push(`git-operation:${marker}`); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') row.blockers.push('git-operation-unknown'); }
+    try {
+      await lstat(join(row.gitDir, marker));
+      row.blockers.push(`git-operation:${marker}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') row.blockers.push('git-operation-unknown');
+    }
   }
   return row;
 }
@@ -163,19 +221,24 @@ async function candidates(workspace: string | undefined): Promise<string[]> {
   if (!workspace) return [process.cwd()];
   const root = await realpath(workspace);
   const dirs = await readdir(root, { withFileTypes: true });
-  if (dirs.some(entry => entry.name === '.git')) return [root];
+  if (dirs.some((entry) => entry.name === '.git')) return [root];
   const repos: string[] = [];
   for (const entry of dirs) {
     if (!entry.isDirectory()) continue;
     const dir = join(root, entry.name);
-    try { await lstat(join(dir, '.git')); repos.push(dir); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    try {
+      await lstat(join(dir, '.git'));
+      repos.push(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
   return repos;
 }
 
 export async function auditWorktrees(workspace?: string): Promise<WorktreeRow[]> {
-  const rows: WorktreeRow[] = [], seen = new Set<string>();
+  const rows: WorktreeRow[] = [],
+    seen = new Set<string>();
   for (const repo of await candidates(workspace)) {
     const common = await commonDir(repo);
     if (seen.has(common)) continue;
@@ -193,10 +256,12 @@ export async function auditWorktrees(workspace?: string): Promise<WorktreeRow[]>
 
 export async function worktreeCommand([command, ...args]: string[]): Promise<void> {
   if (!command || ['--help', '-h'].includes(command) || (command === 'audit' && args.length === 1 && ['--help', '-h'].includes(args[0]))) {
-    console.log(usage); return;
+    console.log(usage);
+    return;
   }
   if (command !== 'audit') throw new Error(`Usage: ${usage}`);
-  let workspace: string | undefined, json = false;
+  let workspace: string | undefined,
+    json = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--json' && !json) json = true;
     else if (args[i] === '--workspace' && !workspace && args[i + 1] && !args[i + 1].startsWith('-')) workspace = resolve(args[++i]);
@@ -206,6 +271,9 @@ export async function worktreeCommand([command, ...args]: string[]): Promise<voi
   if (json) console.log(JSON.stringify(rows, null, 2));
   else {
     console.log('Estimated bytes | Worktree | Branch / HEAD | Blockers (not a removal decision)');
-    for (const row of rows) console.log(`${row.estimatedBytes ?? 'unknown'} | ${JSON.stringify(row.path)} | ${JSON.stringify(row.branch ?? row.head)} | ${row.blockers.join(', ')}`);
+    for (const row of rows)
+      console.log(
+        `${row.estimatedBytes ?? 'unknown'} | ${JSON.stringify(row.path)} | ${JSON.stringify(row.branch ?? row.head)} | ${row.blockers.join(', ')}`,
+      );
   }
 }

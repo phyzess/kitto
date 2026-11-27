@@ -13,16 +13,19 @@ test('node builtin import runs are sorted and everything else is untouched', () 
     'import x from "@clack/prompts";',
     'const y = 1;',
   ].join('\n');
-  assert.equal(sortNodeImports(code), [
-    '#!/usr/bin/env node',
-    'import { a } from "../lib/a.mjs";',
-    'import { existsSync } from "node:fs";',
-    'import { readFile } from "node:fs/promises";',
-    'import { b } from "../lib/b.mjs";',
-    'import { join } from "node:path";',
-    'import x from "@clack/prompts";',
-    'const y = 1;',
-  ].join('\n'));
+  assert.equal(
+    sortNodeImports(code),
+    [
+      '#!/usr/bin/env node',
+      'import { a } from "../lib/a.mjs";',
+      'import { existsSync } from "node:fs";',
+      'import { readFile } from "node:fs/promises";',
+      'import { b } from "../lib/b.mjs";',
+      'import { join } from "node:path";',
+      'import x from "@clack/prompts";',
+      'const y = 1;',
+    ].join('\n'),
+  );
 });
 
 test('sorting is idempotent and independent of the input order', () => {

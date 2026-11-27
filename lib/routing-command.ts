@@ -6,7 +6,8 @@ import { kittoHome } from './kitto-home.ts';
 import { createRoutingStore } from './routing-state.ts';
 import type { Json } from '../types/kitto.d.ts';
 
-const help = 'Usage: kitto route plan|check --input FILE\n       kitto route go-metadata --input FILE --allow-network\n       kitto route permit|record-quota|release-pool --input FILE --operator\n       kitto route migrate --home DIRECTORY\nSupply sanitized JSON without prompts or credentials. Only go-metadata can access the network.';
+const help =
+  'Usage: kitto route plan|check --input FILE\n       kitto route go-metadata --input FILE --allow-network\n       kitto route permit|record-quota|release-pool --input FILE --operator\n       kitto route migrate --home DIRECTORY\nSupply sanitized JSON without prompts or credentials. Only go-metadata can access the network.';
 const operatorCommands = ['permit', 'record-quota', 'release-pool'];
 
 function matchesMetadataHome(savedHome: unknown, explicitHome: string | undefined): boolean {
@@ -17,13 +18,16 @@ function matchesMetadataHome(savedHome: unknown, explicitHome: string | undefine
 }
 
 export async function routeCommand(args: string[]): Promise<void> {
-  if (!args.length || args.length === 1 && ['-h', '--help'].includes(args[0])) {
+  if (!args.length || (args.length === 1 && ['-h', '--help'].includes(args[0]))) {
     console.log(help);
     return;
   }
   const [operation, flag, path] = args;
   const local = kittoHome();
-  const getState = () => readFile(join(local, 'state.json'), 'utf8').then(JSON.parse).catch((): null => null);
+  const getState = () =>
+    readFile(join(local, 'state.json'), 'utf8')
+      .then(JSON.parse)
+      .catch((): null => null);
   if (operation === 'migrate' && flag === '--home' && path && args.length === 3) {
     const { migrateRouting } = await import('./routing-migration.ts');
     const state = await getState();
@@ -32,17 +36,19 @@ export async function routeCommand(args: string[]): Promise<void> {
   }
   const optedIn = operation === 'go-metadata' && args.length === 4 && args[3] === '--allow-network';
   const operator = operatorCommands.includes(operation) && args.length === 4 && args[3] === '--operator';
-  if ((!optedIn && !operator && (args.length !== 3 || !['plan', 'check'].includes(operation))) || flag !== '--input' || !path) throw new Error(help);
+  if ((!optedIn && !operator && (args.length !== 3 || !['plan', 'check'].includes(operation))) || flag !== '--input' || !path)
+    throw new Error(help);
   let request: Json;
   try {
     if (operator) {
       const stats = await lstat(path);
-      if (!stats.isFile() || (stats.mode & 0o077) !== 0 || stats.size > 1_000_000
-          || (process.getuid && stats.uid !== process.getuid())) throw new Error('Private operator file required.');
+      if (!stats.isFile() || (stats.mode & 0o077) !== 0 || stats.size > 1_000_000 || (process.getuid && stats.uid !== process.getuid()))
+        throw new Error('Private operator file required.');
     }
     request = JSON.parse(await readFile(path, 'utf8'));
+  } catch {
+    throw new Error('Cannot read routing input as JSON.');
   }
-  catch { throw new Error('Cannot read routing input as JSON.'); }
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Routing input must be a JSON object.');
   let output: Json;
   if (operation === 'plan' || operation === 'check') {
@@ -71,8 +77,10 @@ export async function routeCommand(args: string[]): Promise<void> {
     const profile = operator ? (request.host?.profile ?? 'web') : request.host?.profile;
     const profileMismatch = process.env.DSH_PROFILE && process.env.DSH_PROFILE !== profile;
     const explicitHome = process.env.DSH_HOME;
-    const homeMismatch = optedIn || operator ? !matchesMetadataHome(state?.dshHome, explicitHome)
-      : explicitHome && (typeof state?.dshHome !== 'string' || !sameLocation(explicitHome, state.dshHome));
+    const homeMismatch =
+      optedIn || operator
+        ? !matchesMetadataHome(state?.dshHome, explicitHome)
+        : explicitHome && (typeof state?.dshHome !== 'string' || !sameLocation(explicitHome, state.dshHome));
     if (profileMismatch || homeMismatch) output = { advisory: true, status: 'stop', reason: 'session-configuration-mismatch' };
     else if (operator) {
       const { boundRoutingPolicy, issueRoutePermit } = await import('../integration/dsh-routing.ts');

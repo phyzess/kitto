@@ -13,13 +13,19 @@ function reportHost(report: HostReport, requireBaseline: boolean) {
   } else {
     const detail = `${name}: ${report.actual} is older than the tested baseline ${baseline}`;
     if (requireBaseline) throw new Error(`${detail}. Upgrade it with \`kitto hosts --apply\`, or drop --require-baseline.`);
-    console.warn(`kitto: ${detail}; continuing and skipping the steps this CLI cannot support. Run \`kitto hosts --apply\` when you want the tested baseline.`);
+    console.warn(
+      `kitto: ${detail}; continuing and skipping the steps this CLI cannot support. Run \`kitto hosts --apply\` when you want the tested baseline.`,
+    );
   }
 }
 
 export const availableHost = (name: HostName): boolean => adapterFor({} as State, name).available();
 
-export function checkSelectedHosts(agents: HostName[], installAgents: boolean | undefined, options: { requireBaseline?: boolean } = {}): HostReport[] {
+export function checkSelectedHosts(
+  agents: HostName[],
+  installAgents: boolean | undefined,
+  options: { requireBaseline?: boolean } = {},
+): HostReport[] {
   const reports: HostReport[] = [];
   for (const name of agents) {
     const adapter = adapterFor({} as State, name);
@@ -46,8 +52,10 @@ export function installMissingHosts(agents: HostName[]): void {
     run('npm', ['install', '--global', `${hosts[name].package}@${hosts[name].version}`]);
     const report = adapter.inspect();
     if (report.status !== 'found' || report.actual !== hosts[name].version) {
-      throw new Error(`${name}: npm finished, but the CLI reports ${report.actual ?? report.status} instead of ${hosts[name].version}. `
-        + 'Check PATH and the npm global prefix; Kitto wrote no state.');
+      throw new Error(
+        `${name}: npm finished, but the CLI reports ${report.actual ?? report.status} instead of ${hosts[name].version}. ` +
+          'Check PATH and the npm global prefix; Kitto wrote no state.',
+      );
     }
     console.log(`${name}: ${report.actual} (installed pinned baseline)`);
   }

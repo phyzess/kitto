@@ -26,8 +26,10 @@ export async function runEnvironmentSetup(plan: SetupPlan): Promise<void> {
   const desktopDsh = isDesktopProfile(dshProfile);
   const source = plan.source && existsSync(plan.source) ? resolve(plan.source) : plan.source;
   if (source === false && desktopDsh && plan.agents.includes('dsh')) {
-    throw new Error('The DSH desktop profile requires a configuration source: the "shared rules and skills only" ' +
-      'mode would deploy no global rules. Choose a source or use --dsh-profile web.');
+    throw new Error(
+      'The DSH desktop profile requires a configuration source: the "shared rules and skills only" ' +
+        'mode would deploy no global rules. Choose a source or use --dsh-profile web.',
+    );
   }
   const workspace = plan.workspace && resolve(plan.workspace);
   const agents = plan.agents.filter((name: HostName) => name !== 'dsh' || !unit);
@@ -40,11 +42,18 @@ export async function runEnvironmentSetup(plan: SetupPlan): Promise<void> {
       checkSelectedHosts(agents, installAgents);
       if (!dryRun && installAgents) installMissingHosts(agents);
     } else {
-      await setup({ ...options, source, 'install-agents': installAgents, keepExistingSkills: true,
-        'routing-boundary': plan.routingBoundary, 'routing-routes': plan.routingRoutes });
+      await setup({
+        ...options,
+        source,
+        'install-agents': installAgents,
+        keepExistingSkills: true,
+        'routing-boundary': plan.routingBoundary,
+        'routing-routes': plan.routingRoutes,
+      });
     }
     const pendingDsh = !desktopDsh && dryRun && installAgents && agents.includes('dsh') && query('dsh', ['--version']) === null;
-    const scopedAgents = agents.filter((name: HostName) => !(pendingDsh && name === 'dsh'))
+    const scopedAgents = agents
+      .filter((name: HostName) => !(pendingDsh && name === 'dsh'))
       .filter((name: HostName) => !(name === 'dsh' && desktopDsh));
     if (desktopDsh && agents.includes('dsh')) {
       console.log('DSH Desktop：由 App 管理，跳过 scoped 适配器；本次只处理全局规则和 skills。');

@@ -3,21 +3,67 @@ import assert from 'node:assert/strict';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 
 const now = Date.parse('2026-11-26T12:00:00Z');
-const subscription = { provider: 'openai-codex', model: 'sol', canonicalModel: 'openai/sol', family: 'openai',
-  upstream: 'openai-codex', account: 'native', accountVerified: true, billing: 'subscription', available: true,
-  dispatchable: true, fallback: 'none', dataAllowed: true, efforts: ['medium'] };
-const paid = { ...subscription, provider: 'deepseek-official', model: 'deepseek-flash', canonicalModel: 'deepseek/flash', family: 'deepseek',
-  upstream: 'deepseek-official', account: 'official', billing: 'metered', estimateUsd: 0.3, efforts: ['high'] };
+const subscription = {
+  provider: 'openai-codex',
+  model: 'sol',
+  canonicalModel: 'openai/sol',
+  family: 'openai',
+  upstream: 'openai-codex',
+  account: 'native',
+  accountVerified: true,
+  billing: 'subscription',
+  available: true,
+  dispatchable: true,
+  fallback: 'none',
+  dataAllowed: true,
+  efforts: ['medium'],
+};
+const paid = {
+  ...subscription,
+  provider: 'deepseek-official',
+  model: 'deepseek-flash',
+  canonicalModel: 'deepseek/flash',
+  family: 'deepseek',
+  upstream: 'deepseek-official',
+  account: 'official',
+  billing: 'metered',
+  estimateUsd: 0.3,
+  efforts: ['high'],
+};
 function role(id, route, dependencies = []) {
   const base = { id, workRevision: 'current-diff', data: 'personal', effects: 'read', dependencies };
-  return { ...base, authorization: { plan: 'work-item', role: id, workRevision: base.workRevision, provider: route.provider,
-    model: route.model, upstream: route.upstream, account: route.account, billing: route.billing, data: base.data, maxUsd: 0.5 } };
+  return {
+    ...base,
+    authorization: {
+      plan: 'work-item',
+      role: id,
+      workRevision: base.workRevision,
+      provider: route.provider,
+      model: route.model,
+      upstream: route.upstream,
+      account: route.account,
+      billing: route.billing,
+      data: base.data,
+      maxUsd: 0.5,
+    },
+  };
 }
 function plan(kind = 'dsh', surface = 'teams', roles = [role('review', paid)]) {
-  return { id: 'work-item', host: { kind, surface, session: 'test-session', observedAt: new Date(now).toISOString(),
-    routes: [subscription, paid], current: subscription }, roles };
+  return {
+    id: 'work-item',
+    host: {
+      kind,
+      surface,
+      session: 'test-session',
+      observedAt: new Date(now).toISOString(),
+      routes: [subscription, paid],
+      current: subscription,
+    },
+    roles,
+  };
 }
-const approval = result => result.rows.filter(row => row.status === 'ready').map(row => ({ id: row.id, approvalKey: row.route.approvalKey }));
+const approval = (result) =>
+  result.rows.filter((row) => row.status === 'ready').map((row) => ({ id: row.id, approvalKey: row.route.approvalKey }));
 
 test('explicit official Flash remains selectable with the exact paid task authorization', () => {
   const input = plan();
@@ -66,13 +112,17 @@ test('independent review rejects another model from the implementation family ev
   review.reviewGate = 'independent';
   review.requireDifferentFamily = false;
   review.implementers = [{ canonicalModel: 'deepseek/pro', family: 'deepseek' }];
-  assert.equal(planTaskRoutes(input, now).rows[0].options.find(option => option.provider === paid.provider).reason, 'not-independent');
+  assert.equal(planTaskRoutes(input, now).rows[0].options.find((option) => option.provider === paid.provider).reason, 'not-independent');
   review.implementers = [{ canonicalModel: subscription.canonicalModel, family: subscription.family }];
   assert.equal(planTaskRoutes(input, now).status, 'ready');
 });
 
 test('deferred and unavailable roles do not release dependent work', () => {
-  const input = plan('codex', 'subagent', [role('verify', subscription), { ...role('review', paid), choice: 'defer' }, role('integrate', subscription, ['review'])]);
+  const input = plan('codex', 'subagent', [
+    role('verify', subscription),
+    { ...role('review', paid), choice: 'defer' },
+    role('integrate', subscription, ['review']),
+  ]);
   const result = planTaskRoutes(input, now);
   assert.deepEqual(result.ready, ['verify']);
   assert.deepEqual(result.rows[2].blockedBy, ['review']);

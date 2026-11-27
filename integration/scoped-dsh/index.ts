@@ -22,7 +22,12 @@ function covers(parent: string, child: string): boolean {
   return path !== '..' && !path.startsWith('..' + sep) && !isAbsolute(path);
 }
 
-function registerScopes(ctx: Json, FileSystemSkillProvider: any, discoverBaselineInstructionFiles: any, nativeConfigByPreset: Map<unknown, Json | undefined>) {
+function registerScopes(
+  ctx: Json,
+  FileSystemSkillProvider: any,
+  discoverBaselineInstructionFiles: any,
+  nativeConfigByPreset: Map<unknown, Json | undefined>,
+) {
   ctx.skills.registerProvider((control: Json) => {
     const providers = new Map<string, Json>();
     const watcher = watch(scopeHome(), { persistent: false, signal: control.signal }, (_event: string, file: string | null) => {
@@ -79,10 +84,13 @@ function registerScopes(ctx: Json, FileSystemSkillProvider: any, discoverBaselin
     if (!scopes.length) return assembly;
     const preset = ctx.get('agentPresets')?.composedPreset(context.agent.ctx);
     const nativeConfig = nativeConfigByPreset.get(preset) ?? nativeConfigByPreset.get(undefined);
-    const nativePaths = new Set(ctx.get('fs') && nativeConfig?.maxBytes > 0
-      ? (await discoverBaselineInstructionFiles({ ...nativeConfig, cwd: await realpath(cwd), signal }))
-        .map((file: Json) => file.absolutePath)
-      : []);
+    const nativePaths = new Set(
+      ctx.get('fs') && nativeConfig?.maxBytes > 0
+        ? (await discoverBaselineInstructionFiles({ ...nativeConfig, cwd: await realpath(cwd), signal })).map(
+            (file: Json) => file.absolutePath,
+          )
+        : [],
+    );
     const sections: string[] = [];
     for (const { instructions } of scopes) {
       if (!instructions || nativePaths.has(instructions)) continue;

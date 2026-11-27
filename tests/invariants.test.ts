@@ -36,8 +36,8 @@ test('path string equality and regex parsing of YAML or TOML are rejected', () =
       'export const b = (dir, other) => other !== realpathSync(dir);',
       'export const c = yamlText => yamlText.match(/^name: (.+)$/m);',
       'export const d = tomlSource => /^\\[mcp/.test(tomlSource);',
-      ''
-    ].join('\n')
+      '',
+    ].join('\n'),
   });
   try {
     const result = scan(root);
@@ -57,13 +57,13 @@ test('the symlink-rejection idiom and neutral code pass', () => {
     'good.ts': [
       "import { realpathSync } from 'node:fs';",
       "import { sameLocation } from './paths.ts';",
-      "export const regular = path => realpathSync(path) === path;",
-      "export const symlink = path => realpathSync(path) !== path;",
+      'export const regular = path => realpathSync(path) === path;',
+      'export const symlink = path => realpathSync(path) !== path;',
       'export const same = (a, b) => sameLocation(a, b);',
       'export const parsed = document => document.toString();',
-      "export const version = text => text.match(/^v(\\d+)/)?.[1];",
-      ''
-    ].join('\n')
+      'export const version = text => text.match(/^v(\\d+)/)?.[1];',
+      '',
+    ].join('\n'),
   });
   try {
     const result = scan(root);

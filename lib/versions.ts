@@ -21,15 +21,23 @@ export interface VersionRow {
 }
 
 async function entries(path: string): Promise<Dirent[]> {
-  try { return await readdir(path, { withFileTypes: true }); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
+  try {
+    return await readdir(path, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
 }
 
-async function resources(root: string, revision: string, hashTree: (path: string, flag?: boolean) => Promise<string>): Promise<VersionRow[]> {
+async function resources(
+  root: string,
+  revision: string,
+  hashTree: (path: string, flag?: boolean) => Promise<string>,
+): Promise<VersionRow[]> {
   const rows: VersionRow[] = [];
   for (const entry of await entries(root)) {
     const path = join(root, entry.name);
-    if (!entry.isDirectory() || !(await entries(path)).some(file => file.name === 'SKILL.md' && file.isFile())) continue;
+    if (!entry.isDirectory() || !(await entries(path)).some((file) => file.name === 'SKILL.md' && file.isFile())) continue;
     rows.push({ kind: 'skill', name: entry.name, revision, contentSha256: await hashTree(path, true) });
   }
   return rows;
@@ -47,7 +55,7 @@ async function piVersions(state: State, revision: string): Promise<VersionRow[]>
         const [name, target] = npmSpec(source);
         specs.set(name, target);
       } else if (source) {
-        if (!rows.some(row => row.name === source)) rows.push({ name: source, kind: 'source', installed: null });
+        if (!rows.some((row) => row.name === source)) rows.push({ name: source, kind: 'source', installed: null });
       }
     }
   }
@@ -63,9 +71,16 @@ async function piVersions(state: State, revision: string): Promise<VersionRow[]>
   const extensions = join(state.source, 'config/pi/extensions');
   for (const file of await entries(extensions)) {
     if (!file.isFile() || !file.name.endsWith('.ts')) continue;
-    rows.push({ kind: 'extension', name: file.name, revision, contentSha256: createHash('sha256').update(await readFile(join(extensions, file.name))).digest('hex') });
+    rows.push({
+      kind: 'extension',
+      name: file.name,
+      revision,
+      contentSha256: createHash('sha256')
+        .update(await readFile(join(extensions, file.name)))
+        .digest('hex'),
+    });
   }
-  return rows.map(row => ({ ...row, owner: 'pi' }));
+  return rows.map((row) => ({ ...row, owner: 'pi' }));
 }
 
 async function codexVersions(state: State): Promise<VersionRow[]> {
@@ -73,7 +88,11 @@ async function codexVersions(state: State): Promise<VersionRow[]> {
   if (!output) return [{ kind: 'inventory', owner: 'codex', note: 'Native plugin inventory unavailable.' }];
   try {
     return JSON.parse(output).installed.map((plugin: any) => ({
-      kind: 'plugin', owner: 'codex', name: plugin.pluginId, installed: plugin.version || null, enabled: plugin.enabled,
+      kind: 'plugin',
+      owner: 'codex',
+      name: plugin.pluginId,
+      installed: plugin.version || null,
+      enabled: plugin.enabled,
     }));
   } catch {
     return [{ kind: 'inventory', owner: 'codex', note: 'Unrecognized native plugin inventory.' }];
@@ -89,9 +108,15 @@ async function dshVersions(state: State): Promise<VersionRow[]> {
     const target = manifest.dependencies?.[name];
     const bundled = !target;
     const installed = bundled ? {} : await optionalJson(join(root, 'node_modules', name, 'package.json'));
-    rows.push({ kind: bundled ? 'bundle' : 'npm', owner: 'dsh', profile,
-      name, target: target || null, installed: installed.version || (name === '@phyzess/kitto' ? state.version : null),
-      note: bundled ? 'Bundled with DSH.' : undefined });
+    rows.push({
+      kind: bundled ? 'bundle' : 'npm',
+      owner: 'dsh',
+      profile,
+      name,
+      target: target || null,
+      installed: installed.version || (name === '@phyzess/kitto' ? state.version : null),
+      note: bundled ? 'Bundled with DSH.' : undefined,
+    });
   }
   return rows;
 }
@@ -104,36 +129,55 @@ async function upstream(kind: string, name: string): Promise<Record<string, unkn
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (kind === 'pypi') return { source: url, version: data.info.version, requiresPython: data.info.requires_python };
-    const channels = Object.fromEntries(Object.entries(data['dist-tags'] || {}).filter(
-      ([tag]) => ['latest', 'next', 'alpha', 'beta', 'canary'].includes(tag),
-    ));
-    const requirements = Object.fromEntries(Object.entries(channels).map(([tag, value]: [string, any]) => {
-      const release = data.versions?.[value];
-      return [tag, { engines: release?.engines, peers: release?.peerDependencies, deprecated: release?.deprecated }];
-    }));
+    const channels = Object.fromEntries(
+      Object.entries(data['dist-tags'] || {}).filter(([tag]) => ['latest', 'next', 'alpha', 'beta', 'canary'].includes(tag)),
+    );
+    const requirements = Object.fromEntries(
+      Object.entries(channels).map(([tag, value]: [string, any]) => {
+        const release = data.versions?.[value];
+        return [tag, { engines: release?.engines, peers: release?.peerDependencies, deprecated: release?.deprecated }];
+      }),
+    );
     return { source: url, channels, requirements };
   } catch (error) {
     return { source: url, error: (error as Error).message };
   }
 }
 
-export async function versionReport(state: State, hosts: Record<HostName, HostPin>, pnpmVersion: string, online: boolean, hashTree: (path: string, flag?: boolean) => Promise<string>): Promise<{ checkedAt: string; online: boolean; components: VersionRow[] }> {
+export async function versionReport(
+  state: State,
+  hosts: Record<HostName, HostPin>,
+  pnpmVersion: string,
+  online: boolean,
+  hashTree: (path: string, flag?: boolean) => Promise<string>,
+): Promise<{ checkedAt: string; online: boolean; components: VersionRow[] }> {
   const rows: VersionRow[] = [{ kind: 'npm', owner: 'kitto', name: '@phyzess/kitto', installed: state.version }];
   for (const name of state.agents) {
-    rows.push({ kind: 'npm', owner: name, name: hosts[name].package, installed: readVersion(query(name, ['--version'])), tested: hosts[name].version });
+    rows.push({
+      kind: 'npm',
+      owner: name,
+      name: hosts[name].package,
+      installed: readVersion(query(name, ['--version'])),
+      tested: hosts[name].version,
+    });
   }
-  if (state.agents.includes('dsh') && !isDesktopProfile(state.dshProfile)) rows.push({ kind: 'npm', owner: 'dsh', name: 'pnpm', installed: readVersion(query('pnpm', ['--version'])), tested: pnpmVersion });
+  if (state.agents.includes('dsh') && !isDesktopProfile(state.dshProfile))
+    rows.push({ kind: 'npm', owner: 'dsh', name: 'pnpm', installed: readVersion(query('pnpm', ['--version'])), tested: pnpmVersion });
   const revision = query('git', ['-C', state.source, 'rev-parse', 'HEAD']);
-  if (state.agents.includes('pi')) rows.push(...await piVersions(state, revision));
-  if (state.agents.includes('codex')) rows.push(...await codexVersions(state));
+  if (state.agents.includes('pi')) rows.push(...(await piVersions(state, revision)));
+  if (state.agents.includes('codex')) rows.push(...(await codexVersions(state)));
   if (state.agents.includes('dsh')) {
     if (isDesktopProfile(state.dshProfile)) {
-      rows.push({ kind: 'inventory', owner: 'dsh', profile: state.dshProfile,
-        note: 'DSH desktop profile is app-managed; Kitto does not manage its bundles, patch or pnpm.' });
-    } else rows.push(...await dshVersions(state));
+      rows.push({
+        kind: 'inventory',
+        owner: 'dsh',
+        profile: state.dshProfile,
+        note: 'DSH desktop profile is app-managed; Kitto does not manage its bundles, patch or pnpm.',
+      });
+    } else rows.push(...(await dshVersions(state)));
   }
   for (const { name, source } of [{ name: 'shared', source: join(state.source, 'skills') }, ...hostSkillRoots(state)]) {
-    rows.push(...(await resources(source, revision, hashTree)).map(row => ({ ...row, owner: name })));
+    rows.push(...(await resources(source, revision, hashTree)).map((row) => ({ ...row, owner: name })));
   }
   for (const tool of await dependencyPlan(state)) {
     const kind = ({ mise: 'npm', pip: 'pypi', brew: 'brew' } as Record<string, string>)[tool.manager!] || 'external';
@@ -141,17 +185,19 @@ export async function versionReport(state: State, hosts: Record<HostName, HostPi
   }
   if (online) {
     const groups = new Map<string, VersionRow[]>();
-    for (const row of rows.filter(row => ['npm', 'pypi'].includes(row.kind))) {
+    for (const row of rows.filter((row) => ['npm', 'pypi'].includes(row.kind))) {
       const key = `${row.kind}:${row.name}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(row);
     }
     const batches = [...groups.values()];
     for (let i = 0; i < batches.length; i += 6) {
-      await Promise.all(batches.slice(i, i + 6).map(async (group: VersionRow[]) => {
-        const result = await upstream(group[0].kind, group[0].name!);
-        for (const row of group) row.upstream = result;
-      }));
+      await Promise.all(
+        batches.slice(i, i + 6).map(async (group: VersionRow[]) => {
+          const result = await upstream(group[0].kind, group[0].name!);
+          for (const row of group) row.upstream = result;
+        }),
+      );
     }
   }
   return { checkedAt: new Date().toISOString(), online, components: rows };

@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
 import {
-  configureServiceScope, readServiceEnvironment, readServiceProperties, servicePnpmAvailable, stageServicePackage,
+  configureServiceScope,
+  readServiceEnvironment,
+  readServiceProperties,
+  servicePnpmAvailable,
+  stageServicePackage,
 } from '../lib/scope-service.ts';
 
 const valid = {
@@ -17,7 +21,10 @@ const valid = {
   RootDirectory: '',
   RootImage: '',
 };
-const output = properties => Object.entries(properties).map(([key, value]) => key + '=' + value).join('\n') + '\n';
+const output = (properties) =>
+  Object.entries(properties)
+    .map(([key, value]) => key + '=' + value)
+    .join('\n') + '\n';
 
 test('only an active named system service can supply a setup account', async () => {
   for (const unit of ['dsh.socket', '/tmp/dsh.service', '--help.service', 'dsh*.service', 'dsh.service\nother.service']) {
@@ -26,23 +33,45 @@ test('only an active named system service can supply a setup account', async () 
   }
   assert.deepEqual(readServiceProperties('dsh.service', output(valid)), { pid: '3100', user: 'dsh' });
   for (const properties of [
-    { Id: 'alias.service' }, { LoadState: 'masked' }, { ActiveState: 'inactive' }, { MainPID: '0' }, { MainPID: '../1' },
-  ]) assert.throws(() => readServiceProperties('dsh.service', output({ ...valid, ...properties })), /loaded and active/);
+    { Id: 'alias.service' },
+    { LoadState: 'masked' },
+    { ActiveState: 'inactive' },
+    { MainPID: '0' },
+    { MainPID: '../1' },
+  ])
+    assert.throws(() => readServiceProperties('dsh.service', output({ ...valid, ...properties })), /loaded and active/);
   for (const properties of [
-    { User: '' }, { User: '-system' }, { User: 'root' }, { User: '0' },
-    { DynamicUser: 'yes' }, { RootDirectory: '/srv/isolated' }, { RootImage: '/srv/dsh.img' },
-  ]) assert.throws(() => readServiceProperties('dsh.service', output({ ...valid, ...properties })), /fixed non-root account/);
+    { User: '' },
+    { User: '-system' },
+    { User: 'root' },
+    { User: '0' },
+    { DynamicUser: 'yes' },
+    { RootDirectory: '/srv/isolated' },
+    { RootImage: '/srv/dsh.img' },
+  ])
+    assert.throws(() => readServiceProperties('dsh.service', output({ ...valid, ...properties })), /fixed non-root account/);
 });
 
 test('delegation copies only validated service path variables', () => {
   const env = [
-    'HOME=/srv/dsh', 'PATH=/srv/dsh/bin:/usr/bin', 'DSH_HOME=/srv/dsh/.dsh',
-    'KITTO_HOME=/srv/kitto', 'DSH_AGENTS_HOME=/srv/dsh/agents', 'XDG_DATA_HOME=/srv/dsh/share', 'NODE_OPTIONS=--require /somewhere',
-    'DSH_API_TOKEN=never-copy-this', 'USER=unexpected', '',
+    'HOME=/srv/dsh',
+    'PATH=/srv/dsh/bin:/usr/bin',
+    'DSH_HOME=/srv/dsh/.dsh',
+    'KITTO_HOME=/srv/kitto',
+    'DSH_AGENTS_HOME=/srv/dsh/agents',
+    'XDG_DATA_HOME=/srv/dsh/share',
+    'NODE_OPTIONS=--require /somewhere',
+    'DSH_API_TOKEN=never-copy-this',
+    'USER=unexpected',
+    '',
   ].join('\0');
   assert.deepEqual(readServiceEnvironment(env), {
-    HOME: '/srv/dsh', DSH_HOME: '/srv/dsh/.dsh', KITTO_HOME: '/srv/kitto',
-    DSH_AGENTS_HOME: '/srv/dsh/agents', XDG_DATA_HOME: '/srv/dsh/share', PATH: '/srv/dsh/bin:/usr/bin',
+    HOME: '/srv/dsh',
+    DSH_HOME: '/srv/dsh/.dsh',
+    KITTO_HOME: '/srv/kitto',
+    DSH_AGENTS_HOME: '/srv/dsh/agents',
+    XDG_DATA_HOME: '/srv/dsh/share',
+    PATH: '/srv/dsh/bin:/usr/bin',
   });
   assert.throws(() => readServiceEnvironment('PATH=/bin\0'), /must provide HOME and PATH/);
   assert.throws(() => readServiceEnvironment(env + 'HOME=/another\0'), /Duplicate service environment variable: HOME/);
@@ -52,15 +81,20 @@ test('delegation copies only validated service path variables', () => {
   assert.throws(() => readServiceEnvironment('HOME=/srv/dsh\0PATH=/bin\0DSH_HOME=relative\0'), /DSH_HOME must contain absolute paths/);
 });
 
-test('guided service staging includes the full runtime assets and excludes the personal source', async t => {
+test('guided service staging includes the full runtime assets and excludes the personal source', async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), 'kitto-service-stage-test-'));
   t.onTestFinished(() => rm(fixture, { recursive: true, force: true }));
   const source = join(fixture, 'source');
   const stage = join(fixture, 'stage');
   const packaged = [
-    'package.json', 'CHANGELOG.md', 'bin/kitto.mjs', 'bin/maintain.mjs',
-    'lib/scopes.mjs', 'integration/scoped-dsh/index.mjs',
-    'integration/cordis.patch.yml', 'integration/skills/kitto/SKILL.md',
+    'package.json',
+    'CHANGELOG.md',
+    'bin/kitto.mjs',
+    'bin/maintain.mjs',
+    'lib/scopes.mjs',
+    'integration/scoped-dsh/index.mjs',
+    'integration/cordis.patch.yml',
+    'integration/skills/kitto/SKILL.md',
   ];
   for (const file of [...packaged, 'config/pi/mcp.private.json', '.git/config', 'skills/private/SKILL.md', '.env']) {
     const path = join(source, file);

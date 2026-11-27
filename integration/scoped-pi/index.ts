@@ -38,11 +38,13 @@ export default function kittoScopes(pi: Json): void {
       const scopes = await resolveScopes(cwd);
       if (!scopes.length) return;
 
-      const seen = new Set(await Promise.all(files.map(async ({ path }: Json) => await ifPresent(() => realpath(path)) ?? path)));
-      const directories = await Promise.all(files.map(async ({ path }: Json) => {
-        const directory = dirname(path);
-        return await ifPresent(() => realpath(directory)) ?? directory;
-      }));
+      const seen = new Set(await Promise.all(files.map(async ({ path }: Json) => (await ifPresent(() => realpath(path))) ?? path)));
+      const directories = await Promise.all(
+        files.map(async ({ path }: Json) => {
+          const directory = dirname(path);
+          return (await ifPresent(() => realpath(directory))) ?? directory;
+        }),
+      );
       const canonicalCwd = await realpath(cwd);
       for (const { root, instructions } of scopes) {
         if (!instructions) continue;

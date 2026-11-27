@@ -3,6 +3,11 @@ import { defineConfig } from 'vite-plus';
 import { stableNodeImports } from './scripts/stable-node-imports.ts';
 
 export default defineConfig({
+  fmt: {
+    singleQuote: true,
+    printWidth: 140,
+    ignorePatterns: ['dist/**', 'package-lock.json', '**/*.md', '**/*.yml', '**/*.yaml', 'config/pi/extensions/herdr-agent-state.ts'],
+  },
   pack: {
     entry: ['bin/*.ts', 'lib/**/*.ts', 'integration/**/*.ts'],
     unbundle: true,

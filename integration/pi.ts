@@ -10,7 +10,9 @@ export default function kitto(pi: Json): void {
     if (!ctx.hasUI || process.env.KITTO_UPDATE_CHECK === '0') return;
     void readFile(new URL('../package.json', import.meta.url), 'utf8')
       .then((text: string) => updateNotice(kittoHome(), JSON.parse(text).version))
-      .then((notice: string | undefined) => { if (notice) ctx.ui.notify(notice, 'info'); })
+      .then((notice: string | undefined) => {
+        if (notice) ctx.ui.notify(notice, 'info');
+      })
       .catch(() => {});
   });
 }

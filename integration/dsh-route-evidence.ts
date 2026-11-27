@@ -9,12 +9,23 @@ import { EVIDENCE_TTL, exactRoute, parseNativeModelResult } from '../lib/routing
 import { activeRoutingBoundary, routeId, routeKey } from '../lib/routing-policy.ts';
 import type { Json } from '../types/kitto.d.ts';
 
-export function createRouteObserver({ profile, enabled, clock = Date.now }: { profile: string; enabled: () => boolean; clock?: () => number }) {
+export function createRouteObserver({
+  profile,
+  enabled,
+  clock = Date.now,
+}: {
+  profile: string;
+  enabled: () => boolean;
+  clock?: () => number;
+}) {
   const agents = new WeakMap<object, Json>();
   function session(exec: Json | null | undefined): Json | null {
     const agent = exec?.agent;
     if (!agent || typeof agent !== 'object' || !routeId(agent.session?.id) || typeof exec.token !== 'symbol') return null;
-    if (!enabled()) { agents.delete(agent); return null; }
+    if (!enabled()) {
+      agents.delete(agent);
+      return null;
+    }
     const previous = agents.get(agent);
     if (previous?.session === agent.session && previous.id === agent.session.id) return previous;
     const next = { session: agent.session, id: agent.session.id, rows: new Map() };
@@ -26,9 +37,10 @@ export function createRouteObserver({ profile, enabled, clock = Date.now }: { pr
       if (exec?.name !== 'list_subagent_models' || !exactRoute(exec.arguments) || Object.keys(exec.arguments).length !== 2) return;
       const record = session(exec);
       if (!record) return;
-      const { provider, model } = exec.arguments, key = routeKey({ provider, model });
-      const reasoningEfforts = result?.isError === false && !exec.signal?.aborted
-        ? parseNativeModelResult({ provider, model }, result.value) : null;
+      const { provider, model } = exec.arguments,
+        key = routeKey({ provider, model });
+      const reasoningEfforts =
+        result?.isError === false && !exec.signal?.aborted ? parseNativeModelResult({ provider, model }, result.value) : null;
       record.rows.delete(key);
       if (!reasoningEfforts) return;
       if (record.rows.size >= 64) record.rows.delete(record.rows.keys().next().value);
@@ -54,22 +66,29 @@ export function registerRouteEvidence(ctx: Json): void {
       const manifest = require('./package.json');
       if (manifest.name !== '@deepseek-ai/dsh' || manifest.version !== routingHostVersion) return;
       ({ defineTool } = require('@deepseek-ai/dsh-tools'));
-    } catch { return; }
+    } catch {
+      return;
+    }
     if (typeof defineTool !== 'function') return;
     const enabled = () => {
       try {
         const state = JSON.parse(readFileSync(join(kittoHome(), 'state.json'), 'utf8'));
         return sameLocation(home, state.dshHome) && Boolean(activeRoutingBoundary(state, name));
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     };
     const observer = createRouteObserver({ profile: name, enabled });
     host.on('tools/result', observer.observe);
-    host.tools.register(defineTool({
-      name: 'kitto_route_evidence',
-      description: 'Export exact list_subagent_models results observed for this agent and session in the last five minutes. No account, credential, or Team fallback verification.',
-      parameters: {},
-      output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text', text: value }] },
-      execute: (_args: unknown, exec: Json) => JSON.stringify(observer.export(exec)),
-    }));
+    host.tools.register(
+      defineTool({
+        name: 'kitto_route_evidence',
+        description:
+          'Export exact list_subagent_models results observed for this agent and session in the last five minutes. No account, credential, or Team fallback verification.',
+        parameters: {},
+        output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text', text: value }] },
+        execute: (_args: unknown, exec: Json) => JSON.stringify(observer.export(exec)),
+      }),
+    );
   });
 }

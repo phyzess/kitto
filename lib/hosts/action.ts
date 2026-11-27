@@ -23,11 +23,19 @@ export interface HostActionSpec {
 
 const nothing = async () => {};
 
-export function hostAction(host: HostName, kind: string, description: string, { phase = undefined, apply, preview = nothing }: HostActionSpec): HostAction {
+export function hostAction(
+  host: HostName,
+  kind: string,
+  description: string,
+  { phase = undefined, apply, preview = nothing }: HostActionSpec,
+): HostAction {
   return { host, kind, phase, describe: () => description, preview, apply };
 }
 
-export const noteAction = (host: HostName, message: string): HostAction => hostAction(host, 'note', message, {
-  apply: async () => console.log(message),
-  preview: async ({ announce = true }: PreviewOptions = {}) => { if (announce) console.log(message); },
-});
+export const noteAction = (host: HostName, message: string): HostAction =>
+  hostAction(host, 'note', message, {
+    apply: async () => console.log(message),
+    preview: async ({ announce = true }: PreviewOptions = {}) => {
+      if (announce) console.log(message);
+    },
+  });

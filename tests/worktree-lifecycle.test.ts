@@ -12,13 +12,19 @@ const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
 async function fixture(t, objectFormat = 'sha1') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-lifecycle-')));
   t.onTestFinished(() => rm(root, { recursive: true, force: true }));
-  const home = join(root, 'home'), repo = join(root, 'repo'), scopes = join(home, 'data');
+  const home = join(root, 'home'),
+    repo = join(root, 'repo'),
+    scopes = join(home, 'data');
   const state = join(home, 'state');
   await mkdir(scopes, { recursive: true });
   await mkdir(repo);
   const env = { PATH: process.env.PATH, HOME: home, XDG_STATE_HOME: state, KITTO_HOME: scopes, GIT_CONFIG_NOSYSTEM: '1' };
   function git(...args) {
-    const r = spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.org', ...args], { cwd: repo, env, encoding: 'utf8' });
+    const r = spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.org', ...args], {
+      cwd: repo,
+      env,
+      encoding: 'utf8',
+    });
     assert.equal(r.status, 0, r.stderr);
     return r.stdout.trim();
   }
@@ -28,10 +34,21 @@ async function fixture(t, objectFormat = 'sha1') {
   git('init', `--object-format=${objectFormat}`, '-b', 'main');
   await writeFile(join(repo, 'tracked'), 'base\n');
   await writeFile(join(repo, '.gitignore'), '*.ignored\n');
-  git('add', '.'); git('commit', '-m', 'Base');
+  git('add', '.');
+  git('commit', '-m', 'Base');
   await scope();
-  const args = (command, flags = [], { task = 'ticket-42', session = 'parent' } = {}) =>
-    [cli, 'worktree', command, '--repo', repo, '--task', task, '--session', session, ...flags];
+  const args = (command, flags = [], { task = 'ticket-42', session = 'parent' } = {}) => [
+    cli,
+    'worktree',
+    command,
+    '--repo',
+    repo,
+    '--task',
+    task,
+    '--session',
+    session,
+    ...flags,
+  ];
   function run(command, flags, options, cwd = repo) {
     return spawnSync(process.execPath, args(command, flags, options), { cwd, env, encoding: 'utf8' });
   }
@@ -47,16 +64,21 @@ async function fixture(t, objectFormat = 'sha1') {
   function concurrently(command, flags, options) {
     return new Promise((resolve, reject) => {
       const child = spawn(process.execPath, args(command, flags, options), { cwd: repo, env });
-      let stderr = '', stdout = '';
-      child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
-      child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
-      child.once('error', reject).once('close', status => resolve({status, stderr, stdout}));
+      let stderr = '',
+        stdout = '';
+      child.stderr.setEncoding('utf8').on('data', (chunk) => {
+        stderr += chunk;
+      });
+      child.stdout.setEncoding('utf8').on('data', (chunk) => {
+        stdout += chunk;
+      });
+      child.once('error', reject).once('close', (status) => resolve({ status, stderr, stdout }));
     });
   }
   return { root, repo, state, git, scope, run, invoke, start, concurrently, env };
 }
 
-test('start is read-only until confirmation and reuses the same local task checkout', async t => {
+test('start is read-only until confirmation and reuses the same local task checkout', async (t) => {
   const f = await fixture(t);
   const preview = f.invoke('start');
   assert.equal(preview.action, 'create');
@@ -70,10 +92,16 @@ test('start is read-only until confirmation and reuses the same local task check
   const reused = f.start();
   assert.equal(reused.action, 'reuse');
   assert.equal(reused.path, created.path);
-  assert.equal(f.git('worktree', 'list', '--porcelain').split('\n').filter(line => line.startsWith('worktree ')).length, 2);
+  assert.equal(
+    f
+      .git('worktree', 'list', '--porcelain')
+      .split('\n')
+      .filter((line) => line.startsWith('worktree ')).length,
+    2,
+  );
 });
 
-test('next-start hints are repository-local counts and never treat host events as handoff', async t => {
+test('next-start hints are repository-local counts and never treat host events as handoff', async (t) => {
   const f = await fixture(t);
   const claimed = f.start({ task: 'claimed-task', session: 'private-parent-session' });
   f.start({ task: 'claimed-task', session: 'private-fork-session' });
@@ -93,14 +121,18 @@ test('next-start hints are repository-local counts and never treat host events a
   }
   assert.deepEqual(f.invoke('start'), before);
   assert.deepEqual(f.invoke('start', [], { task: 'claimed-task', session: 'private-parent-session' }), fork);
-  assert.equal(f.invoke('finish', ['--quiescent', '--delivered', claimed.baseHead], {
-    task: 'claimed-task', session: 'private-parent-session',
-  }).confirm, null);
+  assert.equal(
+    f.invoke('finish', ['--quiescent', '--delivered', claimed.baseHead], {
+      task: 'claimed-task',
+      session: 'private-parent-session',
+    }).confirm,
+    null,
+  );
   const other = await fixture(t);
   assert.deepEqual(other.invoke('start').handoffHints, { otherClaimed: 0, otherUnclaimed: 0, otherInterrupted: 0, incomplete: false });
 });
 
-test('lifecycle ledger hints mark unknown rows and never read a symlink target', async t => {
+test('lifecycle ledger hints mark unknown rows and never read a symlink target', async (t) => {
   const f = await fixture(t);
   const kept = f.start({ task: 'kept' });
   const bucket = join(kept.path, '..');
@@ -113,7 +145,7 @@ test('lifecycle ledger hints mark unknown rows and never read a symlink target',
   assert.equal(f.invoke('start', ['--confirm', before.confirm]).applied, true);
 });
 
-test('finish previews removal, apply requires its current token and preserves the branch', async t => {
+test('finish previews removal, apply requires its current token and preserves the branch', async (t) => {
   const f = await fixture(t);
   const created = f.start();
   const flags = ['--quiescent', '--delivered', created.baseHead];
@@ -132,9 +164,9 @@ test('finish previews removal, apply requires its current token and preserves th
   assert.notEqual(f.run('apply', [...flags, '--confirm', preview.confirm]).status, 0);
 });
 
-const finishFlags = head => ['--quiescent', '--delivered', head];
+const finishFlags = (head) => ['--quiescent', '--delivered', head];
 
-test('a stale preview or another active session cannot authorize removal', async t => {
+test('a stale preview or another active session cannot authorize removal', async (t) => {
   const f = await fixture(t);
   const created = f.start();
   const flags = finishFlags(created.baseHead);
@@ -142,7 +174,8 @@ test('a stale preview or another active session cannot authorize removal', async
   f.start({ session: 'child' });
   assert.notEqual(f.run('apply', [...flags, '--confirm', initial.confirm]).status, 0);
   assert.ok(f.invoke('finish', flags).blockers.includes('other-sessions-active'));
-  const child = { session: 'child' }, release = ['--quiescent', '--release'];
+  const child = { session: 'child' },
+    release = ['--quiescent', '--release'];
   const childExit = f.invoke('finish', release, child);
   f.invoke('apply', [...release, '--confirm', childExit.confirm], child);
   assert.notEqual(f.run('apply', [...flags, '--confirm', initial.confirm]).status, 0);
@@ -154,11 +187,11 @@ test('a stale preview or another active session cannot authorize removal', async
   await lstat(hidden);
 });
 
-test('dirty, untracked, empty, locked or undelivered work is not removable', async t => {
+test('dirty, untracked, empty, locked or undelivered work is not removable', async (t) => {
   const f = await fixture(t);
   const created = f.start();
   const flags = finishFlags(created.baseHead);
-  const blocks = name => assert.ok(f.invoke('finish', flags).blockers.includes(name), name);
+  const blocks = (name) => assert.ok(f.invoke('finish', flags).blockers.includes(name), name);
   await writeFile(join(created.path, 'tracked'), 'edited');
   blocks('tracked');
   f.git('-C', created.path, 'restore', 'tracked');
@@ -181,22 +214,29 @@ test('dirty, untracked, empty, locked or undelivered work is not removable', asy
   assert.ok(f.invoke('finish', finishFlags(delivered)).confirm);
 });
 
-test('parallel start confirmations cannot adopt or duplicate a checkout', async t => {
+test('parallel start confirmations cannot adopt or duplicate a checkout', async (t) => {
   const f = await fixture(t);
   const next = { session: 'second' };
-  const a = f.invoke('start'), b = f.invoke('start', [], next);
+  const a = f.invoke('start'),
+    b = f.invoke('start', [], next);
   const results = await Promise.all([
     f.concurrently('start', ['--confirm', a.confirm]),
     f.concurrently('start', ['--confirm', b.confirm], next),
   ]);
-  assert.equal(results.filter(result => result.status === 0).length, 1, JSON.stringify(results));
-  const denied = results.find(result => result.status !== 0);
+  assert.equal(results.filter((result) => result.status === 0).length, 1, JSON.stringify(results));
+  const denied = results.find((result) => result.status !== 0);
   assert.match(denied.stderr, /locked|stale/);
   assert.equal(f.invoke('start').action, 'reuse');
-  assert.equal(f.git('worktree', 'list', '--porcelain').split('\n').filter(line => line.startsWith('worktree ')).length, 2);
+  assert.equal(
+    f
+      .git('worktree', 'list', '--porcelain')
+      .split('\n')
+      .filter((line) => line.startsWith('worktree ')).length,
+    2,
+  );
 });
 
-test('scope changes, imported worktrees and other local stores do not convey ownership', async t => {
+test('scope changes, imported worktrees and other local stores do not convey ownership', async (t) => {
   const f = await fixture(t);
   const preview = f.invoke('start');
   await f.scope([]);
@@ -216,21 +256,25 @@ test('scope changes, imported worktrees and other local stores do not convey own
   assert.ok(f.invoke('finish', finishFlags(created.baseHead), { task: 'other' }).confirm);
 });
 
-test('a completed removal with interrupted bookkeeping can be recorded without Git removal', async t => {
+test('a completed removal with interrupted bookkeeping can be recorded without Git removal', async (t) => {
   const f = await fixture(t);
   const created = f.start();
   const flags = finishFlags(created.baseHead);
   const plan = f.invoke('finish', flags);
   const bin = join(f.root, 'bin');
   await mkdir(bin);
-  await writeFile(join(bin, 'git'), `#!/bin/sh
+  await writeFile(
+    join(bin, 'git'),
+    `#!/bin/sh
 PATH=\${PATH#*:}
 export PATH
 case " $* " in
   *' worktree remove '*) git "$@" && exit 9; exit 8 ;;
   *) exec git "$@" ;;
 esac
-`, { mode: 0o700 });
+`,
+    { mode: 0o700 },
+  );
   const originalPath = f.env.PATH;
   f.env.PATH = `${bin}:${originalPath}`;
   assert.match(f.run('apply', [...flags, '--confirm', plan.confirm]).stderr, /interrupted/);
@@ -243,7 +287,7 @@ esac
   f.env.PATH = originalPath;
 });
 
-test('unknown index state or a replacement checkout never authorizes removal', async t => {
+test('unknown index state or a replacement checkout never authorizes removal', async (t) => {
   const f = await fixture(t);
   const created = f.start();
   const flags = finishFlags(created.baseHead);
@@ -258,13 +302,15 @@ test('unknown index state or a replacement checkout never authorizes removal', a
   await lstat(created.path);
 });
 
-test('checkout does not execute filters activated only for linked Git directories', async t => {
+test('checkout does not execute filters activated only for linked Git directories', async (t) => {
   const f = await fixture(t);
-  const config = join(f.root, 'linked-config'), marker = join(f.root, 'filter-ran');
+  const config = join(f.root, 'linked-config'),
+    marker = join(f.root, 'filter-ran');
   await writeFile(config, `[filter "local"]\n\tsmudge = touch '${marker}'\n`);
   f.git('config', '--add', `includeIf.gitdir:${f.repo}/.git/worktrees/**.path`, config);
   await writeFile(join(f.repo, '.gitattributes'), 'tracked filter=local\n');
-  f.git('add', '.gitattributes'); f.git('commit', '-m', 'Configure attributes');
+  f.git('add', '.gitattributes');
+  f.git('commit', '-m', 'Configure attributes');
   const plan = f.invoke('start');
   assert.match(f.run('start', ['--confirm', plan.confirm]).stderr, /filters in the new checkout/);
   await assert.rejects(lstat(marker), { code: 'ENOENT' });
@@ -281,7 +327,7 @@ async function cacheOldStat(f, checkout, path, setTime) {
   return () => setTime(path, time, time);
 }
 
-test('same-size cached-stat edits cannot receive or use a removal token', async t => {
+test('same-size cached-stat edits cannot receive or use a removal token', async (t) => {
   const f = await fixture(t);
   const created = f.start();
   const path = join(created.path, 'tracked');
@@ -297,7 +343,7 @@ test('same-size cached-stat edits cannot receive or use a removal token', async 
   assert.equal(await readFile(path, 'utf8'), 'lost\n');
 });
 
-test('a cached-stat symlink edit is checked as object bytes, not as the target file', async t => {
+test('a cached-stat symlink edit is checked as object bytes, not as the target file', async (t) => {
   const f = await fixture(t);
   await writeFile(join(f.repo, 'otherxx'), 'base\n');
   await symlink('tracked', join(f.repo, 'link'));
@@ -319,7 +365,7 @@ test('a cached-stat symlink edit is checked as object bytes, not as the target f
   assert.equal(await readlink(path), 'otherxx');
 });
 
-test('Git filemode settings cannot hide a checkout mode mismatch', async t => {
+test('Git filemode settings cannot hide a checkout mode mismatch', async (t) => {
   const f = await fixture(t);
   const created = f.start();
   const path = join(created.path, 'tracked');
@@ -334,7 +380,7 @@ test('Git filemode settings cannot hide a checkout mode mismatch', async t => {
   assert.equal((await lstat(path)).mode & 0o777, 0o755);
 });
 
-test('removal refuses active conversion or filters even if checkout bytes match', async t => {
+test('removal refuses active conversion or filters even if checkout bytes match', async (t) => {
   const f = await fixture(t);
   const created = f.start();
   const path = join(created.path, 'tracked');
@@ -360,7 +406,7 @@ test('removal refuses active conversion or filters even if checkout bytes match'
   assert.equal(await readFile(path, 'utf8'), 'base\n');
 });
 
-test('an unreadable tracked file cannot be approved even with a clean index cache', async t => {
+test('an unreadable tracked file cannot be approved even with a clean index cache', async (t) => {
   if (!process.getuid || process.getuid() === 0) return t.skip('Requires an unprivileged POSIX user');
   const f = await fixture(t);
   const created = f.start();
@@ -376,16 +422,19 @@ test('an unreadable tracked file cannot be approved even with a clean index cach
     assert.ok(f.invoke('finish', flags).blockers.includes('filesystem-unverified'));
     assert.notEqual(f.run('apply', [...flags, '--confirm', clean.confirm]).status, 0);
     assert.equal((await lstat(path)).mode & 0o777, 0);
-  } finally { await chmod(path, 0o644); }
+  } finally {
+    await chmod(path, 0o644);
+  }
   assert.equal(await readFile(path, 'utf8'), 'base\n');
 });
 
-test('clean SHA-256 blobs are verified as raw bytes, including binary files', async t => {
+test('clean SHA-256 blobs are verified as raw bytes, including binary files', async (t) => {
   const f = await fixture(t, 'sha256');
   const name = 'binary\tfile\n';
   const bytes = Buffer.from([0, 255, 10, 13]);
   await writeFile(join(f.repo, name), bytes);
-  f.git('add', '--', name); f.git('commit', '-m', 'Add binary blob');
+  f.git('add', '--', name);
+  f.git('commit', '-m', 'Add binary blob');
   const created = f.start();
   assert.equal(created.baseHead.length, 64);
   assert.deepEqual(await readFile(join(created.path, name)), bytes);
@@ -402,30 +451,46 @@ test('the DSH archive adapter stays disabled by default and does not mount on De
   const archiveServices = ['profileContext', 'tools', 'workspaceRegistry', 'sessionPersistence'];
   for (const config of [undefined, { archiveReview: false }, { archiveReview: true }]) {
     const injections = [];
-    apply({ skills: { registerProvider() {} }, inject(deps, enable) {
-      injections.push(deps);
-      enable({ profileContext: { name: 'desktop' }, get tools() { assert.fail('Desktop must not register tools'); },
-        get workspaceRegistry() { assert.fail('Desktop must not access the archive registry'); },
-        get sessionPersistence() { assert.fail('Desktop must not access archive persistence'); } });
-    } }, config);
+    apply(
+      {
+        skills: { registerProvider() {} },
+        inject(deps, enable) {
+          injections.push(deps);
+          enable({
+            profileContext: { name: 'desktop' },
+            get tools() {
+              assert.fail('Desktop must not register tools');
+            },
+            get workspaceRegistry() {
+              assert.fail('Desktop must not access the archive registry');
+            },
+            get sessionPersistence() {
+              assert.fail('Desktop must not access archive persistence');
+            },
+          });
+        },
+      },
+      config,
+    );
     assert.deepEqual(injections, config?.archiveReview ? [archiveServices, routingServices] : [routingServices]);
   }
 });
 
-test('installed DSH registry and actual adapter project durable archive and unarchive without mutating Kitto claims', async t => {
+test('installed DSH registry and actual adapter project durable archive and unarchive without mutating Kitto claims', async (t) => {
   if (!process.env.DSH_INSTALL_DIR) return t.skip('Requires an installed DSH runtime for the native contract test');
   const installAnchor = join(process.env.DSH_INSTALL_DIR, 'package.json');
   const require = createRequire(installAnchor);
   const { Context } = require('@deepseek-ai/cordis');
   const { WorkspaceRegistry } = require('@deepseek-ai/dsh-workspace');
   const f = await fixture(t);
-  const session = 'fixture-native-session', task = 'ticket-42';
+  const session = 'fixture-native-session',
+    task = 'ticket-42';
   const created = f.start({ session });
   const request = { repo: f.repo, task, session };
   const flags = ['--quiescent', '--release'];
   const before = f.invoke('finish', flags, { session });
   const vars = f.env;
-  const prior = Object.fromEntries(Object.keys(vars).map(key => [key, process.env[key]]));
+  const prior = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
   Object.assign(process.env, vars);
   t.onTestFinished(() => {
     for (const [key, value] of Object.entries(prior)) {
@@ -441,26 +506,43 @@ test('installed DSH registry and actual adapter project durable archive and unar
   async function boot() {
     const ctx = new Context();
     const tools = new Map();
-    const storage = { open: async () => {
-      let state = JSON.parse(await readFile(data, 'utf8'));
-      return { table: () => new Map(), close() {}, global: { get: () => state, async set(next) {
-        await writeFile(data, JSON.stringify(next));
-        state = next;
-      } } };
-    } };
+    const storage = {
+      open: async () => {
+        let state = JSON.parse(await readFile(data, 'utf8'));
+        return {
+          table: () => new Map(),
+          close() {},
+          global: {
+            get: () => state,
+            async set(next) {
+              await writeFile(data, JSON.stringify(next));
+              state = next;
+            },
+          },
+        };
+      },
+    };
     ctx.reflect.provide('profileContext', { name: 'web', installAnchor });
     ctx.reflect.provide('skills', { registerProvider() {} });
-    ctx.reflect.provide('tools', { register(tool) { tools.set(tool.name, tool); return () => tools.delete(tool.name); } });
+    ctx.reflect.provide('tools', {
+      register(tool) {
+        tools.set(tool.name, tool);
+        return () => tools.delete(tool.name);
+      },
+    });
     ctx.reflect.provide('sessionPersistence', { list: () => list() });
     ctx.reflect.provide('storageDomain', storage);
     const workspace = ctx.plugin(WorkspaceRegistry);
     const plugin = ctx.plugin({ name: 'kitto-fixture', apply }, { archiveReview: true });
-    t.onTestFinished(() => { plugin.dispose(); workspace.dispose(); });
+    t.onTestFinished(() => {
+      plugin.dispose();
+      workspace.dispose();
+    });
     await workspace;
     await plugin;
     const tool = tools.get('kitto_worktree_archive_review');
     assert.ok(tool, 'actual DSH integration entry registered the tool');
-    return { registry: ctx.get('workspaceRegistry'), review: args => tool.execute(args, { signal: new AbortController().signal }) };
+    return { registry: ctx.get('workspaceRegistry'), review: (args) => tool.execute(args, { signal: new AbortController().signal }) };
   }
 
   const first = await boot();
@@ -473,16 +555,26 @@ test('installed DSH registry and actual adapter project durable archive and unar
   snapshots[0].header.cwd = f.repo;
   assert.equal(await first.review(request), 'unavailable');
   snapshots[0].header.cwd = created.path;
-  list = async () => { throw new Error('unavailable persistence'); };
+  list = async () => {
+    throw new Error('unavailable persistence');
+  };
   assert.equal(await first.review(request), 'unavailable');
   list = async () => snapshots;
 
   const resumed = await boot();
   assert.equal(await resumed.review(request), 'review-pending');
   let readEntered, proceed;
-  const reading = new Promise(resolve => { readEntered = resolve; });
-  const exitRead = new Promise(resolve => { proceed = resolve; });
-  list = async () => { readEntered(); await exitRead; return snapshots; };
+  const reading = new Promise((resolve) => {
+    readEntered = resolve;
+  });
+  const exitRead = new Promise((resolve) => {
+    proceed = resolve;
+  });
+  list = async () => {
+    readEntered();
+    await exitRead;
+    return snapshots;
+  };
   const concurrent = resumed.review(request);
   await reading;
   await resumed.registry.unarchiveSession(session);

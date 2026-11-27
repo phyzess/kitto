@@ -3,9 +3,16 @@ import { routeQuestions } from '../lib/task-route-questions.ts';
 import type { Json } from '../types/kitto.d.ts';
 
 export function evaluateCodexTaskRoutes(input: Json, now: number = Date.now()): Json {
-  const host = input?.host, native = host?.native;
-  if (host?.kind !== 'codex' || !native?.thread?.id || native.thread.id !== host.session ||
-    typeof native.modelProvider !== 'string' || typeof native.model !== 'string' || !Array.isArray(host.routes)) {
+  const host = input?.host,
+    native = host?.native;
+  if (
+    host?.kind !== 'codex' ||
+    !native?.thread?.id ||
+    native.thread.id !== host.session ||
+    typeof native.modelProvider !== 'string' ||
+    typeof native.model !== 'string' ||
+    !Array.isArray(host.routes)
+  ) {
     return { status: 'unavailable', reason: 'codex-native-thread-unverified' };
   }
   const current = { provider: native.modelProvider, model: native.model };
@@ -16,10 +23,13 @@ export function evaluateCodexTaskRoutes(input: Json, now: number = Date.now()): 
     if (!route || typeof route !== 'object') return route;
     const providerMatches = route.provider === current.provider;
     const currentMatches = providerMatches && route.model === current.model;
-    if (host.surface === 'current') return { ...route, nativeSelectionRequired: !currentMatches,
-      nativeEffort: currentMatches ? native.reasoningEffort : undefined };
-    return { ...route, dispatchable: route.dispatchable === true && providerMatches && (currentMatches || overrideModel),
-      efforts: overrideEffort ? route.efforts : [] };
+    if (host.surface === 'current')
+      return { ...route, nativeSelectionRequired: !currentMatches, nativeEffort: currentMatches ? native.reasoningEffort : undefined };
+    return {
+      ...route,
+      dispatchable: route.dispatchable === true && providerMatches && (currentMatches || overrideModel),
+      efforts: overrideEffort ? route.efforts : [],
+    };
   });
   const plan = { ...input, host: { ...host, current, routes } };
   if (Object.hasOwn(input, 'approval')) return checkTaskRouteApproval(plan, input.approval, now);

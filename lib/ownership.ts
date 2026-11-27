@@ -69,7 +69,14 @@ export function scopes(state: State, kind: OwnershipKind): string[] {
   return Object.keys(state.owned?.[kind] ?? {});
 }
 
-export function record(state: State, kind: OwnershipKind, scope: string, name: string, hash: string, { spec = undefined }: { spec?: unknown } = {}): void {
+export function record(
+  state: State,
+  kind: OwnershipKind,
+  scope: string,
+  name: string,
+  hash: string,
+  { spec = undefined }: { spec?: unknown } = {},
+): void {
   address(kind, scope, name);
   assertHash(hash);
   scopeOf(state, kind, scope, true)[name] = { hash, status: 'owned', ...(spec === undefined ? {} : { spec }) };
@@ -119,7 +126,12 @@ export function release(state: State, kind: OwnershipKind, scope: string, name: 
   return true;
 }
 
-export function replaceScope(state: State, kind: OwnershipKind, scope: string, { owned = {}, kept = [] }: { owned?: Record<string, string>; kept?: string[] } = {}): void {
+export function replaceScope(
+  state: State,
+  kind: OwnershipKind,
+  scope: string,
+  { owned = {}, kept = [] }: { owned?: Record<string, string>; kept?: string[] } = {},
+): void {
   assertKind(kind);
   assertKey('scope', scope);
   const next: OwnershipScope = {};
@@ -139,10 +151,17 @@ export function replaceScope(state: State, kind: OwnershipKind, scope: string, {
 export function recordedHash(state: State, kind: OwnershipKind, scope: string, name: string): string | null | undefined {
   const entry = get(state, kind, scope, name);
   if (!entry || entry.status === 'kept') return undefined;
-  return entry.status === 'pending' ? entry.previous ?? entry.hash : entry.hash;
+  return entry.status === 'pending' ? (entry.previous ?? entry.hash) : entry.hash;
 }
 
-export function isOwnedWith(state: State, kind: OwnershipKind, scope: string, name: string, liveHash: unknown, { includePending = false }: { includePending?: boolean } = {}): boolean {
+export function isOwnedWith(
+  state: State,
+  kind: OwnershipKind,
+  scope: string,
+  name: string,
+  liveHash: unknown,
+  { includePending = false }: { includePending?: boolean } = {},
+): boolean {
   const entry = get(state, kind, scope, name);
   if (!entry || typeof liveHash !== 'string') return false;
   if (entry.status === 'owned') return entry.hash === liveHash;

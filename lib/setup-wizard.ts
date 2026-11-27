@@ -35,7 +35,7 @@ async function detectEnvironment(): Promise<WizardEnvironment> {
     }
   }
   const [detected, pnpmAvailable, serviceActive] = await Promise.all([
-    Promise.all(agents.map(name => works(name, ['--version']))),
+    Promise.all(agents.map((name) => works(name, ['--version']))),
     works('pnpm', ['--version']),
     process.platform === 'linux' && works('/usr/bin/systemctl', ['--system', 'is-active', '--quiet', serviceUnit]),
   ]);
@@ -52,7 +52,13 @@ function expandHome(path: string): string {
   return path.startsWith('~/') ? resolve(homedir(), path.slice(2)) : path;
 }
 
-async function configure({ input, output, environment, execute, probeServicePnpm }: {
+async function configure({
+  input,
+  output,
+  environment,
+  execute,
+  probeServicePnpm,
+}: {
   input: Readable;
   output: Writable;
   environment: WizardEnvironment;
@@ -63,16 +69,16 @@ async function configure({ input, output, environment, execute, probeServicePnpm
   try {
     const { available, pnpmAvailable, serviceActive, canConfigureService } = environment;
     const serviceAvailable = serviceActive && canConfigureService;
-    const defaults = agents.filter(agent => available.includes(agent) || (agent === 'dsh' && serviceAvailable));
+    const defaults = agents.filter((agent) => available.includes(agent) || (agent === 'dsh' && serviceAvailable));
     print('Kitto 环境安装向导');
     print('为选中的宿主配置当前账号的共享规则与 skills。按 Ctrl+C 可取消。');
-    const hostOptions = agents.map(value => ({
-      value, label: names[value],
+    const hostOptions = agents.map((value) => ({
+      value,
+      label: names[value],
       hint: value === 'dsh' && serviceAvailable ? serviceUnit : available.includes(value) ? '已安装 CLI' : '未检测到 CLI',
     }));
     if (serviceActive) {
-      print('检测到正在运行的系统服务 dsh.service。' +
-        (canConfigureService ? '可以配置服务账号。' : '需要 root 权限才能配置服务账号。'));
+      print('检测到正在运行的系统服务 dsh.service。' + (canConfigureService ? '可以配置服务账号。' : '需要 root 权限才能配置服务账号。'));
     }
 
     let selected: string[] | undefined;
@@ -94,7 +100,7 @@ async function configure({ input, output, environment, execute, probeServicePnpm
       if (selected.includes('dsh') && !dshProfileAsked) {
         dshProfile = await text('DSH 配置档名称（desktop 由 Desktop 应用管理，仅部署全局规则/skills）', {
           initialValue: 'web',
-          validate: value => {
+          validate: (value) => {
             if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value)) return '请输入有效的 DSH 配置档名称';
             if (unit && value.toLowerCase() === 'desktop') return '系统服务不能使用 desktop 配置档';
           },
@@ -108,14 +114,13 @@ async function configure({ input, output, environment, execute, probeServicePnpm
       }
 
       const desktopDsh = selected.includes('dsh') && isDesktopProfile(dshProfile);
-      const missing = selected.filter(agent => !available.includes(agent) &&
-        !(agent === 'dsh' && (unit || desktopDsh)));
+      const missing = selected.filter((agent) => !available.includes(agent) && !(agent === 'dsh' && (unit || desktopDsh)));
       if (desktopDsh && !available.includes('dsh')) {
         print('DSH Desktop 不要求本机 dsh CLI：Kitto 不会用 npm 补装它。');
       }
       installAgents = false;
       if (missing.length) {
-        installAgents = await yesNo(`补装 ${missing.map(agent => names[agent]).join('、')}？`, true);
+        installAgents = await yesNo(`补装 ${missing.map((agent) => names[agent]).join('、')}？`, true);
         if (installAgents === undefined) return undefined;
         if (!installAgents) continue;
       }
@@ -127,12 +132,16 @@ async function configure({ input, output, environment, execute, probeServicePnpm
     let serviceInstallAgents: boolean | undefined;
     let servicePnpmAvailable: boolean | undefined;
     while (true) {
-      const sourceChoice = await select('选择配置来源', [
-        { value: '1', label: '默认 Kitto 配置', hint: '优先复用已有安装' },
-        { value: '2', label: '指定配置仓库路径或 Git URL' },
-        { value: '3', label: '仅配置共享规则与 skills' },
-        { value: '0', label: '取消' },
-      ], '1');
+      const sourceChoice = await select(
+        '选择配置来源',
+        [
+          { value: '1', label: '默认 Kitto 配置', hint: '优先复用已有安装' },
+          { value: '2', label: '指定配置仓库路径或 Git URL' },
+          { value: '3', label: '仅配置共享规则与 skills' },
+          { value: '0', label: '取消' },
+        ],
+        '1',
+      );
       if (sourceChoice === undefined || sourceChoice === '0') return;
 
       if (sourceChoice === '3' && isDesktopProfile(dshProfile) && selected.includes('dsh')) {
@@ -140,7 +149,8 @@ async function configure({ input, output, environment, execute, probeServicePnpm
         continue;
       }
 
-      const needsPnpm = sourceChoice !== '3' && selected.includes('dsh') && !unit && !isDesktopProfile(dshProfile) && pnpmAvailable === false;
+      const needsPnpm =
+        sourceChoice !== '3' && selected.includes('dsh') && !unit && !isDesktopProfile(dshProfile) && pnpmAvailable === false;
       if (needsPnpm) {
         const installPnpm = await yesNo('本机 DSH 的完整配置需要 pnpm。允许补装 pnpm？', true);
         if (installPnpm === undefined) return;
@@ -165,7 +175,7 @@ async function configure({ input, output, environment, execute, probeServicePnpm
       }
 
       if (sourceChoice === '2') {
-        const path = await text('配置仓库路径或 Git URL', { validate: value => value ? undefined : '请输入路径或 Git URL' });
+        const path = await text('配置仓库路径或 Git URL', { validate: (value) => (value ? undefined : '请输入路径或 Git URL') });
         if (path === undefined) return;
         source = expandHome(path);
       } else if (sourceChoice === '3') {
@@ -176,26 +186,40 @@ async function configure({ input, output, environment, execute, probeServicePnpm
 
     const deps = source === false ? false : await yesNo('安装配置中声明的辅助工具和依赖？', false);
     if (deps === undefined) return undefined;
-    const workspace = await text('工作区父目录（可选）。例如未来项目会放在 ~/workspaces/workspace-1 下，就填 ~/workspaces。留空使用全局配置。');
+    const workspace = await text(
+      '工作区父目录（可选）。例如未来项目会放在 ~/workspaces/workspace-1 下，就填 ~/workspaces。留空使用全局配置。',
+    );
     if (workspace === undefined) return undefined;
 
     const plan: WizardPlan = {
-      agents: selected as HostName[], source, installAgents, deps, workspace: workspace ? expandHome(workspace) : undefined,
-      unit, dshProfile,
+      agents: selected as HostName[],
+      source,
+      installAgents,
+      deps,
+      workspace: workspace ? expandHome(workspace) : undefined,
+      unit,
+      dshProfile,
     };
     if (selected.includes('dsh') && !unit && !isDesktopProfile(dshProfile) && source !== false) {
-      plan.routingBoundary = await select('确认本机模型路由边界（仅本机预检，不改 DSH 权限）', [
-        { value: 'skip', label: 'skip（跳过；停用预检选路）' },
-        { value: 'personal', label: 'personal（个人设备）' },
-        { value: 'company', label: 'company（公司设备）' },
-        { value: 'custom', label: 'custom（限定到明确路由）' },
-      ], 'skip');
+      plan.routingBoundary = await select(
+        '确认本机模型路由边界（仅本机预检，不改 DSH 权限）',
+        [
+          { value: 'skip', label: 'skip（跳过；停用预检选路）' },
+          { value: 'personal', label: 'personal（个人设备）' },
+          { value: 'company', label: 'company（公司设备）' },
+          { value: 'custom', label: 'custom（限定到明确路由）' },
+        ],
+        'skip',
+      );
       if (plan.routingBoundary === undefined) return;
       if (plan.routingBoundary === 'custom') {
         plan.routingRoutes = await text('允许的路由（PROVIDER/MODEL，逗号分隔；不填密钥）', {
-          validate: value => {
-            try { parseRoutingBoundary('custom', value); }
-            catch { return '请输入不重复的 PROVIDER/MODEL 路由，使用逗号分隔。'; }
+          validate: (value) => {
+            try {
+              parseRoutingBoundary('custom', value);
+            } catch {
+              return '请输入不重复的 PROVIDER/MODEL 路由，使用逗号分隔。';
+            }
           },
         });
         if (plan.routingRoutes === undefined) return;
@@ -204,11 +228,13 @@ async function configure({ input, output, environment, execute, probeServicePnpm
     if (serviceInstallAgents) plan.serviceInstallAgents = true;
     print('安装计划');
     if (plan.routingBoundary) print(`  本机模型路由边界  ${plan.routingBoundary}${plan.routingRoutes ? `（${plan.routingRoutes}）` : ''}`);
-    print(`  宿主  ${selected.map(agent => names[agent]).join('、')}`);
-    print(`  配置来源  ${source === false ? '仅配置共享规则与 skills' : source ?? '默认 Kitto 配置'}`);
+    print(`  宿主  ${selected.map((agent) => names[agent]).join('、')}`);
+    print(`  配置来源  ${source === false ? '仅配置共享规则与 skills' : (source ?? '默认 Kitto 配置')}`);
     print('  共享范围  全局' + (plan.workspace ? `，以及工作区 ${plan.workspace}` : ''));
     if (selected.includes('dsh')) {
-      print(`  DSH  ${unit ?? '当前账号'}，配置档 ${dshProfile}${isDesktopProfile(dshProfile) ? '（由 App 管理，仅全局规则/skills）' : ''}`);
+      print(
+        `  DSH  ${unit ?? '当前账号'}，配置档 ${dshProfile}${isDesktopProfile(dshProfile) ? '（由 App 管理，仅全局规则/skills）' : ''}`,
+      );
     }
     print(`  补装缺少的宿主和必需工具  ${installAgents ? '是' : '否'}`);
     if (selected.includes('dsh') && isDesktopProfile(dshProfile)) {
@@ -217,14 +243,25 @@ async function configure({ input, output, environment, execute, probeServicePnpm
     if (serviceInstallAgents) print(`  为 ${unit} 的账号补装 pnpm  是`);
     if (source !== false) print(`  安装配置声明的辅助依赖  ${deps ? '是' : '否'}`);
 
-    let action = await select('下一步', [
-      { value: '1', label: '预览' }, { value: '2', label: '安装' }, { value: '0', label: '取消' },
-    ], '1');
+    let action = await select(
+      '下一步',
+      [
+        { value: '1', label: '预览' },
+        { value: '2', label: '安装' },
+        { value: '0', label: '取消' },
+      ],
+      '1',
+    );
     if (action === '1') {
       await execute({ ...plan, dryRun: true });
-      action = await select('预览完成', [
-        { value: '0', label: '退出' }, { value: '2', label: '按此计划安装' },
-      ], '0');
+      action = await select(
+        '预览完成',
+        [
+          { value: '0', label: '退出' },
+          { value: '2', label: '按此计划安装' },
+        ],
+        '0',
+      );
       if (action !== '2') {
         print('已退出，未执行安装。');
         return true;
@@ -240,7 +277,10 @@ async function configure({ input, output, environment, execute, probeServicePnpm
 }
 
 export async function runWizard({
-  input = process.stdin, output = process.stdout, detect = detectEnvironment, execute,
+  input = process.stdin,
+  output = process.stdout,
+  detect = detectEnvironment,
+  execute,
   probeServicePnpm = async (unit: string) => {
     const { servicePnpmAvailable } = await import('./scope-service.ts');
     return servicePnpmAvailable(unit);
@@ -252,10 +292,12 @@ export async function runWizard({
   execute?: (plan: SetupPlan) => Promise<void>;
   probeServicePnpm?: (unit: string) => Promise<boolean>;
 } = {}): Promise<void> {
-  const runSetup = execute ?? (async (plan: SetupPlan) => {
-    const { runEnvironmentSetup } = await import('./environment-setup.ts');
-    await runEnvironmentSetup(plan);
-  });
+  const runSetup =
+    execute ??
+    (async (plan: SetupPlan) => {
+      const { runEnvironmentSetup } = await import('./environment-setup.ts');
+      await runEnvironmentSetup(plan);
+    });
   const handled = await configure({ input, output, environment: await detect(), execute: runSetup, probeServicePnpm });
   if (!handled) output.write('已取消安装。\n');
 }

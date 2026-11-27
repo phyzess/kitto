@@ -8,13 +8,18 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const dist = join(root, 'dist');
 
 function files(dir) {
-  return readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
-    entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]);
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)],
+  );
 }
 
 function distHash() {
   const hash = createHash('sha256');
-  for (const file of files(dist).sort()) hash.update(`${relative(dist, file)}\0`).update(readFileSync(file)).update('\0');
+  for (const file of files(dist).sort())
+    hash
+      .update(`${relative(dist, file)}\0`)
+      .update(readFileSync(file))
+      .update('\0');
   return hash.digest('hex');
 }
 

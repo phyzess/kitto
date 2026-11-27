@@ -38,15 +38,23 @@ export interface DependencyPlanItem {
 }
 
 export async function optionalJson(path: string, fallback: any = {}): Promise<any> {
-  try { return JSON.parse(await readFile(path, 'utf8')); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback; throw error; }
+  try {
+    return JSON.parse(await readFile(path, 'utf8'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback;
+    throw error;
+  }
 }
 
 export function executable(name: string): string | undefined {
-  const paths = name.includes('/') ? [resolve(name)] : (process.env.PATH || '').split(delimiter).map(dir => resolve(dir, name));
-  return paths.find(path => {
-    try { accessSync(path, constants.X_OK); return statSync(path).isFile(); }
-    catch { return false; }
+  const paths = name.includes('/') ? [resolve(name)] : (process.env.PATH || '').split(delimiter).map((dir) => resolve(dir, name));
+  return paths.find((path) => {
+    try {
+      accessSync(path, constants.X_OK);
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
   });
 }
 
@@ -64,9 +72,11 @@ export function npmSpec(source: string): [string, string | null] {
 export async function piServers(state: State): Promise<Record<string, McpServerEntry>> {
   const declared = await optionalJson(join(state.source, 'config/pi/mcp.json'));
   const live = await optionalJson(join(state.piHome, 'mcp.json'), declared);
-  return Object.fromEntries((Object.entries(live.mcpServers || {}) as Array<[string, McpServerEntry]>).filter(
-    ([name, entry]) => !name.startsWith('_') && entry?.command && entry.enabled !== false,
-  ));
+  return Object.fromEntries(
+    (Object.entries(live.mcpServers || {}) as Array<[string, McpServerEntry]>).filter(
+      ([name, entry]) => !name.startsWith('_') && entry?.command && entry.enabled !== false,
+    ),
+  );
 }
 
 export function npxPackage(entry: McpServerEntry): Array<string | null> {
@@ -84,9 +94,14 @@ async function dependencyRules(state: State): Promise<DependencyRule[]> {
     const fields = ['agent', 'platform', 'skill', 'piCommand', 'piNpx', 'executable', 'install'];
     const name = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/;
     const npmName = /^(?:@[a-z0-9_.-]+\/)?[a-z0-9_][a-z0-9_.-]*$/;
-    if (!rule || typeof rule !== 'object' || Object.keys(rule).some(key => !fields.includes(key))) throw invalid();
-    for (const key of fields.filter(key => key !== 'install')) {
-      if (key in rule && (typeof rule[key as keyof DependencyRule] !== 'string' || !(key === 'piNpx' ? npmName : name).test(rule[key as keyof DependencyRule] as string))) throw invalid();
+    if (!rule || typeof rule !== 'object' || Object.keys(rule).some((key) => !fields.includes(key))) throw invalid();
+    for (const key of fields.filter((key) => key !== 'install')) {
+      if (
+        key in rule &&
+        (typeof rule[key as keyof DependencyRule] !== 'string' ||
+          !(key === 'piNpx' ? npmName : name).test(rule[key as keyof DependencyRule] as string))
+      )
+        throw invalid();
     }
     if (!rule.agent && !rule.skill && !rule.piCommand && !rule.piNpx) throw invalid();
     if (rule.agent && !['pi', 'codex', 'dsh'].includes(rule.agent)) throw invalid();
@@ -132,14 +147,19 @@ export async function dependencyPlan(state: State): Promise<DependencyPlanItem[]
     }
     const key = rule.executable ? `executable:${rule.executable}` : `package:${name}`;
     const previous = plans.get(key);
-    if (previous?.manager && rule.manager &&
-        (previous.manager !== rule.manager || previous.name !== name || previous.target !== target)) {
+    if (previous?.manager && rule.manager && (previous.manager !== rule.manager || previous.name !== name || previous.target !== target)) {
       throw new Error(`Conflicting dependency declarations for ${rule.executable || name}.`);
     }
-    const plan = { name, path, target, installed, manager: rule.manager,
+    const plan = {
+      name,
+      path,
+      target,
+      installed,
+      manager: rule.manager,
       note: rule.skill ? 'Binary check only. Verify MCP tools in the active session.' : undefined,
       available: rule.manager === 'pip' ? Boolean(installed) : Boolean(path) && (!target || installed === target),
-      reason: reasons.join(', ') };
+      reason: reasons.join(', '),
+    };
     const selected = previous?.manager || !rule.manager ? previous || plan : plan;
     if (previous) {
       selected.reason = [...new Set([...previous.reason.split(', '), ...reasons])].join(', ');
@@ -153,18 +173,23 @@ export async function dependencyPlan(state: State): Promise<DependencyPlanItem[]
 export async function installDependencies(state: State, apply: boolean): Promise<void> {
   const plans = await dependencyPlan(state);
   if (!plans.length) console.log('No declared dependencies for the enabled hosts and shared skills.');
-  const blocked: string[] = [], manual: string[] = [], attempted: string[] = [];
+  const blocked: string[] = [],
+    manual: string[] = [],
+    attempted: string[] = [];
   for (const tool of plans) {
     const { name, target, manager, reason } = tool;
-    if (tool.available) { console.log(`Available: ${name} (${reason})`); continue; }
+    if (tool.available) {
+      console.log(`Available: ${name} (${reason})`);
+      continue;
+    }
     if (!manager) {
       manual.push(name);
       console.log(`Missing: ${name} (${reason}); install separately if needed.`);
       continue;
     }
     const command = manager === 'pip' ? 'python3' : manager;
-    const args = manager === 'mise' ? ['use', '-g', `npm:${name}@${target}`]
-      : manager === 'pip' ? ['-m', 'pip', 'install', name] : ['install', name];
+    const args =
+      manager === 'mise' ? ['use', '-g', `npm:${name}@${target}`] : manager === 'pip' ? ['-m', 'pip', 'install', name] : ['install', name];
     if (!executable(command)) {
       blocked.push(`${name} (missing ${command})`);
       console.log(`Missing installer ${command}: ${name} (${reason})`);
@@ -179,7 +204,7 @@ export async function installDependencies(state: State, apply: boolean): Promise
   }
   if (!apply) return;
   const current = attempted.length ? await dependencyPlan(state) : plans;
-  const ready = current.filter(tool => tool.available).map(tool => tool.name);
+  const ready = current.filter((tool) => tool.available).map((tool) => tool.name);
   for (const name of attempted) if (!ready.includes(name)) blocked.push(`${name} (still unavailable after install)`);
   console.log(`Ready: ${ready.join(', ') || 'none'}`);
   console.log(`Manual setup: ${manual.join(', ') || 'none'}`);

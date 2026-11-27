@@ -8,7 +8,7 @@ import { test } from 'vitest';
 import { createRoutingStore, newTicketId } from '../lib/routing-state.ts';
 
 const now = Date.UTC(2026, 10, 25, 12);
-const iso = value => new Date(value).toISOString();
+const iso = (value) => new Date(value).toISOString();
 const selected = { provider: 'go-alias', model: 'flash', upstream: 'opencode-go', account: 'verified-member', billing: 'go-included' };
 const pool = 'verified-subscription-member';
 const library = new URL('../lib/routing-state.ts', import.meta.url).href;
@@ -20,15 +20,23 @@ function child(home, snippet, ...params) {
 function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'kitto-routing-state-'));
   t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
-  const store = createRoutingStore(home), id = newTicketId();
+  const store = createRoutingStore(home),
+    id = newTicketId();
   store.issue({ id, selected, pool, issuedAt: now - 100, expiresAt: now + 60_000, binding: {}, request: {} });
   store.consume(id, () => {}, now - 99);
-  const evidence = { attempt: id, route: selected, pool, code: 'ACCOUNT_QUOTA', observedAt: iso(now),
-    source: 'operator-verified-native-failure', quotaScope: 'paid-go-pool' };
+  const evidence = {
+    attempt: id,
+    route: selected,
+    pool,
+    code: 'ACCOUNT_QUOTA',
+    observedAt: iso(now),
+    source: 'operator-verified-native-failure',
+    quotaScope: 'paid-go-pool',
+  };
   return { store, home, id, evidence };
 }
 
-test('verified quota survives processes, elapsed time and alias changes without poisoning other pools', t => {
+test('verified quota survives processes, elapsed time and alias changes without poisoning other pools', (t) => {
   const { store, home, id, evidence } = fixture(t);
   assert.throws(() => store.recordQuota(evidence, now), /activated paid Go attempt/);
   store.activate(id, now - 20);
@@ -36,12 +44,22 @@ test('verified quota survives processes, elapsed time and alias changes without 
   assert.throws(() => store.recordQuota({ ...evidence, quotaScope: 'model' }, now), /Fresh structured/);
   const writer = child(home, 'store.recordQuota(JSON.parse(args[0]), Number(args[1]))', JSON.stringify(evidence), String(now));
   assert.equal(writer.status, 0, writer.stderr);
-  const reader = child(home, 'console.log(store.poolStatus(args[0], Number(args[1])), store.poolStatus("different-pool", Number(args[1])))',
-    pool, String(now + 30 * 24 * 60 * 60_000));
+  const reader = child(
+    home,
+    'console.log(store.poolStatus(args[0], Number(args[1])), store.poolStatus("different-pool", Number(args[1])))',
+    pool,
+    String(now + 30 * 24 * 60 * 60_000),
+  );
   assert.equal(reader.status, 0, reader.stderr);
   assert.equal(reader.stdout.trim(), 'held clear');
-  assert.throws(() => store.releasePool({ pool, source: 'authoritative-reset', observedAt: iso(now), afterAttempt: id }, now), /does not match/);
-  assert.throws(() => store.releasePool({ pool, source: 'clock-expiry', observedAt: iso(now + 20), afterAttempt: id }, now + 20), /Fresh authoritative/);
+  assert.throws(
+    () => store.releasePool({ pool, source: 'authoritative-reset', observedAt: iso(now), afterAttempt: id }, now),
+    /does not match/,
+  );
+  assert.throws(
+    () => store.releasePool({ pool, source: 'clock-expiry', observedAt: iso(now + 20), afterAttempt: id }, now + 20),
+    /Fresh authoritative/,
+  );
   const release = { pool, source: 'authoritative-reset', observedAt: iso(now + 20), afterAttempt: id };
   store.releasePool(release, now + 20);
   store.releasePool(release, now + 20);
@@ -53,7 +71,7 @@ test('verified quota survives processes, elapsed time and alias changes without 
   assert.equal(store.poolStatus(pool, now + 19), 'invalid');
 });
 
-test('interrupted writes and invalid pool rows fail closed for that pool alone', t => {
+test('interrupted writes and invalid pool rows fail closed for that pool alone', (t) => {
   const { store, home } = fixture(t);
   const key = createHash('sha256').update(`opencode-go\0${pool}`).digest('hex');
   const base = join(home, 'routing-v1', `pool-${key}.json`);
@@ -66,7 +84,7 @@ test('interrupted writes and invalid pool rows fail closed for that pool alone',
   assert.equal(store.poolStatus('different-pool', now), 'clear');
 });
 
-test('distinct quota evidence at the release timestamp installs a hold in either order', t => {
+test('distinct quota evidence at the release timestamp installs a hold in either order', (t) => {
   for (const releaseFirst of [true, false]) {
     const { store, id, evidence } = fixture(t);
     store.activate(id, now - 20);
@@ -95,7 +113,7 @@ test('distinct quota evidence at the release timestamp installs a hold in either
   }
 });
 
-test('a distinct out-of-order failure holds without permitting an older release', t => {
+test('a distinct out-of-order failure holds without permitting an older release', (t) => {
   const { store, id, evidence } = fixture(t);
   store.activate(id, now - 20);
   store.recordQuota(evidence, now);

@@ -12,7 +12,7 @@ async function fixture(t) {
   return path;
 }
 
-test('Pi extension install is idempotent and protects a foreign target', async t => {
+test('Pi extension install is idempotent and protects a foreign target', async (t) => {
   const root = await fixture(t);
   const runtime = join(root, 'scope-runtime');
   const agent = join(root, 'custom-pi');
@@ -44,7 +44,7 @@ test('Pi extension install is idempotent and protects a foreign target', async t
   assert.equal(await readlink(path), foreign);
 });
 
-test('Pi loads registered scope skills and augments native context without duplicating it', async t => {
+test('Pi loads registered scope skills and augments native context without duplicating it', async (t) => {
   const root = await fixture(t);
   const store = join(root, 'store');
   const old = process.env.KITTO_HOME;
@@ -57,8 +57,8 @@ test('Pi loads registered scope skills and augments native context without dupli
   const workspace = join(root, 'work');
   const project = join(workspace, 'project');
   const cwd = join(project, 'child');
-  const skills = dir => join(dir, '.agents', 'skills');
-  const instructions = dir => join(dir, 'AGENTS.md');
+  const skills = (dir) => join(dir, '.agents', 'skills');
+  const instructions = (dir) => join(dir, 'AGENTS.md');
   const globalInstructions = instructions(global);
   const workspaceInstructions = instructions(workspace);
   const projectInstructions = instructions(project);
@@ -92,7 +92,7 @@ test('Pi loads registered scope skills and augments native context without dupli
   assert.deepEqual(files, [nativeFiles[0], { path: workspaceInstructions, content: 'workspace rules' }, ...nativeFiles.slice(1)]);
 });
 
-test('Pi extension install recognises its link when the runtime is spelled through a symlink', async t => {
+test('Pi extension install recognises its link when the runtime is spelled through a symlink', async (t) => {
   const root = await fixture(t);
   const realRuntime = join(root, 'real-runtime');
   const aliasRuntime = join(root, 'alias-runtime');
