@@ -10,6 +10,104 @@ export type HostName = 'pi' | 'codex' | 'dsh';
 
 export type Json = Record<string, any>;
 
+export interface RouteRef {
+  provider: string;
+  model: string;
+}
+
+export interface HostRoute extends RouteRef {
+  canonicalModel?: string;
+  family?: string;
+  upstream?: string;
+  account?: string;
+  accountType?: string;
+  billing?: string;
+  tier?: number;
+  premium?: boolean;
+  pool?: string;
+  available?: boolean;
+  accountVerified?: boolean;
+  dataAllowed?: boolean;
+  allowedData?: string[];
+  efforts?: string[];
+  reasoningEfforts?: string[];
+  dispatchable?: boolean;
+  fallback?: string;
+  quotaReady?: boolean;
+  estimateUsd?: number;
+  nativeSelectionRequired?: boolean;
+  nativeEffort?: string;
+}
+
+export interface RouteSelection extends RouteRef {
+  canonicalModel?: string;
+  family?: string;
+  upstream?: string;
+  account?: string;
+  accountType?: string;
+  billing?: string;
+  premium?: boolean;
+  pool?: string;
+  data?: string;
+  plan?: string;
+  role?: string;
+  workRevision?: string;
+  effort?: string;
+  maxUsd?: number;
+  kind?: string;
+}
+
+export interface EvidenceRoute extends RouteRef {
+  observedAt?: string;
+  reasoningEfforts?: string[];
+  result?: string;
+}
+
+export interface CapabilityEvidence {
+  source?: string;
+  session?: string;
+  profile?: string;
+  routes?: EvidenceRoute[];
+}
+
+export interface HostEvidence {
+  kind?: string;
+  installation?: string;
+  surface?: string;
+  session?: string;
+  profile?: string;
+  observedAt?: string;
+  current?: RouteRef;
+  routes?: HostRoute[];
+  effectiveFallbacks?: unknown[];
+  evidence?: CapabilityEvidence;
+}
+
+export interface GoMetadataEvidence {
+  status?: string;
+  source?: string;
+  account?: string;
+  plan?: string;
+  profile?: string;
+  catalogObservedAt?: string;
+  observedAt?: string;
+  catalog?: unknown;
+  usage?: unknown;
+}
+
+export interface GoEvidence {
+  account?: string;
+  plan?: string;
+  extraUsage?: string;
+  pool?: string;
+  observedAt?: string;
+  metadata?: GoMetadataEvidence;
+  lastRequest?: { model?: string; usage?: Record<string, unknown> };
+  catalogObservedAt?: string;
+  catalog?: unknown;
+  usage?: unknown;
+}
+
 export interface RoutingBoundary {
   schema: 1;
   mode: 'personal' | 'company' | 'custom' | 'skip';

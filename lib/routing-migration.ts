@@ -3,7 +3,6 @@ import { chmodSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { routingHostVersion } from './host-pins.ts';
-import type { Json } from '../types/kitto.d.ts';
 
 const OPEN = '<!-- kitto:begin -->',
   CLOSE = '<!-- kitto:end -->';
@@ -30,7 +29,7 @@ function file(path: string, optional = false): { text: string; mode: number } | 
   }
 }
 
-function planAgents(text: string, rollback: boolean): Json {
+function planAgents(text: string, rollback: boolean): AgentPlan {
   const newline = text.includes('\r\n') ? '\r\n' : '\n';
   const rows = text.split(/\r?\n/);
   const location = (marker: string) => rows.flatMap((line: string, index: number) => (line === marker ? [index] : []));
@@ -66,6 +65,25 @@ function inside(parent: string, child: string): boolean {
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`));
 }
 
+interface AgentPlan {
+  action: string;
+  text?: string;
+  add?: string[];
+  remove?: string[];
+}
+
+interface RoutingMigrationReport {
+  status: string;
+  changes: Array<{ path: string; action: string; text?: string; add?: string[]; remove?: string[] }>;
+  unchanged: string[];
+  manual: {
+    profilePatch: string;
+    fallbackLines: number[];
+    effectiveFallbacks: string;
+    actions: string[];
+  };
+}
+
 export function migrateRouting({
   home,
   mode = 'preview',
@@ -74,7 +92,7 @@ export function migrateRouting({
   home: string;
   mode?: string;
   activeHomes?: Array<string | undefined>;
-}): Json {
+}): RoutingMigrationReport {
   if (!['preview', 'apply-fixture', 'rollback-fixture'].includes(mode) || !isAbsolute(home))
     throw new Error('Expected an absolute migration home.');
   const root = realpathSync(home);
@@ -108,7 +126,7 @@ export function migrateRouting({
       .flatMap((line: string, index: number) =>
         /(?:^|[\s{,])['"]?fallback['"]?\s*:/.test(line) && !/^\s*#/.test(line) ? [index + 1] : [],
       );
-    if (mode !== 'preview' && agents && text !== agents.text) {
+    if (mode !== 'preview' && agents && typeof text === 'string' && text !== agents.text) {
       const stage = join(root, `.kitto-routing-${randomBytes(12).toString('hex')}.tmp`);
       try {
         writeFileSync(stage, text, { flag: 'wx', mode: agents.mode });

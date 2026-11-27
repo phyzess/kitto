@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
 import { isDesktopProfile } from './dsh-profile.ts';
-import type { Json, RoutingBoundary, State } from '../types/kitto.d.ts';
+import type { RouteRef, RoutingBoundary, State } from '../types/kitto.d.ts';
 
 const POLICY_MODES = ['personal', 'company', 'custom', 'skip'];
 export const routeId = (value: unknown): value is string => typeof value === 'string' && /^[a-z0-9][a-z0-9_.:/-]{0,159}$/i.test(value);
-export const routeKey = ({ provider, model }: Json) => `${provider}/${model}`;
+export const routeKey = ({ provider, model }: RouteRef) => `${provider}/${model}`;
 
 function localIdentity() {
   let machine = hostname();

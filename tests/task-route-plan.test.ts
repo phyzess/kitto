@@ -3,6 +3,23 @@ import assert from 'node:assert/strict';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 import type { Json } from '../types/kitto.d.ts';
 
+type Plan = ReturnType<typeof planTaskRoutes>;
+
+const readyRoute = (plan: Plan) => {
+  const route = plan.rows[0]?.route;
+  assert.ok(route, 'plan has no ready route');
+  return route;
+};
+const firstOption = (plan: Plan) => {
+  const option = plan.rows[0]?.options?.[0];
+  assert.ok(option, 'plan has no options');
+  return option;
+};
+const firstQuestionReason = (plan: Plan) => {
+  const question = plan.questions?.[0];
+  assert.ok(question, 'plan has no questions');
+  return question.reason;
+};
 const now = Date.parse('2026-11-26T12:00:00Z');
 const subscription = {
   provider: 'openai-codex',
@@ -71,11 +88,11 @@ test('explicit official Flash remains selectable with the exact paid task author
   input.roles[0].choice = { provider: paid.provider, model: paid.model, effort: 'high' };
   const result = planTaskRoutes(input, now);
   assert.equal(result.status, 'ready');
-  assert.equal(result.rows[0].route.provider, 'deepseek-official');
-  assert.equal(result.rows[0].route.estimateOnly, true);
+  assert.equal(readyRoute(result).provider, 'deepseek-official');
+  assert.equal(readyRoute(result).estimateOnly, true);
   assert.equal(checkTaskRouteApproval(input, approval(result), now).status, 'approved');
   input.roles[0].authorization.maxUsd = 0.1;
-  assert.equal(planTaskRoutes(input, now).questions[0].reason, 'metered-cost-not-authorized');
+  assert.equal(firstQuestionReason(planTaskRoutes(input, now)), 'metered-cost-not-authorized');
   assert.equal(checkTaskRouteApproval(input, approval(result), now).status, 'stop');
 });
 
@@ -83,16 +100,16 @@ test('an authorized preset needs no question; a broken preset is not silently re
   const input: Json = { ...plan('pi', 'current', [role('verify', subscription)]), presets: { verify: subscription } };
   assert.deepEqual(planTaskRoutes(input, now).questions, []);
   input.presets.verify = { provider: 'missing', model: 'unavailable' };
-  assert.equal(planTaskRoutes(input, now).questions[0].reason, 'chosen-or-preset-route-unavailable');
+  assert.equal(firstQuestionReason(planTaskRoutes(input, now)), 'chosen-or-preset-route-unavailable');
 });
 
 test('a preset carries its reasoning effort unless a task choice overrides it', () => {
   const input = plan();
   input.presets = { review: { ...paid, effort: 'high' } };
   const result = planTaskRoutes(input, now);
-  assert.equal(result.rows[0].route.effort, 'high');
+  assert.equal(readyRoute(result).effort, 'high');
   input.roles[0].choice = { ...paid, effort: 'default' };
-  assert.equal(planTaskRoutes(input, now).rows[0].route.effort, 'default');
+  assert.equal(readyRoute(planTaskRoutes(input, now)).effort, 'default');
   assert.equal(checkTaskRouteApproval(input, approval(result), now).status, 'stop');
 });
 
@@ -113,10 +130,7 @@ test('independent review rejects another model from the implementation family ev
   review.reviewGate = 'independent';
   review.requireDifferentFamily = false;
   review.implementers = [{ canonicalModel: 'deepseek/pro', family: 'deepseek' }];
-  assert.equal(
-    planTaskRoutes(input, now).rows[0].options.find((option: Json) => option.provider === paid.provider).reason,
-    'not-independent',
-  );
+  assert.equal(planTaskRoutes(input, now).rows[0].options?.find((option) => option.provider === paid.provider)?.reason, 'not-independent');
   review.implementers = [{ canonicalModel: subscription.canonicalModel, family: subscription.family }];
   assert.equal(planTaskRoutes(input, now).status, 'ready');
 });
@@ -137,8 +151,8 @@ test('deferred and unavailable roles do not release dependent work', () => {
 test('cannot claim an upstream the native surface cannot dispatch or replay a failed route', () => {
   const input = plan('codex', 'subagent');
   input.host.routes = [{ ...paid, dispatchable: false }];
-  assert.equal(planTaskRoutes(input, now).rows[0].options[0].reason, 'host-cannot-select-route');
+  assert.equal(firstOption(planTaskRoutes(input, now)).reason, 'host-cannot-select-route');
   input.host.routes = [paid];
   input.roles[0].failed = [paid];
-  assert.equal(planTaskRoutes(input, now).rows[0].options[0].reason, 'failed-route-or-account');
+  assert.equal(firstOption(planTaskRoutes(input, now)).reason, 'failed-route-or-account');
 });

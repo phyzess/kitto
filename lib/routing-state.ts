@@ -16,7 +16,51 @@ import {
 import { dirname, join } from 'node:path';
 import { fresh, timestamp } from './go-allowance.ts';
 import { routeId } from './routing-policy.ts';
-import type { Json } from '../types/kitto.d.ts';
+import type { RouteSelection } from '../types/kitto.d.ts';
+
+interface DispatchPermit {
+  schema?: number;
+  id?: string;
+  status?: string;
+  binding?: unknown;
+  request?: unknown;
+  selected?: RouteSelection;
+  pool?: string;
+  issuedAt?: number;
+  expiresAt?: number;
+  consumedAt?: number;
+  activatedAt?: number;
+  failure?: { code?: string; observedAt?: string };
+}
+
+interface GoPoolHold {
+  schema?: number;
+  key?: string;
+  status?: string;
+  attempt?: string;
+  code?: string;
+  observedAt?: string;
+  orderFloorAt?: string;
+  releaseSource?: string;
+  releasedAt?: string;
+}
+
+export interface QuotaFailureEvidence {
+  attempt: string;
+  route?: RouteSelection;
+  pool?: string;
+  code: string;
+  observedAt: string;
+  source: string;
+  quotaScope: string;
+}
+
+export interface PoolReleaseRequest {
+  pool: string;
+  source: string;
+  observedAt: string;
+  afterAttempt: string;
+}
 
 export const ticketId = (value: unknown): value is string => typeof value === 'string' && /^kr-[0-9a-f]{24}$/.test(value);
 export const newTicketId = () => `kr-${randomBytes(12).toString('hex')}`;
@@ -28,10 +72,10 @@ const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'E
 const own = (stats: { mode: number; uid: number }) =>
   (stats.mode & 0o077) === 0 && (process.getuid === undefined || stats.uid === process.getuid());
 const quotaCodes = new Set(['QUOTA', 'ACCOUNT_QUOTA', 'RATE_LIMIT']);
-const orderFloor = (row: Json) => timestamp(row.orderFloorAt ?? row.observedAt);
-const lastPoolTime = (row: Json) => Math.max(orderFloor(row), timestamp(row.releasedAt) || 0);
+const orderFloor = (row: GoPoolHold) => timestamp(row.orderFloorAt ?? row.observedAt);
+const lastPoolTime = (row: GoPoolHold) => Math.max(orderFloor(row), timestamp(row.releasedAt) || 0);
 
-function readPrivate(path: string): any {
+function readPrivate(path: string): unknown {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stats = fstatSync(fd);
@@ -109,11 +153,12 @@ export function createRoutingStore(home: string) {
     if (!ticketId(id)) throw new Error('Invalid dispatch permit ID.');
     return `attempt-${id}.json`;
   }
-  function readTicket(path: string, id: string): Json {
-    const row = readPrivate(path);
+  function readTicket(path: string, id: string): DispatchPermit {
+    const row = readPrivate(path) as DispatchPermit;
     if (
       row?.schema !== 1 ||
       row.id !== id ||
+      !row.status ||
       !['pending', 'consumed', 'activated', 'failed'].includes(row.status) ||
       !row.binding ||
       !row.request ||
@@ -124,10 +169,10 @@ export function createRoutingStore(home: string) {
     }
     return row;
   }
-  function readPool(path: string, key: string): Json | null {
-    let row: Json;
+  function readPool(path: string, key: string): GoPoolHold | null {
+    let row: GoPoolHold;
     try {
-      row = readPrivate(path);
+      row = readPrivate(path) as GoPoolHold;
     } catch (error) {
       if (missing(error)) return null;
       throw error;
@@ -137,18 +182,21 @@ export function createRoutingStore(home: string) {
       row.key !== key ||
       !ticketId(row.attempt) ||
       !Number.isFinite(timestamp(row.observedAt)) ||
+      !row.status ||
       !['held', 'released'].includes(row.status) ||
+      !row.code ||
       !quotaCodes.has(row.code) ||
       (Object.hasOwn(row, 'orderFloorAt') && !(timestamp(row.orderFloorAt) >= timestamp(row.observedAt))) ||
       (row.status === 'released' &&
-        (!['authoritative-reset', 'operator-reauthorization'].includes(row.releaseSource) ||
+        (!row.releaseSource ||
+          !['authoritative-reset', 'operator-reauthorization'].includes(row.releaseSource) ||
           !(timestamp(row.releasedAt) > orderFloor(row))))
     )
       throw new Error('Invalid Go pool state.');
     return row;
   }
   return {
-    issue(row: Json) {
+    issue(row: DispatchPermit) {
       return transaction(ticketPath(row.id), (path: string) => {
         try {
           lstatSync(path);
@@ -163,7 +211,7 @@ export function createRoutingStore(home: string) {
     peek(id: string) {
       return readTicket(unlocked(ticketPath(id)), id);
     },
-    consume(id: string, check: (row: Json) => void, now: number) {
+    consume(id: string, check: (row: DispatchPermit) => void, now: number) {
       return transaction(ticketPath(id), (path: string) => {
         const row = readTicket(path, id);
         if (row.status !== 'pending') throw new Error('Dispatch permit already spent.');
@@ -175,7 +223,8 @@ export function createRoutingStore(home: string) {
     activate(id: string, now: number) {
       return transaction(ticketPath(id), (path: string) => {
         const row = readTicket(path, id);
-        if (row.status !== 'consumed' || !(now >= row.consumedAt)) throw new Error('No consumed dispatch permit.');
+        if (row.status !== 'consumed' || row.consumedAt === undefined || !(now >= row.consumedAt))
+          throw new Error('No consumed dispatch permit.');
         writePrivate(path, { ...row, status: 'activated', activatedAt: now });
       });
     },
@@ -191,7 +240,7 @@ export function createRoutingStore(home: string) {
         return missing(error) ? 'clear' : 'invalid';
       }
     },
-    recordQuota({ attempt, route, pool, code, observedAt, source, quotaScope }: Json, now: number = Date.now()) {
+    recordQuota({ attempt, route, pool, code, observedAt, source, quotaScope }: QuotaFailureEvidence, now: number = Date.now()) {
       const observed = timestamp(observedAt);
       if (
         source !== 'operator-verified-native-failure' ||
@@ -206,12 +255,14 @@ export function createRoutingStore(home: string) {
         const row = readTicket(path, attempt),
           selected = row.selected;
         if (
+          !row.status ||
           !['activated', 'failed'].includes(row.status) ||
+          row.activatedAt === undefined ||
           !(timestamp(observedAt) >= row.activatedAt) ||
           row.pool !== pool ||
           selected?.upstream !== 'opencode-go' ||
           selected.billing !== 'go-included' ||
-          !['provider', 'model', 'upstream', 'account'].every(
+          !(['provider', 'model', 'upstream', 'account'] as const).every(
             (field) => Object.hasOwn(selected, field) && selected[field] === route?.[field],
           )
         ) {
@@ -239,7 +290,7 @@ export function createRoutingStore(home: string) {
         });
       });
     },
-    releasePool({ pool, source, observedAt, afterAttempt }: Json, now: number = Date.now()) {
+    releasePool({ pool, source, observedAt, afterAttempt }: PoolReleaseRequest, now: number = Date.now()) {
       const observed = timestamp(observedAt);
       if (!['authoritative-reset', 'operator-reauthorization'].includes(source) || !Number.isFinite(observed) || !(observed <= now)) {
         throw new Error('Fresh authoritative reset or explicit operator reauthorization required.');
