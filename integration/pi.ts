@@ -1,0 +1,15 @@
+import { readFile } from 'node:fs/promises';
+import { kittoHome } from '../lib/kitto-home.ts';
+import { updateNotice } from '../lib/update-notice.ts';
+import { registerPiTaskRouting } from './pi-task-routing.ts';
+
+export default function kitto(pi) {
+  registerPiTaskRouting(pi);
+  pi.on('session_start', (_event, ctx) => {
+    if (!ctx.hasUI || process.env.KITTO_UPDATE_CHECK === '0') return;
+    void readFile(new URL('../package.json', import.meta.url), 'utf8')
+      .then(text => updateNotice(kittoHome(), JSON.parse(text).version))
+      .then(notice => { if (notice) ctx.ui.notify(notice, 'info'); })
+      .catch(() => {});
+  });
+}

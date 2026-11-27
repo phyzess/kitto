@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, symlinkSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
-import { hosts, pnpmVersion } from '../lib/host-pins.mjs';
+import { hosts, pnpmVersion } from '../lib/host-pins.ts';
 
 const runner = process.env.RUNNER_TEMP;
 if (!runner || !isAbsolute(runner) || !statSync(runner, { throwIfNoEntry: false })?.isDirectory()) {

@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   applyCodexMcp, defaultCodexRun, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
-} from '../lib/codex-mcp.mjs';
-import { list, markPending } from '../lib/ownership.mjs';
+} from '../lib/codex-mcp.ts';
+import { list, markPending } from '../lib/ownership.ts';
 
 const confirmedOf = state => Object.fromEntries(list(state, 'mcp', 'codex').flatMap(entry => {
   const hash = entry.status === 'owned' ? entry.hash : entry.previous;

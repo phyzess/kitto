@@ -5,13 +5,13 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { probeDesktopProfile } from '../lib/dsh-profile.mjs';
-import { composeInstructions } from '../lib/host-config.mjs';
-import { compareVersions } from '../lib/hosts.mjs';
-import { hosts, meetsBaseline, parseOptions, pnpmVersion, replaceDirectory, treeHash } from '../lib/kitto.mjs';
-import { list } from '../lib/ownership.mjs';
-import { downgradeState } from '../lib/state-schema.mjs';
-import { newerStable, updateNotice } from '../lib/update-notice.mjs';
+import { probeDesktopProfile } from '../lib/dsh-profile.ts';
+import { composeInstructions } from '../lib/host-config.ts';
+import { compareVersions } from '../lib/hosts.ts';
+import { hosts, meetsBaseline, parseOptions, pnpmVersion, replaceDirectory, treeHash } from '../lib/kitto.ts';
+import { list } from '../lib/ownership.ts';
+import { downgradeState } from '../lib/state-schema.ts';
+import { newerStable, updateNotice } from '../lib/update-notice.ts';
 import { waitForPublish } from '../scripts/release.mjs';
 
 const skillNames = (state, group, status) => list(state, 'skill', group, status).map(entry => entry.name).sort();
@@ -1647,7 +1647,7 @@ test('setup accepts a newer host but rejects it as the result of a pinned instal
   const marker = join(tools.bin, 'installed');
   writeFileSync(join(tools.bin, 'pi'), `#!${process.execPath}\nif (!require('node:fs').existsSync(${JSON.stringify(marker)})) process.exit(1);\nconsole.log('pi 1.5.3');\n`, { mode: 0o755 });
   writeFileSync(join(tools.bin, 'npm'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, process.argv.slice(2).join(' '));\n`, { mode: 0o755 });
-  const module = new URL('../lib/kitto.mjs', import.meta.url).href;
+  const module = new URL('../lib/kitto.ts', import.meta.url).href;
   const invoke = body => command(process.execPath, ['--input-type=module', '-e', `import { checkSelectedHosts, installMissingHosts } from ${JSON.stringify(module)}; ${body}`], tools.env);
   const installed = invoke("installMissingHosts(['pi'])");
   assert.notEqual(installed.status, 0);

@@ -1,13 +1,13 @@
 import type { DeployPlan, HostAction, HostAdapter, MigrationResult, OwnershipEntry, PiAdapter, State } from './kitto.js';
-import * as ownership from '../lib/ownership.mjs';
-import { downgradeState, migrateState } from '../lib/state-schema.mjs';
-import { loadKittoState } from '../lib/state-io.mjs';
-import { hostAction, noteAction } from '../lib/hosts/action.mjs';
-import { adapterFor, planConnect, planDeploy, selectedAdapters } from '../lib/hosts/index.mjs';
-import { createCodexAdapter } from '../lib/hosts/codex.mjs';
-import { createDshDesktopAdapter } from '../lib/hosts/dsh-desktop.mjs';
-import { createDshWebAdapter } from '../lib/hosts/dsh-web.mjs';
-import { createPiAdapter } from '../lib/hosts/pi.mjs';
+import * as ownership from '../lib/ownership.ts';
+import { downgradeState, migrateState } from '../lib/state-schema.ts';
+import { loadKittoState } from '../lib/state-io.ts';
+import { hostAction, noteAction } from '../lib/hosts/action.ts';
+import { adapterFor, planConnect, planDeploy, selectedAdapters } from '../lib/hosts/index.ts';
+import { createCodexAdapter } from '../lib/hosts/codex.ts';
+import { createDshDesktopAdapter } from '../lib/hosts/dsh-desktop.ts';
+import { createDshWebAdapter } from '../lib/hosts/dsh-web.ts';
+import { createPiAdapter } from '../lib/hosts/pi.ts';
 
 declare const state: State;
 

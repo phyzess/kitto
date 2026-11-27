@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hosts, pnpmVersion, routingHostVersion } from '../lib/host-pins.mjs';
+import { hosts, pnpmVersion, routingHostVersion } from '../lib/host-pins.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scanned = ['lib', 'integration', 'bin', 'scripts', '.github'];

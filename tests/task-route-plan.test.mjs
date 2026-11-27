@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.mjs';
+import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 
 const now = Date.parse('2026-11-26T12:00:00Z');
 const subscription = { provider: 'openai-codex', model: 'sol', canonicalModel: 'openai/sol', family: 'openai',

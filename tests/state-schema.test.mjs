@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   CURRENT_SCHEMA, downgradeState, importedPiPackages, loadState, migrateState, rollbackState, saveState,
-} from '../lib/state-schema.mjs';
-import { get, list } from '../lib/ownership.mjs';
-import { activeRoutingBoundary, setRoutingBoundary } from '../lib/routing-policy.mjs';
+} from '../lib/state-schema.ts';
+import { get, list } from '../lib/ownership.ts';
+import { activeRoutingBoundary, setRoutingBoundary } from '../lib/routing-policy.ts';
 
 const block = '<!-- kitto:begin -->\nrules\n<!-- kitto:end -->\n';
 

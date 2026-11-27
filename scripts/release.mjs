@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { newerStable } from '../lib/update-notice.mjs';
+import { newerStable } from '../lib/update-notice.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const registry = 'https://registry.npmjs.org/';

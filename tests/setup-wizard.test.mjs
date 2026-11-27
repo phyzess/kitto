@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { test } from 'vitest';
-import { runWizard } from '../lib/setup-wizard.mjs';
+import { runWizard } from '../lib/setup-wizard.ts';
 
 async function wizard(answers, environment, { terminal = false, probeServicePnpm } = {}) {
   const input = new PassThrough();

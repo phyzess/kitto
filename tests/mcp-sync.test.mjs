@@ -5,11 +5,11 @@ import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dshExecutable, loadDshYaml } from '../integration/scoped-dsh/native.mjs';
-import { dshMcpNames } from '../lib/parity.mjs';
+import { dshExecutable, loadDshYaml } from '../integration/scoped-dsh/native.ts';
+import { dshMcpNames } from '../lib/parity.ts';
 import * as localYaml from 'yaml';
-import { get, list } from '../lib/ownership.mjs';
-import { dshMcpRows, piMcpServers, removeDshMcp, syncDshMcp } from '../lib/mcp-sync.mjs';
+import { get, list } from '../lib/ownership.ts';
+import { dshMcpRows, piMcpServers, removeDshMcp, syncDshMcp } from '../lib/mcp-sync.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'vitest';
 import { pathToFileURL } from 'node:url';
-import { hosts } from '../lib/host-pins.mjs';
+import { hosts } from '../lib/host-pins.ts';
 
 const extension = new URL('../config/pi/extensions/thin-cursor.ts', import.meta.url);
 const settings = new URL('../config/pi/settings.json', import.meta.url);

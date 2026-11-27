@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mcpParity, printMcpParity } from '../lib/parity.mjs';
-import { dshExecutable } from '../integration/scoped-dsh/native.mjs';
+import { mcpParity, printMcpParity } from '../lib/parity.ts';
+import { dshExecutable } from '../integration/scoped-dsh/native.ts';
 
 const dsh = await dshExecutable().catch(() => undefined);
 

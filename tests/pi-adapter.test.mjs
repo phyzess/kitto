@@ -5,11 +5,11 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { installDependencies } from '../lib/dependencies.mjs';
-import { piAdapter } from '../lib/pi-adapter.mjs';
+import { installDependencies } from '../lib/dependencies.ts';
+import { piAdapter } from '../lib/pi-adapter.ts';
 import {
   composeAgents, exportMcp, extractAgents, mergeMcp, mergeSettings, readList, recordSettings, sanitizeSettings,
-} from '../lib/pi-settings.mjs';
+} from '../lib/pi-settings.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = path => readFileSync(path, 'utf8');

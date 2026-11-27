@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 
-const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
+const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
 
 async function fixture(t, objectFormat = 'sha1') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-lifecycle-')));
@@ -397,7 +397,7 @@ test('clean SHA-256 blobs are verified as raw bytes, including binary files', as
 });
 
 test('the DSH archive adapter stays disabled by default and does not mount on Desktop', async () => {
-  const { apply } = await import('../integration/dsh.mjs');
+  const { apply } = await import('../integration/dsh.ts');
   const routingServices = ['profileContext', 'tools'];
   const archiveServices = ['profileContext', 'tools', 'workspaceRegistry', 'sessionPersistence'];
   for (const config of [undefined, { archiveReview: false }, { archiveReview: true }]) {
@@ -433,7 +433,7 @@ test('installed DSH registry and actual adapter project durable archive and unar
       else process.env[key] = value;
     }
   });
-  const { apply } = await import('../integration/dsh.mjs');
+  const { apply } = await import('../integration/dsh.ts');
   const data = join(f.root, 'workspace-archive-fixture.json');
   await writeFile(data, JSON.stringify({ initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] }));
   let snapshots = [{ header: { id: session, cwd: created.path, createdAt: 1 } }];

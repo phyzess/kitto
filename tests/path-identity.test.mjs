@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { sameLocation } from '../lib/paths.mjs';
+import { sameLocation } from '../lib/paths.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 

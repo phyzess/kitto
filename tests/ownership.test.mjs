@@ -2,7 +2,7 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   forgetPending, get, isOwnedWith, list, markKept, markPending, promote, record, recordedHash, release, replaceScope, scopes,
-} from '../lib/ownership.mjs';
+} from '../lib/ownership.ts';
 
 test('record and release a skill', () => {
   const state = {};

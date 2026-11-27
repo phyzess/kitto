@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readScopeRegistry, resolveScopes, writeScopeRegistry } from '../lib/scopes.mjs';
+import { readScopeRegistry, resolveScopes, writeScopeRegistry } from '../lib/scopes.ts';
 
-const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
+const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
 
 async function scopeFixture(t) {
   const temp = await realpath(await mkdtemp(join(tmpdir(), 'kitto-scope-cli-')));

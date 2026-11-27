@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'vitest';
 import {
   configureServiceScope, readServiceEnvironment, readServiceProperties, servicePnpmAvailable, stageServicePackage,
-} from '../lib/scope-service.mjs';
+} from '../lib/scope-service.ts';
 
 const valid = {
   Id: 'dsh.service',
