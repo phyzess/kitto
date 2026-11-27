@@ -9,8 +9,8 @@ Use the development Node version from `.node-version`, Python 3 and Bash. Instal
 ```sh
 npm ci --ignore-scripts
 npm run lint:comments -- --base <trusted-target-commit-sha>
-node scripts/check-comments.mjs --inventory <commit-sha>
-node scripts/check-comments.mjs --inventory worktree
+node scripts/check-comments.ts --inventory <commit-sha>
+node scripts/check-comments.ts --inventory worktree
 ```
 
 Use the current target branch’s full commit SHA, not an older baseline or a revision chosen from the change. Local lint checks the index and the worktree independently against that commit. The worktree includes Git-visible untracked files; ignored local files and untracked `.agent-teams/` harness state are out of scope. Tracked harness state, unsupported formats and nonregular entries fail. `--head <sha>` compares immutable commits instead; `--pr-head <sha>` requires the head object’s two parents to be the specified base and PR tip in that order.
@@ -31,7 +31,7 @@ Per path, language and executable fragment, each exact comment may occur no more
 
 ## Audit and measurement
 
-Inventory JSON contains the snapshot and file blob IDs, source paths, parser languages, nested fragment identities, exact raw token text and SHA-256, and the one-based occurrence among identical tokens in a fragment. `byteStart`/`byteEnd` are zero-based half-open byte offsets in the original file. `start`/`end` give one-based physical lines and Unicode code-point columns. `text` is the parser’s token text; `raw` preserves original indentation across a mapped multiline token. The initial workflow’s heredoc comments remain in the immutable bootstrap inventory and were not copied into `scripts/ci-install-native.mjs`.
+Inventory JSON contains the snapshot and file blob IDs, source paths, parser languages, nested fragment identities, exact raw token text and SHA-256, and the one-based occurrence among identical tokens in a fragment. `byteStart`/`byteEnd` are zero-based half-open byte offsets in the original file. `start`/`end` give one-based physical lines and Unicode code-point columns. `text` is the parser’s token text; `raw` preserves original indentation across a mapped multiline token. The initial workflow’s heredoc comments remain in the immutable bootstrap inventory and were not copied into `scripts/ci-install-native.ts`.
 
 `commentOnlyLines` is the union of physical LF-delimited lines touched by at least one token with only whitespace outside the token spans. `ordinaryCommentOnlyLines` leaves out lines with semantic directives. Inline comments with code to either side contribute zero; a multiline block may contribute interior lines, and two tokens on the same line count once.
 
