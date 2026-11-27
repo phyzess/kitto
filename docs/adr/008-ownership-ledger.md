@@ -1,6 +1,6 @@
 # ADR 008: One ownership ledger in `state.json`
 
-Status: proposed. Phase A ships the module, the migration and tests; nothing calls them yet and no real state is migrated. Phase B wires callers and activates the migration.
+Status: accepted. Phase A shipped the module, the migration and tests. Phase B wires every caller and activates schema 2.
 
 ## Context
 
@@ -60,7 +60,7 @@ An entry that is both owned and kept in v1 (not produced by current code) become
 | `recorded = codex[name] ?? codexPending[name]` | `recordedHash` |
 | `verifyLive` fingerprint check | `isOwnedWith(..., { includePending })` |
 | End-of-apply stale pending sweep | `forgetPending` per stale entry |
-| DSH `kitto-mcp-` rows | not recorded in this phase; the prefix stays the identity. Phase B may record `mcp/dsh/<row>` with the row fingerprint so removal can verify before deleting |
+| DSH `kitto-mcp-` rows | `record(state, 'mcp', 'dsh', rowId, fingerprint)`; the prefix stays the identity and the fingerprint is verified before replacing or deleting |
 | Pi `record-settings` writes `managed-packages.json` | `record(state, 'pi-package', 'pi', packageKey, sha256(spec))` plus `spec` |
 | Pi `previous` list in the settings merge | `list(state, 'pi-package', 'pi')` mapped to `spec` |
 
@@ -74,14 +74,14 @@ Rollback: `rollbackState(path)` applies `downgradeState`, the exact inverse for 
 
 ## Phase B checklist
 
-1. Switch `configurationPlan`, `deploy`, `skillPlan` and `existingSkillAction` in `lib/kitto.mjs`, or their successors in `lib/hosts/*`, to `list`, `get` and `replaceScope`.
-2. Switch `instructionPlan` and `applyInstructions` in `lib/host-config.mjs`.
-3. Switch `collectPlan`, `savePending`, `promotePending`, `forgetPending`, `applyCodexMcp`, `removeCodexMcp` and `liveDetails` in `lib/codex-mcp.mjs`; keep the pending semantics of `previous`.
-4. Activate the migration at one point: where setup and update load `state.json` (`json(statePath)` in `lib/kitto.mjs` and `kittoHome()` consumers), replacing it with `loadState` and passing `piLocalDir` for the configuration checkout. Setup writes `schema: 2` instead of `schema: 1`. Check every reader of `state.schema === 1`, including `lib/routing-policy.mjs`.
-5. Port `record-settings` and the `previous` read in `lib/pi_config.py` (or its JS replacement) to the ledger, then delete `managed-packages.json` from the paths in `removable` after a verified setup.
-6. `kitto setup --recover` reads the saved state: it must call `loadState`, and an older Kitto that meets schema 2 must stop with the unsupported-schema message instead of overwriting the ledger. Recovery must treat `pending` entries as unfinished work, as the Codex sweep does now.
-7. Decide whether DSH rows get ledger entries (see mapping), and add `saveState` to the `save` callbacks that now call `atomicJson`.
-8. Release note and a versioned deprecation of `downgradeState` once a release has shipped.
+1. [x] Switch `configurationPlan`, `deploy`, `skillPlan` and `existingSkillAction` in `lib/kitto.mjs` to `list`, `get`, `recordedHash` and `replaceScope`.
+2. [x] Switch `instructionPlan` and `applyInstructions` in `lib/host-config.mjs`.
+3. [x] Switch `collectPlan`, `savePending`, `promotePending`, `forgetPending`, `applyCodexMcp`, `removeCodexMcp` and `liveDetails` in `lib/codex-mcp.mjs`; the pending semantics of `previous` are unchanged.
+4. [x] Activate the migration at one point: `lib/state-io.mjs` (`loadKittoState`, `saveKittoState`) wraps `loadState` and `saveState` with `piLocalDir` taken from the saved `source`. Setup, update, recover, remove and the maintain operations load through it; previews pass `dryRun`. Setup writes `schema: 2`. `lib/routing-policy.mjs` accepts schema 1 and 2 (`routingBoundary.schema` stays 1). Readers that only need top-level fields (`lib/routing-command.mjs`, `lib/scope-service.mjs`, `integration/*`) still read the file directly, which is valid for both schemas.
+5. [x] Pi ownership lives in the ledger: `mergeSettings` takes the owned specs, `recordSettings` returns the repo list and the sync records it. The imported `managed-packages.json` is removed after a successful apply.
+6. [x] `kitto setup --recover` loads through `loadKittoState`; the Codex pending semantics are untouched. An older Kitto that meets schema 2 stops with the unsupported-schema message from `migrateState`.
+7. [x] DSH rows get ledger entries (`mcp`/`dsh`/row id, hash is a canonical fingerprint of the row). Sync and removal preserve a row whose fingerprint differs from the recorded one and warn; rows without an entry keep the namespace-only behavior. Saves go through `saveState`.
+8. [ ] Versioned deprecation of `downgradeState` once a release has shipped. `kitto maintain state-rollback` exposes it meanwhile; DSH entries are dropped on downgrade because schema 1 never recorded them, and the Pi package list is written back to `managed-packages.json` first.
 
 ## Consequences
 

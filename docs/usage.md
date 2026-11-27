@@ -188,11 +188,11 @@ MCP：Pi 由 Kitto 管理共享、平台、private 和项目级条目。DSH 在 
 
 默认只读 Pi 的 base 与 platform。机器专属的 `config/pi/mcp.private.json`（Git 忽略）和 `config/pi/local/mcp.json` 默认不读取；全局 `setup` 或 `update` 加 `--include-private` 才会纳入，叠加顺序为 base < platform < local < private，两个文件都可选。该选择记录在 `state.json`：之后不带参数的 `setup` 会沿用，`--no-include-private` 关闭；scoped setup 不处理 MCP，因此拒绝这两个参数。仍含 `YOUR_*` 占位符的条目也会跳过，避免把模板 URL 同步出去。
 
-home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。`desktop` 配置档不参与 MCP 同步（也不写 home patch）。Codex 的 MCP 由 Kitto 同步（见下），模型/settings 和凭据继续使用各自原生配置。
+home patch、`profiles/*/cordis.patch.yml` 或已启用的 `mcp-manager` `servers` 已声明同名 server 时，跳过并警告。非空 flow 风格顶层 patch、`kitto-mcp-*` 与其它条目混在同一 `insert`、或生成结果无法解析（例如删除后留下未解析 alias）时会中止且不写入。设置 `KITTO_NO_MCP_SYNC=1` 可关闭同步；`maintain remove` 会删除 Kitto 自有条目。同步成功后，Kitto 会在所有权台账（`owned.mcp.dsh`）记录每一行的指纹；之后若某个 `kitto-mcp-*` 行与记录的指纹不一致（被本机改过），同步和 `maintain remove` 都会保留该行并警告（与 Codex 的策略一致）。没有台账记录的行（迁移前的安装）仍只按 `kitto-mcp-` 命名空间处理，下一次成功同步后才会补记。`desktop` 配置档不参与 MCP 同步（也不写 home patch）。Codex 的 MCP 由 Kitto 同步（见下），模型/settings 和凭据继续使用各自原生配置。
 
 Codex 的启用 server 同样从该 Pi 源派生（默认 base+platform，`--include-private` 的开关与 DSH 相同）。同步传递 stdio 的 command/args 或 HTTP 的 URL；HTTP server 若只带一个 `Authorization: Bearer ${VAR}` header，会映射为 `codex mcp add ... --url ... --bearer-token-env-var VAR`，Codex 只保存环境变量名，明文 secret 不进入 `config.toml` 或 argv。其他 headers、stdio 的 `env`、`env_http_headers` 和 `bearer_token_env_var` 字段不能由 `codex mcp add` 安全表达，包含这些字段的 server 会整条跳过并打印原因；含字面 token 形状、`url`/`command`/`args` 模板、URL userinfo/凭据类 query，或 `command`/`args` 中凭据形状 flag（含 `--header`/`-H` 后跟敏感 header 名或凭据值）、env 赋值或字面 Authorization 的 server 同样拒绝；原生 Codex 失败信息不回显 argv。模型/settings 和凭据继续使用各自的原生配置。共享层只保证规则、skills 和 scope 语义一致。
 
-Codex 的 MCP 归属记录在 `state.json` 的 `mcp.codex`：只有带有 Kitto 指纹且 live 配置未被改动的 server 才会被更新或删除。写入前，Kitto 先把目标指纹记为 pending；`codex mcp add` 成功并通过重新 list 校验后才转为正式归属。若进程在 live 写入后、state 保存前中断，下次 sync 会直接收养（`mcp adopt`），不会留下永久无归属的 server。verified list 确认 owned server 已从 live 消失时，Kitto 会清除旧指纹（`mcp forget`），避免之后误删同名同 transport 的用户 server。若中断的 add 只留下 pending、随后源条目被删除，pending 对应的 live server 会被移除；没有 live 或 transport 已被改动的 pending 会被清理（`mcp forget pending`）。同名但不是 Kitto 添加的 server、以及被本机修改过的 server（包括额外 env、headers、工具过滤或超时）都会保留，并在 `status`/`sync` 计划中标记为 `mcp conflict`。
+Codex 的 MCP 归属记录在 `state.json` 的所有权台账（`owned.mcp.codex`，schema 2；旧版的 `mcp.codex`/`mcp.codexPending` 在首次写入时迁移到台账）：只有带有 Kitto 指纹且 live 配置未被改动的 server 才会被更新或删除。写入前，Kitto 先把目标指纹记为 pending；`codex mcp add` 成功并通过重新 list 校验后才转为正式归属。若进程在 live 写入后、state 保存前中断，下次 sync 会直接收养（`mcp adopt`），不会留下永久无归属的 server。verified list 确认 owned server 已从 live 消失时，Kitto 会清除旧指纹（`mcp forget`），避免之后误删同名同 transport 的用户 server。若中断的 add 只留下 pending、随后源条目被删除，pending 对应的 live server 会被移除；没有 live 或 transport 已被改动的 pending 会被清理（`mcp forget pending`）。同名但不是 Kitto 添加的 server、以及被本机修改过的 server（包括额外 env、headers、工具过滤或超时）都会保留，并在 `status`/`sync` 计划中标记为 `mcp conflict`。
 
 Codex MCP 的已知边界：
 
@@ -312,6 +312,19 @@ Kitto 也会检查已登记工作区是否对当前账号可写。只读工作�
 首次 setup 遇到配置冲突时，修正冲突后重跑原命令。加 `--dry-run` 可先看操作预览；对于尚未下载的远端配置，预览仅显示安装步骤。
 
 如果升级后维护 skill 无法运行，在首页的安装命令末尾加 `--recover --dry-run` 查看恢复计划，再用 `--recover` 执行。恢复会切回之前验证过的 Kitto 程序并重新连接宿主。个人配置的历史版本通过 Git 恢复。
+
+### 所有权台账与降级
+
+`state.json` 自 schema 2 起用一份所有权台账（`owned`）记录 Kitto 创建的 skills、指令块、MCP 行和 Pi 包，取代原来的 `skills`、`hostSkills`、`keptSkills`、`instructions`、`mcp.codex`、`mcp.codexPending` 和 `config/pi/local/managed-packages.json`。升级后第一次真正写入（`setup`、`update --apply`、`maintain` 的 `--apply` 操作和 `setup --recover`）会迁移旧状态，并在 `state.json` 旁一次性保存原始内容 `state.v1.json`（不会被覆盖）；`status`、`--dry-run` 和预览只在内存中迁移，不写任何文件。迁移导入的 `managed-packages.json` 会在一次成功的 apply 之后删除。
+
+schema 2 的 `state.json` 不能被旧版 Kitto 读取。降级 Kitto 包之前，先运行：
+
+```sh
+kitto maintain state-rollback            # 预览，不写入
+kitto maintain state-rollback --apply    # 把 state.json 写回 schema 1，并恢复 managed-packages.json
+```
+
+账本里有 schema 1 无法表达的条目（例如未完成的 skill 写入）时命令会拒绝并说明原因，不改动任何文件。DSH 行的指纹在 schema 1 里本来就不存在，回滚时丢弃，不影响旧版的命名空间识别。兜底做法是把 `state.v1.json` 复制回 `state.json`，但这会丢失迁移之后的变更。
 
 ### 被中断的运行、残留锁与未验证的 runtime
 
