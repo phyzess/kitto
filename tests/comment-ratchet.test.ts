@@ -4,27 +4,30 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, type TestContext } from 'vitest';
 import { parse } from 'yaml';
 import { command, formatFor, inspect, nativeParser } from '../scripts/comment-ratchet.ts';
 import { compare, repository } from '../scripts/comment-ratchet/snapshots.ts';
 
 const parser = nativeParser();
 const genesis = '4400a587ef93343ec6c5c52d20b7dc8e8468638c';
-const scan = (path, source) => inspect(parser, path, formatFor(path), Buffer.from(source));
-const snap = (files, snapshot = 'fixture') => ({ snapshot, files: Object.entries(files).map(([path, source]) => scan(path, source)) });
-const workflow = (run) =>
+const scan = (path: string, source: string | Buffer) => inspect(parser, path, formatFor(path), Buffer.from(source));
+const snap = (files: Record<string, string>, snapshot = 'fixture') => ({
+  snapshot,
+  files: Object.entries(files).map(([path, source]) => scan(path, source)),
+});
+const workflow = (run: string) =>
   `name: Checks\non: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - id: example\n        run: ${run}\n`;
 
-function fixture(t) {
+function fixture(t: TestContext) {
   const cwd = mkdtempSync(join(tmpdir(), 'kitto-comment-test-'));
   t.onTestFinished(() => rmSync(cwd, { recursive: true, force: true }));
-  const git = (args, input) => command('git', args, { cwd, input }).toString().trim();
+  const git = (args: string[], input?: string) => command('git', args, { cwd, input }).toString().trim();
   git(['init', '-q', '--object-format=sha1']);
-  function blob(source) {
+  function blob(source: string) {
     return git(['hash-object', '-w', '--stdin'], source);
   }
-  function commit(source, ...parents) {
+  function commit(source: string, ...parents: string[]) {
     const tree = git(['mktree'], `100644 blob ${blob(source)}\tsource.mjs\n`);
     return git([
       '-c',
@@ -39,7 +42,7 @@ function fixture(t) {
     ]);
   }
   const repo = repository(cwd, parser);
-  return { cwd, git, blob, commit, repo, inventory: (ref) => repo.inventory(ref, { protect: false }) };
+  return { cwd, git, blob, commit, repo, inventory: (ref: string) => repo.inventory(ref, { protect: false }) };
 }
 
 test('JavaScript inventory gives exact Unicode spans, ignores data, and unions physical lines', () => {
@@ -126,7 +129,7 @@ test('workflow maps YAML, Bash and executable heredoc byte ranges to original so
 });
 
 test('recognized embedded contexts fail closed on unsupported or malformed input', () => {
-  const cases = [
+  const cases: [string, string, RegExp][] = [
     ['bad.mjs', 'function f() {\n// not a valid input\n', /node .*failed/u],
     ['bad.mjs', 'const value = "unterminated\n// concealed\n', /node .*failed/u],
     ['bad.ts', 'function f(): number {\n// not a valid input\n', /TypeScript|Expected/u],
@@ -160,12 +163,12 @@ test('TypeScript detects incomplete recovery even when the ERROR selector return
     input: source,
     emptyMatch: true,
   });
-  assert.deepEqual(JSON.parse(errors), []);
+  assert.deepEqual(JSON.parse(errors.toString()), []);
   assert.throws(() => scan('a.ts', source), /TypeScript parse error: incomplete or recovered syntax/u);
 });
 
 test('YAML validation rejects recovered syntax in configuration and workflow YAML', () => {
-  const malformed = [
+  const malformed: [string, RegExp][] = [
     [' \tvalue', /Use spaces for YAML separation/u],
     [' "\\U00110000"', /BAD_DQ_ESCAPE/u],
     [' "\\uD800"', /Invalid Unicode scalar value/u],
@@ -195,13 +198,13 @@ test('line and region directives cannot move unchanged to a different statement'
   const directive = '// @ts-ignore\n';
   const first = 'const bad: number = "bad";\n';
   const second = 'const fine: number = 1;\n';
-  const ts = (source) => snap({ 'a.ts': source });
+  const ts = (source: string) => snap({ 'a.ts': source });
   const baseline = ts('// explanation\n' + directive + first + second);
   assert.equal(compare(baseline, ts(directive + first + second)).violations.length, 0);
   assert.ok(compare(baseline, ts(first + directive + second)).violations.some((item) => item.kind === 'directive'));
   const start = '/* eslint-disable some-rule */\n';
   const end = '/* eslint-enable some-rule */\n';
-  const js = (source) => snap({ 'a.mjs': source });
+  const js = (source: string) => snap({ 'a.mjs': source });
   assert.ok(
     compare(js(start + 'a();\n' + end + 'b();\n'), js('a();\n' + start + 'b();\n' + end)).violations.some(
       (item) => item.kind === 'directive',
@@ -209,7 +212,7 @@ test('line and region directives cannot move unchanged to a different statement'
   );
 });
 
-const padding = (bytes) => `export const pad = '${'x'.repeat(bytes)}';\n`;
+const padding = (bytes: number) => `export const pad = '${'x'.repeat(bytes)}';\n`;
 const incomplete = 'export const call = (value: number) => value;\ncall(1, 2\n';
 
 test('TypeScript full-tree check is not limited by the argv size and rejects MISSING-only recovery', () => {
@@ -325,7 +328,7 @@ test('snapshots bind the push ancestor and the two PR parents, and inspect index
 
 test('renames carry comments across .mjs to .ts, but copies and dissimilar rewrites do not', (t) => {
   const { git, blob, repo, inventory } = fixture(t);
-  const commitFiles = (files, ...parents) => {
+  const commitFiles = (files: Record<string, string>, ...parents: string[]) => {
     const tree = git(
       ['mktree'],
       Object.entries(files)
@@ -348,11 +351,11 @@ test('renames carry comments across .mjs to .ts, but copies and dissimilar rewri
   const typed = body.replaceAll('f1(a)', 'f1(a: number): number').replaceAll('f2(a)', 'f2(a: number): number');
   const source = `// kept note\n/* block note */\n${body}`;
   const base = commitFiles({ 'a.mjs': source });
-  const check = (files) => {
+  const check = (files: Record<string, string>) => {
     const head = commitFiles(files, base);
     return compare(inventory(base), inventory(head), repo.renames(base, head)).violations;
   };
-  const renames = (head) => [...repo.renames(base, head)];
+  const renames = (head: string) => [...repo.renames(base, head)];
   const same = commitFiles({ 'a.ts': `// kept note\n/* block note */\n${typed}` }, base);
   assert.deepEqual(renames(same), [['a.ts', 'a.mjs']]);
   assert.equal(check({ 'a.ts': `// kept note\n/* block note */\n${typed}` }).length, 0);
@@ -390,13 +393,15 @@ test('renames carry comments across .mjs to .ts, but copies and dissimilar rewri
 
 function ratchetStep() {
   const text = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
-  const step = parse(text).jobs.test.steps.find((step) => step.name === 'Check comment ratchet or report required bootstrap review');
+  const step = parse(text).jobs.test.steps.find(
+    (step: { name?: string }) => step.name === 'Check comment ratchet or report required bootstrap review',
+  );
   assert.equal(step?.shell, 'bash');
   assert.equal(typeof step.run, 'string');
   return step;
 }
 
-function runRatchetStep(cwd, prefix, env) {
+function runRatchetStep(cwd: string, prefix: string, env: Record<string, string>) {
   return spawnSync('bash', ['-euo', 'pipefail', '-c', `${prefix}\n${ratchetStep().run}`], {
     cwd,
     env: { ...process.env, RUNNER_TEMP: cwd, ...env },
@@ -423,7 +428,7 @@ test('normal PRs and main pushes run only the trusted base package, checker and 
   for (const [path, bytes] of Object.entries(trustedFiles)) writeFileSync(join(cwd, path), bytes);
   git(['add', '--', ...Object.keys(trustedFiles)]);
   const parent = commit('export {};\n');
-  const makeCommit = (...parents) =>
+  const makeCommit = (...parents: string[]) =>
     git([
       '-c',
       'user.name=Fixture',
@@ -470,7 +475,7 @@ test('normal PRs and main pushes run only the trusted base package, checker and 
     GITHUB_REF: 'refs/heads/main',
     PR_HEAD_SHA: '',
   });
-  assert.ok(missing.status > 0, missing.stderr);
+  assert.ok(missing.status !== null && missing.status > 0, missing.stderr);
   assert.match(missing.stderr, /pathspec.*did not match/u);
   assert.equal(missing.stdout, '');
 });

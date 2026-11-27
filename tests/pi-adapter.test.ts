@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url';
 import { installDependencies } from '../lib/dependencies.ts';
 import { piAdapter } from '../lib/pi-adapter.ts';
 import type { PiAdapterOptions, PiCommand } from '../lib/pi-adapter.ts';
-import type { State } from '../types/kitto.d.ts';
 import {
   composeAgents,
   exportMcp,

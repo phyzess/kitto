@@ -27,6 +27,7 @@ function main() {
     throw new Error(usage);
   const repo = repository(process.cwd(), nativeParser());
   if (inventory) return console.log(JSON.stringify(repo.inventory(inventory), null, 2));
+  if (base === undefined) throw new Error(usage);
   if (head) repo.verifyRange(base, head, prHead);
   const baseline = repo.inventory(repo.resolveCommit(base));
   const snapshots = head ? [head] : ['index', 'worktree'];
