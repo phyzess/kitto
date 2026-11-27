@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Maintenance: add contributor rules (`AGENTS.md`), ast-grep invariant checks (`npm run lint:invariants`, also a CI step), a PR template, repo-local preflight and rule-eval skills, and the proposed threat-model ADR 007.
+- Internal: add an ownership ledger module and a state schema 2 migration with rollback ([ADR 008](docs/adr/008-ownership-ledger.md)). Nothing uses them yet and no state is migrated.
 - Maintenance: retire the one-time comment-ratchet rollout bootstrap, closed issue drafts, the progress log and the comment audit ledgers (kept in git history at `fb9e292`).
 - Tests: `npm test` now runs every `tests/*.test.mjs`, and `npm run check:test-wiring` (also a CI step) fails if a test file is not covered.
 - Paths: compare filesystem locations by identity through the shared `sameLocation` helper instead of resolved strings, so symlinked roots such as macOS `/var` are no longer mistaken for different locations. CI now also runs the test suites with `TMPDIR` behind a symlink.
