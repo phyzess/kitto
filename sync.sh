@@ -102,11 +102,11 @@ if [ "$DRY" = 0 ] && [[ "$CMD" =~ ^(pull|push|deps)$ ]]; then
         holder_state=""
         [ -z "$holder" ] || holder_state="$(lock_holder_state "$holder")"
         if [ "$holder_state" = alive ]; then
-            fail "另一个同步操作仍在运行（pid $holder）。等它结束后重试。"
+            fail "另一个同步操作仍在运行（pid ${holder}）。等它结束后重试。"
         elif [ "$holder_state" = dead ]; then
             fail "残留的同步锁：pid $holder 已退出。重跑命令并加 --break-lock 自动清理，或 rm -rf $LOCAL/.sync-lock"
         elif [ -n "$holder" ]; then
-            fail "无法确认同步锁持有者（pid $holder）是否仍在运行。不要删除 $LOCAL/.sync-lock；确认该进程已结束后再手动处理。"
+            fail "无法确认同步锁持有者（pid ${holder}）是否仍在运行。不要删除 $LOCAL/.sync-lock；确认该进程已结束后再手动处理。"
         else
             fail "$LOCAL/.sync-lock 存在但没有 pid 记录（旧版 Kitto 留下的）。确认没有进程在写后 rm -rf $LOCAL/.sync-lock"
         fi
