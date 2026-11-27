@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { allowStaleLockBreak, setup, parseOptions, update } from '../lib/kitto.ts';
 import { worktreeCommand } from '../lib/worktree-audit.ts';
 import { hostsCommand } from '../lib/hosts.ts';
-import { readScopeRegistry, scopeHome, writeScopeRegistry } from '../lib/scopes.ts';
+import { readScopeRegistry, scopeHome, writeScopeRegistry, type ScopeRegistry } from '../lib/scopes.ts';
 
 const help = `Kitto — portable personal agent configuration
 
@@ -85,17 +85,17 @@ The DSH desktop profile is managed by the Desktop app; Kitto v1 installs no scop
 configuration for it.
 `;
 
-async function scopePathCandidates(value) {
+async function scopePathCandidates(value: string): Promise<string[]> {
   const path = resolve(value);
   try { return [...new Set([await realpath(path), path])]; }
   catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return [path];
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return [path];
     throw error;
   }
 }
 
-function formatScopeList(registry) {
-  const section = paths => paths.length ? paths.map(path => `  ${path}`) : ['  (none)'];
+function formatScopeList(registry: ScopeRegistry): string {
+  const section = (paths: string[]) => paths.length ? paths.map(path => `  ${path}`) : ['  (none)'];
   return [
     `Global: ${registry.global ? 'enabled' : 'disabled'}`,
     'Workspaces:', ...section(registry.workspaces),
@@ -103,8 +103,14 @@ function formatScopeList(registry) {
   ].join('\n');
 }
 
-function parseScopeRemove(args) {
-  const targets = [];
+interface ScopeTarget {
+  global?: true;
+  kind?: string;
+  value?: string;
+}
+
+function parseScopeRemove(args: string[]): ScopeTarget {
+  const targets: ScopeTarget[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--global') targets.push({ global: true });
@@ -117,18 +123,18 @@ function parseScopeRemove(args) {
   return targets[0];
 }
 
-async function removeScope(args) {
+async function removeScope(args: string[]): Promise<void> {
   const target = parseScopeRemove(args);
   const home = scopeHome();
   const workspace = target.kind === 'workspace';
-  const key = workspace ? 'workspaces' : 'workspaceParents';
-  const candidates = target.global ? [] : await scopePathCandidates(target.value);
+  const key: 'workspaces' | 'workspaceParents' = workspace ? 'workspaces' : 'workspaceParents';
+  const candidates = target.global ? [] : await scopePathCandidates(target.value!);
   const lock = join(home, '.scope-setup.lock');
   let locked = false;
   if (existsSync(home)) {
     try { await mkdir(lock); locked = true; }
     catch (error) {
-      if (error.code === 'EEXIST') throw new Error('Scope registry is locked by setup: ' + lock);
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Scope registry is locked by setup: ' + lock);
       throw error;
     }
   }
@@ -141,18 +147,18 @@ async function removeScope(args) {
       return;
     }
     const registered = registry[key] ?? [];
-    const matched = registered.filter(entry => candidates.includes(entry));
+    const matched = registered.filter((entry: string) => candidates.includes(entry));
     if (!matched.length) {
       throw new Error(`No ${target.kind} scope registered at ${candidates[0]}. Run kitto scope list to see registered paths.`);
     }
-    await writeScopeRegistry(home, { ...registry, [key]: registered.filter(entry => !candidates.includes(entry)) });
+    await writeScopeRegistry(home, { ...registry, [key]: registered.filter((entry: string) => !candidates.includes(entry)) });
     console.log(`Removed ${target.kind} scope registration: ${matched[0]}. Instructions, skills and host adapters were left in place.`);
   } finally {
     if (locked) await rm(lock, { recursive: true, force: true });
   }
 }
 
-async function scopeCommand(args) {
+async function scopeCommand(args: string[]): Promise<void> {
   const [operation, ...rest] = args;
   if (!operation || operation === '--help' || operation === '-h') {
     console.log(scopeHelp);
@@ -223,6 +229,6 @@ try {
   }
   else throw new Error(`Unknown command: ${command}. Use kitto --help.`);
 } catch (error) {
-  console.error(`Kitto: ${error.message}`);
+  console.error(`Kitto: ${(error as Error).message}`);
   process.exitCode = 1;
 }

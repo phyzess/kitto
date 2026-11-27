@@ -1,19 +1,20 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { resolveScopes } from '../../lib/scopes.ts';
+import type { Json } from '../../types/kitto.d.ts';
 
-async function optional(operation, fallback) {
+async function optional<T, F>(operation: () => Promise<T>, fallback: F): Promise<T | F> {
   try {
     return await operation();
   } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return fallback;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return fallback;
     throw error;
   }
 }
 
-async function skillCatalog(directory) {
+async function skillCatalog(directory: string) {
   const entries = await optional(() => readdir(directory, { withFileTypes: true }), []);
-  const skills = [];
+  const skills: Json[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith('.') || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
     const path = join(directory, entry.name, 'SKILL.md');
@@ -35,8 +36,8 @@ for await (const chunk of process.stdin) input += chunk;
 const { cwd } = JSON.parse(input);
 if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw new Error('Codex SessionStart requires an absolute cwd.');
 
-const context = [];
-const skills = new Map();
+const context: string[] = [];
+const skills = new Map<string, Json>();
 for (const scope of await resolveScopes(cwd)) {
   const instructions = await optional(() => readFile(scope.instructions, 'utf8'), '');
   if (instructions.trim()) context.push(`# Shared instructions from ${scope.instructions}\n\n${instructions.trim()}`);

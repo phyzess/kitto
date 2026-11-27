@@ -8,6 +8,7 @@ import { kittoHome } from '../lib/kitto-home.ts';
 import { adviseRoute } from '../lib/model-routing.ts';
 import { activeRoutingBoundary, routeId } from '../lib/routing-policy.ts';
 import { createRoutingStore, newTicketId } from '../lib/routing-state.ts';
+import type { Json, State } from '../types/kitto.d.ts';
 
 export const ROUTING_HOST_VERSION = routingHostVersion;
 const TTL = 120_000;
@@ -15,18 +16,18 @@ const OBSERVATION_TTL = 300_000;
 const unsupported = 'Kitto requires a fresh operator permit and native one-time approval for this subagent call.';
 const deny = () => ({ kind: 'deny', reason: unsupported, info: { code: 'KITTO_ROUTE_DENIED' } });
 
-function directory(path) {
+function directory(path: unknown): string {
   if (typeof path !== 'string' || !isAbsolute(path) || !statSync(path).isDirectory()) throw new Error('Invalid routing directory.');
   return realpathSync(path);
 }
 
-export function boundRoutingPolicy(state, home, profile = 'web') {
+export function boundRoutingPolicy(state: State | null | undefined, home: unknown, profile: string = 'web'): Json | null {
   try {
     return profile === 'web' && directory(state?.dshHome) === directory(home) && activeRoutingBoundary(state, profile) || null;
   } catch { return null; }
 }
 
-export function issueRoutePermit({ state, home, request, store, now = Date.now() }) {
+export function issueRoutePermit({ state, home, request, store, now = Date.now() }: { state: State; home: string; request: Json; store: Json; now?: number }): Json {
   const { host, task, dispatch, go } = request ?? {};
   const policy = boundRoutingPolicy(state, home, host?.profile);
   if (!policy || host?.surface !== 'subagent' || host.version !== ROUTING_HOST_VERSION
@@ -43,9 +44,9 @@ export function issueRoutePermit({ state, home, request, store, now = Date.now()
   const result = adviseRoute({ state, request, now, poolStatus: (pool, meterAt) => store.poolStatus(pool, now, meterAt), controlled: true });
   if (result.status !== 'recommend') throw new Error(`Dispatch preflight stopped: ${result.reason}.`);
   const { provider, model, reasoning_effort, canonicalModel } = result.route;
-  const route = host.routes.find(row => row.provider === provider && row.model === model);
+  const route = host.routes.find((row: Json) => row.provider === provider && row.model === model);
   const selected = { provider, model, canonicalModel, upstream: route.upstream, account: route.account, billing: route.billing };
-  let pool, meterAt, expiresAt = Math.min(now + TTL, timestamp(host.observedAt) + OBSERVATION_TTL);
+  let pool: string | undefined, meterAt: string | undefined, expiresAt = Math.min(now + TTL, timestamp(host.observedAt) + OBSERVATION_TTL);
   if (route.upstream === 'opencode-go') {
     pool = go.pool;
     const data = go.metadata ?? go;
@@ -59,13 +60,13 @@ export function issueRoutePermit({ state, home, request, store, now = Date.now()
   const native = { name: id, description: task.id, cwd, provider, model, ...(reasoning_effort !== undefined && { reasoning_effort }) };
   store.issue({ id, issuedAt: now, expiresAt, binding: { profile: host.profile, dshHome: directory(home), session: host.session, project, callerCwd, policy },
     request: native, selected, ...(pool && { pool, meterAt }), task: { id: task.id, data: task.data, effects: task.effects, role: task.role },
-    ...(task.role === 'review' && { review: { implementers: task.implementers.map(({ canonicalModel }) => ({ canonicalModel })), reviewer: { canonicalModel } } }) });
+    ...(task.role === 'review' && { review: { implementers: task.implementers.map(({ canonicalModel }: Json) => ({ canonicalModel })), reviewer: { canonicalModel } } }) });
   return { status: 'permit-issued', attempt: id, expiresAt: new Date(expiresAt).toISOString(), native, selected };
 }
 
-export function createDispatchGate({ home, store, getState, getCwd, observer, clock = Date.now }) {
-  const asked = new WeakSet(), admitted = new WeakSet(), invoked = new WeakMap();
-  function check(exec, row, now) {
+export function createDispatchGate({ home, store, getState, getCwd, observer, clock = Date.now }: { home: string; store: Json; getState: () => State; getCwd: (session: Json) => unknown; observer: Json; clock?: () => number }) {
+  const asked = new WeakSet<object>(), admitted = new WeakSet<object>(), invoked = new WeakMap<object, string>();
+  function check(exec: Json, row: Json, now: number) {
     const policy = boundRoutingPolicy(getState(), home, row.binding.profile);
     const { request, binding } = row, agent = exec.agent;
     if (!policy || JSON.stringify(policy) !== JSON.stringify(binding.policy) || directory(home) !== binding.dshHome
@@ -77,14 +78,14 @@ export function createDispatchGate({ home, store, getState, getCwd, observer, cl
         || now < row.issuedAt || now >= row.expiresAt || row.expiresAt - row.issuedAt > TTL
         || directory(exec.arguments.cwd) !== request.cwd || exec.arguments.cwd !== request.cwd
         || Object.keys(exec.arguments).length !== Object.keys(request).length + 1 || !Object.hasOwn(exec.arguments, 'prompt')
-        || Object.entries(request).some(([key, val]) => exec.arguments[key] !== val)
+        || Object.entries(request).some(([key, val]: [string, unknown]) => exec.arguments[key] !== val)
         || (row.selected?.upstream === 'opencode-go' && store.poolStatus(row.pool, now, row.meterAt ?? null) !== 'clear')) throw new Error(unsupported);
-    const live = observer.export(exec)?.routes.find(route => route.provider === request.provider && route.model === request.model);
+    const live = observer.export(exec)?.routes.find((route: Json) => route.provider === request.provider && route.model === request.model);
     if (!live || (request.reasoning_effort !== undefined && !live.reasoningEfforts.includes(request.reasoning_effort))) throw new Error(unsupported);
   }
 
   return {
-    async preExecute(exec, next) {
+    async preExecute(exec: Json, next: () => Promise<Json>) {
       if (exec.name !== 'subagent') return next();
       try {
         const row = store.peek(exec.arguments?.name);
@@ -96,16 +97,16 @@ export function createDispatchGate({ home, store, getState, getCwd, observer, cl
       asked.add(exec);
       return native.kind === 'ask' ? native : { kind: 'ask', reason: 'Review the exact pending subagent task and data, then approve once only if they match the Kitto permit.' };
     },
-    guard(exec) {
+    guard(exec: Json) {
       if (exec.name !== 'subagent') return;
       if (!asked.delete(exec) || exec.signal?.aborted !== false) return deny();
       try {
         const now = clock();
-        store.consume(exec.arguments.name, row => check(exec, row, now), now);
+        store.consume(exec.arguments.name, (row: Json) => check(exec, row, now), now);
         admitted.add(exec);
       } catch { return deny(); }
     },
-    async dispatch(exec, next) {
+    async dispatch(exec: Json, next: () => unknown) {
       if (exec.name !== 'subagent') return next();
       if (!admitted.delete(exec) || exec.signal?.aborted !== false) throw new Error(unsupported);
       const row = store.peek(exec.arguments.name);
@@ -114,7 +115,7 @@ export function createDispatchGate({ home, store, getState, getCwd, observer, cl
       invoked.set(exec, row.id);
       return next();
     },
-    result(exec, result) {
+    result(exec: Json, result: Json) {
       const id = invoked.get(exec);
       invoked.delete(exec);
       if (id && result?.isError === false && result.value?.kind === 'activation' && result.value.name === id) {
@@ -124,8 +125,8 @@ export function createDispatchGate({ home, store, getState, getCwd, observer, cl
   };
 }
 
-export function registerDshRouting(ctx) {
-  ctx.inject(['profileContext', 'tools', 'workingDirectory'], host => {
+export function registerDshRouting(ctx: Json): void {
+  ctx.inject(['profileContext', 'tools', 'workingDirectory'], (host: Json) => {
     const { name, home, installAnchor } = host.profileContext;
     if (name !== 'web' || !isAbsolute(installAnchor ?? '') || !isAbsolute(home ?? '')) return;
     try {
@@ -136,7 +137,7 @@ export function registerDshRouting(ctx) {
     const observer = createRouteObserver({ profile: name, enabled: () => {
       try { return Boolean(boundRoutingPolicy(getState(), home, name)); } catch { return false; }
     } });
-    const gate = createDispatchGate({ home, store: createRoutingStore(local), getState, observer, getCwd: session => host.workingDirectory.get(session) });
+    const gate = createDispatchGate({ home, store: createRoutingStore(local), getState, observer, getCwd: (session: Json) => host.workingDirectory.get(session) });
     host.on('tools/pre-execute', gate.preExecute, { prepend: true });
     host.tools.guard(gate.guard);
     host.on('tools/execute', gate.dispatch);
