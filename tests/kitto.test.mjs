@@ -466,7 +466,7 @@ test('deployed routing help uses the bound CLI without relying on PATH', t => {
   const probe = () => command('/bin/sh', ['-c', help], { ...f.env, PATH: bin });
   const offline = probe();
   good(offline);
-  assert.match(offline.stdout, /kitto route preflight/);
+  assert.match(offline.stdout, /kitto route plan/);
 
   writeFileSync(join(bin, 'kitto'), '#!/bin/sh\nexit 77\n', { mode: 0o755 });
   good(probe());
