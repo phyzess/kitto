@@ -174,7 +174,7 @@ export function downgradeState(input: AnyState): AnyState {
             if (entry.previous !== undefined) codex[name] = entry.previous;
           } else throw unrepresentable(`kept mcp ${scope}/${name}`);
         }
-      } else if (kind !== 'pi-package') throw unrepresentable(`unknown kind ${kind}`);
+      } else if (kind !== 'pi-package' && kind !== 'launcher') throw unrepresentable(`unknown kind ${kind}`);
     }
   }
   for (const key of present) {

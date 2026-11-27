@@ -6,7 +6,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 
-const script = fileURLToPath(new URL('../skills/context-budget/scripts/dsh-usage.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../skills/context-budget/scripts/dsh-usage.ts', import.meta.url));
 const time = Date.UTC(2026, 0, 1);
 const header = JSON.stringify({ type: 'session', version: 4, cwd: '/synthetic/project', createdAt: time });
 const request = (inputTokens, timestamp = time) => JSON.stringify({

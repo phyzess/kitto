@@ -10,7 +10,7 @@
 | 宿主 addendum | `config/dsh/AGENTS.md`、`config/codex/AGENTS.md`、`config/pi/AGENTS.md` | 各宿主的执行面：AgentTeams 路由、单模型降级、Pi 能力适配。 |
 | 共享 skill | `skills/dev-orchestration/SKILL.md` | 完整 playbook：DAG 模板、任务合同、证据、升级、反模式。部署到 `~/.agents/skills`。 |
 | 共享 skill（成本） | `skills/context-budget/SKILL.md` | 上下文阈值、handoff 模板、审计用法与反模式。 |
-| 审计脚本 | `skills/context-budget/scripts/dsh-usage.mjs` | 只读扫 `$DSH_HOME/sessions`，出模型/项目/天/会话四张表与扇出、分位数。随 skill 一起部署。 |
+| 审计脚本 | `skills/context-budget/scripts/dsh-usage.ts` | 只读扫 `$DSH_HOME/sessions`，出模型/项目/天/会话四张表与扇出、分位数。随 skill 一起部署。 |
 | 本机路由预检 | [Kitto 本机模型路由](model-routing.md) | 核对设备、账号、现有路由、额度与独立性；不执行推理。分级与归因默认使用本地证据。 |
 | DSH 原生配置（压缩） | [ADR 005：DSH 压缩预算](adr/005-dsh-compaction-budget.md) | 压缩触发点参考值；Kitto 不部署，改模型路由的 `contextWindow`。 |
 | DSH 原生配置 | `config/dsh/agent-teams.profiles.yml` | AgentTeams 的 `profiles` 与 `toolPolicies` 参考片段。Kitto 不部署，需手工合并到 profile patch。 |
@@ -38,7 +38,7 @@
 
 编排的第二个成本面不是模型单价，是上下文生命周期。根因在机制层，不在纪律层：DSH 的 `compaction-basic` 默认 `thresholdRatio: 0.8`，按上下文窗口的比例触发；1M 窗口的模型要涨到 ~840K prompt 才压缩，而 Grok/OpenAI 的翻倍档从 200K 就开始了。实测会话正好顶到 840.5K，日志里只有工具结果剪枝（`compaction/prune`），没有任何摘要压缩。所以先把触发点压到 200K 附近（改模型路由的 `contextWindow`，见 [ADR 005：DSH 压缩预算](adr/005-dsh-compaction-budget.md)），再谈会话纪律。
 
-2026-11-19~24 实测（`node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs`）：
+2026-11-19~24 实测（`~/.agents/bin/kitto-node ~/.agents/skills/context-budget/scripts/dsh-usage.ts`）：
 
 - 5.37B 输入 token、15.4M 输出，折算约 $850；输入是输出的 348 倍。
 - 98% 的输入是缓存读——缓存工作正常，问题是绝对量。
@@ -56,7 +56,7 @@
 | 不变量 | `config/instructions/common.md` →「上下文与成本」 | 压缩阈值、prompt 红线、会话边界、干净上下文、只读聚合、波次规模。所有宿主都拿到。 |
 | DSH 执行面 | `config/dsh/AGENTS.md` →「上下文与成本（执行面）」 | 审计入口、会话日志位置、`subagent` 与 `subagent_fork` 的选择。 |
 | 完整协议 | `skills/context-budget/SKILL.md` | 阈值表、handoff 模板、按收益排序的动作、反模式。 |
-| 审计 | `skills/context-budget/scripts/dsh-usage.mjs` | 只读复算上面所有数字；改完策略后用它验收。 |
+| 审计 | `skills/context-budget/scripts/dsh-usage.ts` | 只读复算上面所有数字；改完策略后用它验收。 |
 
 为什么放规则层：阈值只有每次会话都看得到才会被执行，放进 skill 会被"需要时再说"跳过。所以 `common.md` 只留判定与动作，细节和测量在 skill。项目侧的落地面（工单会话、只读核查、波次规模）写在项目自己的 `AGENTS.md` 或 `docs/process/conventions.md`，不复制这里的规则。
 

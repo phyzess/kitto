@@ -11,6 +11,8 @@ import { planCodexMcp, sourceServers as codexMcpSource } from './codex-mcp.ts';
 import { printMcpParity } from './parity.ts';
 import { desktopProfileNotice, isDesktopProfile, probeDesktopProfile, reportDesktopProbe, validateDshProfile } from './dsh-profile.ts';
 import { versionReport } from './versions.ts';
+import type { ToolNodePlan } from './tool-node.ts';
+import { applyLauncherRemoval, applyToolNode, describeToolNode, launcherPath, planLauncherRemoval, planToolNode } from './tool-node.ts';
 
 import { hosts, pnpmVersion } from './host-pins.ts';
 import { hostsCommand } from './hosts.ts';
@@ -72,6 +74,7 @@ interface ConfigurationPlan {
   groups: SkillGroup[];
   instructions: InstructionPlan[];
   mcp: McpOperation[] | undefined;
+  toolNode: ToolNodePlan;
 }
 
 interface BootstrapMarker {
@@ -152,7 +155,7 @@ async function assertBuiltPackage(): Promise<void> {
   }
 }
 
-async function installRuntime(home: string, old: Partial<State>): Promise<string> {
+async function installRuntime(home: string, old: Partial<State>, agentsHome: string): Promise<string> {
   const next = join(home, 'runtime.next');
   const runtime = join(home, 'runtime');
   const previous = join(home, 'runtime.previous');
@@ -165,8 +168,9 @@ async function installRuntime(home: string, old: Partial<State>): Promise<string
   }
   const skillPath = join(next, 'integration/skills/kitto/SKILL.md');
   const entries: Record<string, string> = { KITTO_RUNNER: 'maintain.mjs', KITTO_CLI: 'kitto.mjs' };
+  const launcher = shellQuote(launcherPath(agentsHome));
   const template = await readFile(skillPath, 'utf8');
-  await writeFile(skillPath, template.replace(/KITTO_RUNNER|KITTO_CLI/g, (key: string) => shellQuote(join(runtime, 'bin', entries[key]))));
+  await writeFile(skillPath, template.replace(/KITTO_NODE|KITTO_RUNNER|KITTO_CLI/g, (key: string) => key === 'KITTO_NODE' ? launcher : shellQuote(join(runtime, 'bin', entries[key]))));
   const hash = await treeHash(next);
   if (await present(runtime) && await treeHash(runtime) === hash) {
     await rm(next, { recursive: true });
@@ -251,11 +255,13 @@ async function configurationPlan(state: State): Promise<ConfigurationPlan> {
   const instructions = await instructionPlan(state);
   for (const plan of instructions) console.log(`instructions ${plan.before === plan.after ? 'same' : 'sync'}: ${plan.target}`);
   const mcp = state.agents.includes('codex') ? await planCodexMcp(state) : undefined;
-  return { groups, instructions, mcp };
+  const toolNode = await planToolNode(state);
+  describeToolNode(toolNode);
+  return { groups, instructions, mcp, toolNode };
 }
 
 async function deploy(state: State, apply: boolean, plan: ConfigurationPlan | undefined = undefined): Promise<void> {
-  const { groups, instructions } = plan ?? await configurationPlan(state);
+  const { groups, instructions, toolNode } = plan ?? await configurationPlan(state);
   const deployment = apply ? sourceRevision(state.source) : undefined;
   const { sync, postSkills } = planDeploy(state);
   for (const action of sync) await (apply ? action.apply() : action.preview());
@@ -265,6 +271,7 @@ async function deploy(state: State, apply: boolean, plan: ConfigurationPlan | un
     return;
   }
   await applyInstructions(state, instructions);
+  await applyToolNode(state, toolNode);
   for (const { name, plans } of groups) {
     const owned: Record<string, string> = {};
     const kept: string[] = [];
@@ -329,6 +336,8 @@ async function remove(state: State, apply: boolean): Promise<void> {
   console.log(`Detach Kitto from ${state.agents.join(', ')}. Keep configuration, shared skills, agent CLIs and Kitto files for recovery/reinstallation.`);
   const remaining = state.agents.filter(name => !(state.removedAgents || []).includes(name));
   const detachments: Array<{ name: HostName; actions: HostAction[] }> = [];
+  const launcher = await planLauncherRemoval(state);
+  if (launcher.action !== 'absent') console.log(`launcher ${launcher.action}: ${launcher.target}`);
   for (const name of remaining) {
     const actions = await adapterFor(state, name).planDetach(state);
     for (const action of actions) await action.preview({ announce: !apply });
@@ -343,6 +352,7 @@ async function remove(state: State, apply: boolean): Promise<void> {
     state.removedAgents = [...(state.removedAgents || []), name];
     await saveKittoState(home, state);
   }
+  await applyLauncherRemoval(state, launcher);
   state.removing = false; state.detached = true;
   await saveKittoState(home, state);
 }
@@ -365,7 +375,7 @@ async function refreshRuntime(state: State, apply: boolean): Promise<RuntimeReco
     console.log(`Runtime: ${current} (the installed maintenance runner cannot replace itself; run update with the intended Kitto package to refresh the code copy).`);
     return undefined;
   }
-  const installed = await installRuntime(home, state);
+  const installed = await installRuntime(home, state, state.agentsHome);
   const pending = { version: (await json(join(installed, 'package.json'))).version, hash: await treeHash(installed) };
   state.pendingRuntime = pending;
   await saveKittoState(home, state);
@@ -709,7 +719,7 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
     }
     await validateSource(state);
     const plan = await configurationPlan(state);
-    await installRuntime(home, old);
+    await installRuntime(home, old, state.agentsHome);
     await saveKittoState(home, state);
     await deploy(state, true, plan);
   });

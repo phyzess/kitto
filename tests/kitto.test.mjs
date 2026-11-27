@@ -42,7 +42,8 @@ function fixture(t) {
   const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'), PATH: `${bin}:${process.env.PATH}`, CALL_LOG: log,
     PI_CODING_AGENT_DIR: join(home, 'pi'), PI_AGENTS_DIR: join(home, '.agents'), DSH_AGENTS_HOME: join(home, '.agents'),
     DSH_HOME: join(home, 'dsh'), CODEX_HOME: join(home, 'codex'), FAKE_CODEX_STATE: join(home, 'codex/_fake-codex.json'),
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+    MISE_STATE_DIR: join(temp, 'mise/state'), MISE_CACHE_DIR: join(temp, 'mise/cache'), MISE_DATA_DIR: join(temp, 'mise/data') };
   for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'], ['config', 'user.name', 'Test'], ['add', '.'], ['commit', '-m', 'fixture']]) {
     const result = command('git', args, env, source); assert.equal(result.status, 0, result.stderr);
   }
@@ -432,7 +433,7 @@ test('deployed routing help uses the bound CLI without relying on PATH', t => {
   good(f.cli('setup', '--agents', 'dsh', '--source', f.source));
   const runtime = join(f.env.KITTO_HOME, 'runtime');
   const skill = readFileSync(join(runtime, 'integration/skills/kitto/SKILL.md'), 'utf8');
-  const help = skill.match(/^node .* route --help$/m)?.[0];
+  const help = skill.match(/^'.*kitto-node' .* route --help$/m)?.[0];
   assert.ok(help && !help.includes('KITTO_CLI'), 'The deployed skill must show the bound routing command.');
 
   const bin = join(f.temp, 'bin');
@@ -1996,4 +1997,53 @@ test('state-rollback previews, restores schema 1 and the Pi package file, and re
   assert.deepEqual(Object.keys(rolledBack.skills), ['example']);
   assert.deepEqual(readJson(managed), ['npm:shared-one']);
   good(f.maintain('state-rollback', '--apply'));
+});
+
+test('setup records the tool node and deploys the launcher only on apply; remove detaches it', t => {
+  const f = fixture(t);
+  const launcher = join(f.home, '.agents/bin/kitto-node');
+  const statePath = join(f.env.KITTO_HOME, 'state.json');
+  const preview = f.cli('setup', '--agents', 'dsh', '--source', f.source, '--dry-run');
+  good(preview);
+  assert.match(preview.stdout, /tool node: \S+ \(v\d+\.\d+\.\d+, (mise|execPath)\)/);
+  assert.match(preview.stdout, /launcher write: /);
+  assert.equal(existsSync(launcher), false);
+  assert.equal(existsSync(statePath), false);
+
+  good(f.cli('setup', '--agents', 'dsh', '--source', f.source));
+  const state = readJson(statePath);
+  assert.equal(state.schema, 2);
+  assert.equal(state.toolNode.path, process.execPath);
+  assert.equal(state.toolNode.source, 'execPath');
+  assert.equal(state.owned.launcher.shared['kitto-node'].status, 'owned');
+  assert.equal(lstatSync(launcher).mode & 0o777, 0o755);
+  const run = command(launcher, ['--version'], { PATH: '/usr/bin:/bin' });
+  assert.equal(run.stdout.trim(), process.version);
+  const status = f.maintain('status');
+  good(status);
+  assert.match(status.stdout, /"toolNode"/);
+  assert.match(status.stdout, /launcher same: /);
+
+  good(f.maintain('remove', '--apply'));
+  assert.equal(existsSync(launcher), false);
+  const detached = readJson(statePath);
+  assert.equal(detached.toolNode, undefined);
+  assert.equal(detached.owned.launcher?.shared?.['kitto-node'], undefined);
+});
+
+const foreignLauncher = '#!/bin/sh\necho mine\n';
+
+test('setup preserves a foreign file at the launcher path and warns', t => {
+  const f = fixture(t);
+  const launcher = join(f.home, '.agents/bin/kitto-node');
+  mkdirSync(join(f.home, '.agents/bin'), { recursive: true });
+  writeFileSync(launcher, foreignLauncher, { mode: 0o755 });
+  const result = f.cli('setup', '--agents', 'dsh', '--source', f.source);
+  good(result);
+  assert.match(result.stderr, /Warning: .*kitto-node exists and is not an unmodified Kitto launcher/);
+  assert.equal(readFileSync(launcher, 'utf8'), foreignLauncher);
+  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
+  assert.equal(state.owned.launcher, undefined);
+  good(f.maintain('remove', '--apply'));
+  assert.equal(readFileSync(launcher, 'utf8'), foreignLauncher);
 });

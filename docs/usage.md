@@ -267,6 +267,10 @@ npx --yes @phyzess/kitto@latest update --apply  # 拉取配置、刷新 runtime�
 2. **已安装 runtime**：把正在执行的 Kitto 包（`bin`、`lib`、`integration`、`package.json`、`CHANGELOG.md`）替换到 `~/.local/share/kitto/runtime`。替换前把上一次验证过的版本保存为 `runtime.previous` 检查点。新 runtime 在本次部署成功前只是 `pendingRuntime`，不会成为检查点，也不会覆盖 `state.json` 里的已验证版本；部署失败时 `setup --recover` 仍回到上次成功部署的版本，重试也不会把未经验证的代码当成检查点。
 3. **部署**：规则/指令、skills、MCP 与 Pi 配置沿用原有 `sync` 逻辑；原生插件/扩展注册保持不变（仍指向 runtime 路径，无需重装）。预览不写文件。
 
+### 工具 Node 与 `kitto-node` 启动器
+
+Kitto 要求 Node 26+。agent 在项目目录里直接运行 `node` 时，mise/nvm 可能给出项目固定的旧版本，所以 Kitto 自己的命令（维护 runner、`kitto route`、`context-budget` 与 `jev-decide` 的脚本）都经 `~/.agents/bin/kitto-node` 运行。setup、`update --apply` 与 `sync --apply` 会选出一个与项目无关的 Node 并写入 `state.json` 的 `toolNode`：优先 mise 全局（在 `$HOME` 下运行 `mise which node`，有主版本号符号链接时用它），否则用运行 setup 的 Node。`status` 与预览会打印它，预览不写入。记录的 Node 被卸载后启动器会提示重新运行 `kitto setup` 并以 127 退出。该路径上的外来文件会被保留并警告，`kitto remove` 只删除 Kitto 自己写的启动器。设计见 [ADR 009](adr/009-tool-node-and-launcher.md)。
+
 ### 宿主 CLI：只升到已验证基线，不自动更新
 
 `update` 不会升级 Pi、Codex 或 DSH 的宿主 CLI，也不会在后台检查新版本。宿主升级是单独、显式的动作，目标只取 Kitto 已验证的基线（即代码中的 `hosts[name].version`），不追 npm `latest`，也不使用 `npx` 临时运行：

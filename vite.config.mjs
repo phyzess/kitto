@@ -9,7 +9,7 @@ export default defineConfig({
     root: '.',
     format: 'esm',
     platform: 'node',
-    target: 'node22',
+    target: 'node26',
     outDir: 'dist',
     sourcemap: true,
     clean: true,
