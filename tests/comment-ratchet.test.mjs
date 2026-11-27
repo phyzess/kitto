@@ -210,64 +210,6 @@ function runRatchetStep(cwd, prefix, env) {
   });
 }
 
-const adoptionBase = '5368e35ddee521a389e9c676b4edb3929937c8fc';
-const adoptionWarning = /No trusted comment ratchet ran for PR #50.*Protected independent maintainer review.*required before merge/u;
-
-test('only the pinned PR and its exact event parents get the first-rollout warning', t => {
-  const { cwd } = fixture(t);
-  const head = 'a'.repeat(40), tip = 'b'.repeat(40), other = 'c'.repeat(40);
-  const env = {
-    BASE_SHA: adoptionBase, HEAD_SHA: head, PR_HEAD_SHA: tip, PR_NUMBER: '50', PR_HEAD_REPOSITORY: 'phyzess/kitto',
-    GITHUB_EVENT_NAME: 'pull_request', GITHUB_REPOSITORY: 'phyzess/kitto', GITHUB_REF: 'refs/pull/50/merge',
-    GITHUB_BASE_REF: 'main', GITHUB_HEAD_REF: 'kitto/comment-ratchet', FIXTURE_PARENTS: `${adoptionBase} ${tip}`,
-  };
-  const spies = `npm() { exit 71; }; node() { exit 72; }; tar() { exit 73; }
-    git() {
-      test "$1" = --no-replace-objects || return 75
-      case "$2" in
-        rev-parse) printf '%s\\n' '${head}' ;;
-        cat-file) case "$4" in '${adoptionBase}'|'${tip}'|'${genesis}') printf '%s\\n' commit ;; *) return 76 ;; esac ;;
-        show) test "$5" = '${head}' && printf '%s\\n' "$FIXTURE_PARENTS" ;;
-        archive) printf '%s\\n' 'fixture archive called' >&2; return 74 ;;
-        *) return 75 ;;
-      esac
-    }`;
-  const run = overrides => runRatchetStep(cwd, spies, { ...env, ...overrides });
-  const allowed = run({});
-  assert.equal(allowed.status, 0, allowed.stderr);
-  assert.match(allowed.stdout, adoptionWarning);
-  assert.doesNotMatch(allowed.stdout + allowed.stderr, /archive called|Comment ratchet passed/u);
-  const negatives = [
-    ['another PR', { PR_NUMBER: '51', GITHUB_REF: 'refs/pull/51/merge' }],
-    ['another checkout ref', { GITHUB_REF: 'refs/pull/50/head' }],
-    ['another target branch', { GITHUB_BASE_REF: 'release' }],
-    ['another source branch', { GITHUB_HEAD_REF: 'other' }],
-    ['another repository', { GITHUB_REPOSITORY: 'fork/kitto' }],
-    ['a foreign PR head', { PR_HEAD_REPOSITORY: 'fork/kitto' }],
-    ['wrong checkout SHA', { HEAD_SHA: other }],
-    ['wrong head parent', { FIXTURE_PARENTS: `${adoptionBase} ${other}` }],
-    ['reversed parents', { FIXTURE_PARENTS: `${tip} ${adoptionBase}` }],
-    ['extra parent', { FIXTURE_PARENTS: `${adoptionBase} ${tip} ${other}` }],
-    ['unavailable PR head', { PR_HEAD_SHA: other, FIXTURE_PARENTS: `${adoptionBase} ${other}` }],
-    ['unavailable base', { BASE_SHA: other, FIXTURE_PARENTS: `${other} ${tip}` }],
-    ['empty base', { BASE_SHA: '' }],
-    ['zero base', { BASE_SHA: '0'.repeat(40) }],
-  ];
-  for (const [label, variables] of negatives) {
-    const result = run(variables);
-    assert.ok(result.status > 0, `${label}: ${result.stderr}`);
-    assert.doesNotMatch(result.stdout + result.stderr, adoptionWarning, label);
-  }
-  const old = run({ BASE_SHA: genesis, FIXTURE_PARENTS: `${genesis} ${tip}` });
-  assert.ok(old.status > 0, old.stderr);
-  assert.match(old.stderr, /fixture archive called/u);
-  assert.doesNotMatch(old.stdout, adoptionWarning);
-  const firstPush = run({ GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', PR_HEAD_SHA: '' });
-  assert.equal(firstPush.status, 1, firstPush.stderr);
-  assert.match(firstPush.stderr, /rollout push has no trusted checker at its predecessor/u);
-  assert.doesNotMatch(firstPush.stdout + firstPush.stderr, /archive called|No trusted comment ratchet ran for PR #50|Comment ratchet passed/u);
-});
-
 test('normal PRs and main pushes run only the trusted base package, checker and imports', t => {
   const { cwd, git, commit } = fixture(t);
   const checker = `import { lock } from './comment-ratchet/snapshots.mjs';

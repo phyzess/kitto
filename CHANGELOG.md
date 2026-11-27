@@ -1,5 +1,9 @@
 # Kitto
 
+## Unreleased
+
+- Maintenance: retire the one-time comment-ratchet rollout bootstrap, closed issue drafts, the progress log and the comment audit ledgers (kept in git history at `fb9e292`).
+
 ## 0.4.0
 
 - Task routing: choose models and reasoning effort per task across DSH, Pi, and Codex. Reuse role preferences, group unresolved choices, and defer work without launching its dependants. Metered routes require explicit task authorization. (#56)
