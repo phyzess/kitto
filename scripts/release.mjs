@@ -96,7 +96,7 @@ function release(version, publish) {
     }
 
     console.log(`Checking ${spec} from ${commit}`);
-    for (const script of ['setup.sh', 'sync.sh']) run('bash', ['-n', script], source);
+    run('bash', ['-n', 'setup.sh'], source);
     run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], source);
     run('npm', ['run', 'prepublishOnly'], source);
     const [packed] = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '--dry-run=false', '--pack-destination', temp], source, true));

@@ -55,7 +55,7 @@ Host CLIs are upgraded separately and explicitly with kitto hosts --apply, only 
 baseline (or an explicit --version). Kitto never upgrades a host automatically.
 A host below that baseline only produces a warning: setup skips the steps that CLI cannot support and
 still deploys every other selected host. Pass --require-baseline to make an untested version fatal.
-Kitto needs Node >=22 and Git. Pi sync also needs Bash and Python >=3.10.
+Kitto needs Node >=22 and Git.
 DSH web/headless needs pnpm and uses the web profile by default. The Desktop app owns the desktop
 profile: Kitto deploys only its global AGENTS.md and skills, never checks or installs a dsh CLI, and
 adds no bundle, profile patch or scope.

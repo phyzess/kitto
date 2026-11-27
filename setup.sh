@@ -26,7 +26,7 @@ for arg in "$@"; do
   --install-agents             补装缺少的宿主 CLI
   --recover                    恢复上一份可用的 Kitto 代码
 
-setup.sh 只负责进入 `kitto setup`；Pi 配置由 Kitto 统一部署，不要再直接调用 sync.sh。
+setup.sh 只负责进入 `kitto setup`；Pi 配置由 Kitto 统一部署。
 HELP
             exit 0 ;;
     esac
