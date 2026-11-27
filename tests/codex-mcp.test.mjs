@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   applyCodexMcp, defaultCodexRun, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
-} from '../lib/codex-mcp.mjs';
-import { list, markPending } from '../lib/ownership.mjs';
+} from '../lib/codex-mcp.ts';
+import { list, markPending } from '../lib/ownership.ts';
 
 const confirmedOf = state => Object.fromEntries(list(state, 'mcp', 'codex').flatMap(entry => {
   const hash = entry.status === 'owned' ? entry.hash : entry.previous;
@@ -19,6 +19,7 @@ const confirmedOf = state => Object.fromEntries(list(state, 'mcp', 'codex').flat
 const pendingOf = state => Object.fromEntries(list(state, 'mcp', 'codex', 'pending').map(entry => [entry.name, entry.hash]));
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const dist = join(root, 'dist');
 const fakeAgent = join(root, 'tests/helpers/fake-agent.cjs');
 
 function fixture(t) {
@@ -83,7 +84,7 @@ function fixture(t) {
     for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'],
       ['config', 'user.name', 'Kitto test'], ['add', '.'], ['commit', '-m', 'fixture']]) git(...args);
   };
-  const cli = (...args) => spawnSync(process.execPath, [join(root, 'bin/kitto.mjs'), ...args], {
+  const cli = (...args) => spawnSync(process.execPath, [join(dist, 'bin/kitto.mjs'), ...args], {
     env, encoding: 'utf8', cwd: root, timeout: 60_000,
   });
   const maintain = (...args) => spawnSync(process.execPath, [join(env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args], {

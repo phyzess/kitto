@@ -5,18 +5,19 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { probeDesktopProfile } from '../lib/dsh-profile.mjs';
-import { composeInstructions } from '../lib/host-config.mjs';
-import { compareVersions } from '../lib/hosts.mjs';
-import { hosts, meetsBaseline, parseOptions, pnpmVersion, replaceDirectory, treeHash } from '../lib/kitto.mjs';
-import { list } from '../lib/ownership.mjs';
-import { downgradeState } from '../lib/state-schema.mjs';
-import { newerStable, updateNotice } from '../lib/update-notice.mjs';
+import { probeDesktopProfile } from '../lib/dsh-profile.ts';
+import { composeInstructions } from '../lib/host-config.ts';
+import { compareVersions } from '../lib/hosts.ts';
+import { hosts, meetsBaseline, parseOptions, pnpmVersion, replaceDirectory, treeHash } from '../lib/kitto.ts';
+import { list } from '../lib/ownership.ts';
+import { downgradeState } from '../lib/state-schema.ts';
+import { newerStable, updateNotice } from '../lib/update-notice.ts';
 import { waitForPublish } from '../scripts/release.mjs';
 
 const skillNames = (state, group, status) => list(state, 'skill', group, status).map(entry => entry.name).sort();
 const re = value => value.replace(/[.+]/g, '\\$&');
 const root = fileURLToPath(new URL('../', import.meta.url));
+const dist = join(root, 'dist');
 const publishRoot = existsSync(join(root, 'dist/package.json')) ? join(root, 'dist') : root;
 const cliTimeout = 180_000;
 function command(cmd, args, env, cwd = root) {
@@ -45,7 +46,7 @@ function fixture(t) {
   for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'], ['config', 'user.name', 'Test'], ['add', '.'], ['commit', '-m', 'fixture']]) {
     const result = command('git', args, env, source); assert.equal(result.status, 0, result.stderr);
   }
-  const cli = (...args) => command(process.execPath, [join(root, 'bin/kitto.mjs'), ...args], env);
+  const cli = (...args) => command(process.execPath, [join(dist, 'bin/kitto.mjs'), ...args], env);
   const maintain = (...args) => command(process.execPath, [join(env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args], env);
   return { temp, home, source, env, cli, maintain, log };
 }
@@ -66,7 +67,7 @@ function release(f, version, operation = 'setup') {
   const directory = join(f.temp, version);
   mkdirSync(directory);
   for (const name of ['package.json', 'bin', 'lib', 'integration', 'CHANGELOG.md']) {
-    cpSync(join(root, name), join(directory, name), { recursive: true});
+    cpSync(join(dist, name), join(directory, name), { recursive: true});
   }
   for (const name of ['package.json', 'integration/plugin.json']) {
     const file = join(directory, name), data = readJson(file); data.version = version; writeFileSync(file, JSON.stringify(data));
@@ -123,7 +124,7 @@ test('missing host installation preflight requires stable Node at the minimum ve
   const emptyPath = mkdtempSync(join(tmpdir(), 'kitto-node-preflight-'));
   t.onTestFinished(() => rmSync(emptyPath, { recursive: true, force: true }));
   const probe = version => command(process.execPath, ['--input-type=module', '-e', `
-    import { checkSelectedHosts } from './lib/kitto.mjs';
+    import { checkSelectedHosts } from './lib/kitto.ts';
     Object.defineProperty(process.versions, 'node', { value: process.argv[1] });
     checkSelectedHosts(['pi'], true);
   `, version], { HOME: emptyPath, PATH: emptyPath });
@@ -398,7 +399,7 @@ test('DSH desktop probe copies the profile, tolerates a read-only home and repor
 test('shared-rules-only setup is rejected for the DSH desktop profile', t => {
   const f = fixture(t);
   const result = command(process.execPath, ['--input-type=module', '-e',
-    `import { runEnvironmentSetup } from './lib/environment-setup.mjs';
+    `import { runEnvironmentSetup } from './lib/environment-setup.ts';
      await runEnvironmentSetup(${JSON.stringify({ agents: ['dsh'], source: false, installAgents: false,
        deps: false, dshProfile: 'desktop', dryRun: true })});`,
   ], f.env);
@@ -477,7 +478,7 @@ test('guided setup keeps divergent unowned skills through later Pi syncs', t => 
   symlinkSync(local, hostLocal, 'dir');
 
   const setup = command(process.execPath, ['--input-type=module', '-e',
-    `import { setup } from './lib/kitto.mjs';
+    `import { setup } from './dist/lib/kitto.mjs';
      await setup(${JSON.stringify({ source: f.source, agents: ['pi'], keepExistingSkills: true })});`,
   ], f.env);
   good(setup);
@@ -1343,7 +1344,7 @@ test('interactive CLI previews and applies bundled Pi and Codex setup for future
   const { realpath } = await import('node:fs/promises');
   const f = fixture(t);
   const workspaceParent = join(await realpath(f.temp), 'workspaces');
-  const result = spawnSync(process.execPath, [join(root, 'bin/kitto.mjs'), 'setup', '--interactive'], {
+  const result = spawnSync(process.execPath, [join(dist, 'bin/kitto.mjs'), 'setup', '--interactive'], {
     env: f.env,
     cwd: root,
     encoding: 'utf8',
@@ -1412,7 +1413,7 @@ test('interactive DSH Desktop setup stays global-only and skips scoped adapters'
   writeFileSync(join(f.source, 'config/dsh/skills/desktop-example/SKILL.md'), 'Desktop host skill');
   writeFileSync(join(f.source, 'config/dsh/AGENTS.md'), 'Desktop portable rules');
   writeFileSync(join(f.temp, 'bin/pnpm'), `#!${process.execPath}\nprocess.exit(1);\n`, { mode: 0o755 });
-  const result = spawnSync(process.execPath, [join(root, 'bin/kitto.mjs'), 'setup', '--interactive'], {
+  const result = spawnSync(process.execPath, [join(dist, 'bin/kitto.mjs'), 'setup', '--interactive'], {
     env: f.env, cwd: root, encoding: 'utf8', timeout: cliTimeout,
     input: ['dsh', 'desktop', '2', f.source, 'n', '', '2'].join('\n'),
   });
@@ -1448,7 +1449,7 @@ function hostsTools(f, { versions = {}, missing = [], id = 'hosts-tools' } = {})
     bin, env, log, versionsFile, calls,
     installs: () => calls().filter(call => call.command === 'npm' && call.args[0] === 'install'),
     versions: () => readJson(versionsFile),
-    run: (...args) => command(process.execPath, [join(root, 'bin/kitto.mjs'), ...args], env),
+    run: (...args) => command(process.execPath, [join(dist, 'bin/kitto.mjs'), ...args], env),
   };
 }
 
@@ -1478,7 +1479,7 @@ test('kitto hosts check reports selected versions and baselines without writes',
   assert.equal(tools.installs().length, 0);
 
   const missingState = { ...tools.env, KITTO_HOME: join(f.temp, 'unset-kitto-home') };
-  const notSetup = command(process.execPath, [join(root, 'bin/kitto.mjs'), 'hosts'], missingState);
+  const notSetup = command(process.execPath, [join(dist, 'bin/kitto.mjs'), 'hosts'], missingState);
   assert.notEqual(notSetup.status, 0);
   assert.match(notSetup.stderr, /not set up/);
 });
@@ -1647,7 +1648,7 @@ test('setup accepts a newer host but rejects it as the result of a pinned instal
   const marker = join(tools.bin, 'installed');
   writeFileSync(join(tools.bin, 'pi'), `#!${process.execPath}\nif (!require('node:fs').existsSync(${JSON.stringify(marker)})) process.exit(1);\nconsole.log('pi 1.5.3');\n`, { mode: 0o755 });
   writeFileSync(join(tools.bin, 'npm'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, process.argv.slice(2).join(' '));\n`, { mode: 0o755 });
-  const module = new URL('../lib/kitto.mjs', import.meta.url).href;
+  const module = new URL('../lib/kitto.ts', import.meta.url).href;
   const invoke = body => command(process.execPath, ['--input-type=module', '-e', `import { checkSelectedHosts, installMissingHosts } from ${JSON.stringify(module)}; ${body}`], tools.env);
   const installed = invoke("installMissingHosts(['pi'])");
   assert.notEqual(installed.status, 0);

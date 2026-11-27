@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { codegraphPlan, codegraphTargets, ensureCodeGraphIndexes } from '../lib/codegraph.mjs';
+import { codegraphPlan, codegraphTargets, ensureCodeGraphIndexes } from '../lib/codegraph.ts';
 
 function temp(t) {
   const directory = mkdtempSync(join(tmpdir(), 'kitto-codegraph-'));

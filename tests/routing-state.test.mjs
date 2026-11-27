@@ -5,13 +5,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { createRoutingStore, newTicketId } from '../lib/routing-state.mjs';
+import { createRoutingStore, newTicketId } from '../lib/routing-state.ts';
 
 const now = Date.UTC(2026, 10, 25, 12);
 const iso = value => new Date(value).toISOString();
 const selected = { provider: 'go-alias', model: 'flash', upstream: 'opencode-go', account: 'verified-member', billing: 'go-included' };
 const pool = 'verified-subscription-member';
-const library = new URL('../lib/routing-state.mjs', import.meta.url).href;
+const library = new URL('../lib/routing-state.ts', import.meta.url).href;
 function child(home, snippet, ...params) {
   const program = `import { createRoutingStore } from ${JSON.stringify(library)}; const [home, ...args] = process.argv.slice(1); const store = createRoutingStore(home); ${snippet}`;
   return spawnSync(process.execPath, ['--input-type=module', '-e', program, home, ...params], { encoding: 'utf8' });

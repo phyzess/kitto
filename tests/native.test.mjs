@@ -6,10 +6,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, cpSync, rmSync, ex
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { codexMcpNames } from '../lib/parity.mjs';
-import { get, list } from '../lib/ownership.mjs';
+import { codexMcpNames } from '../lib/parity.ts';
+import { get, list } from '../lib/ownership.ts';
 
-const root = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT) : fileURLToPath(new URL('../', import.meta.url));
+const root = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT) : fileURLToPath(new URL('../dist/', import.meta.url));
 const nativeBin = process.env.KITTO_NATIVE_BIN;
 test('native Pi/Codex/DSH installation, version change, recovery, detach and reinstall', { skip: !nativeBin, timeout: 240_000 }, t => {
   const temp = mkdtempSync(join(tmpdir(), "kitto native's "));

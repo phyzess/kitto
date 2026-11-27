@@ -4,10 +4,10 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
-import { createDispatchGate, issueRoutePermit, registerDshRouting, ROUTING_HOST_VERSION } from '../integration/dsh-routing.mjs';
-import { createRouteObserver } from '../integration/dsh-route-evidence.mjs';
-import { setRoutingBoundary } from '../lib/routing-policy.mjs';
-import { createRoutingStore } from '../lib/routing-state.mjs';
+import { createDispatchGate, issueRoutePermit, registerDshRouting, ROUTING_HOST_VERSION } from '../integration/dsh-routing.ts';
+import { createRouteObserver } from '../integration/dsh-route-evidence.ts';
+import { setRoutingBoundary } from '../lib/routing-policy.ts';
+import { createRoutingStore } from '../lib/routing-state.ts';
 
 const route = { provider: 'openai-codex', model: 'gpt-6.2-sol', canonicalModel: 'openai/gpt-6.2-sol', upstream: 'openai-codex',
   account: 'fixture-account', accountType: 'personal', accountVerified: true, billing: 'subscription', available: true, reasoningEfforts: ['low'] };

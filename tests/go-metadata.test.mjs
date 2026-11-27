@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
-import { collectGoMetadata } from '../lib/go-metadata.mjs';
-import { adviseRoute } from '../lib/model-routing.mjs';
-import { setRoutingBoundary } from '../lib/routing-policy.mjs';
+import { collectGoMetadata } from '../lib/go-metadata.ts';
+import { adviseRoute } from '../lib/model-routing.ts';
+import { setRoutingBoundary } from '../lib/routing-policy.ts';
 
 const now = Date.parse('2026-11-25T12:00:00Z');
 const stamp = new Date(now).toISOString(), reset = new Date(now + 3600_000).toISOString();
@@ -64,7 +64,7 @@ test('CLI verifies native default or explicitly selected DSH home before key and
     } });
     globalThis.fetch = () => { console.error('fixture-fetch'); return new Response(null, { status: 403 }); };
   `;
-  const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
+  const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
   const defaultHome = join(home, '.dsh'), customHome = join(home, 'custom');
   const aliasHome = join(home, 'custom-alias');
   mkdirSync(customHome);

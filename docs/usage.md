@@ -250,7 +250,7 @@ Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工�
 
 默认配置来源是这个 GitHub 仓库。使用自己的 fork 时，首次 setup 加 `--source <Git-URL>`；要复用已有仓库，则传入本地路径。让 Kitto “检查配置状态”可以看到本机使用的源目录。共享 skills 默认由 Kitto 部署到 `~/.agents/skills/`。
 
-Pi 适配器是 Kitto 进程内的 JavaScript 模块（`lib/pi-adapter.mjs`），没有单独的 shell 入口；共享 skills（`~/.agents/skills`）由 Kitto JS 按 hash 所有权和锁管理。`AGENTS.md` 仍走共享层组合；`push` 只导出 Pi 专属段，详见上文「规则共享层与宿主 addendum」。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告，并按旧的非交互语义运行 setup（不会启动向导）。
+Pi 适配器是 Kitto 进程内的 JavaScript 模块（`lib/pi-adapter.ts`），没有单独的 shell 入口；共享 skills（`~/.agents/skills`）由 Kitto JS 按 hash 所有权和锁管理。`AGENTS.md` 仍走共享层组合；`push` 只导出 Pi 专属段，详见上文「规则共享层与宿主 addendum」。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告，并按旧的非交互语义运行 setup（不会启动向导）。
 
 ## 换机与更新
 

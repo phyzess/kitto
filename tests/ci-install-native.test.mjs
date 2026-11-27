@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { hosts, pnpmVersion } from '../lib/host-pins.mjs';
+import { hosts, pnpmVersion } from '../lib/host-pins.ts';
 
 const installer = new URL('../scripts/ci-install-native.mjs', import.meta.url).href;
 

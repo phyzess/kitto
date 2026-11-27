@@ -1,5 +1,6 @@
 {
   "name": "@phyzess/kitto",
+  "private": true,
   "version": "0.4.0",
   "description": "Portable personal configuration for Pi, Codex and DeepSeek Harness",
   "type": "module",

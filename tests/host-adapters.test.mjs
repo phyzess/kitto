@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
-import { adapterFor, planConnect, planDeploy, selectedAdapters } from '../lib/hosts/index.mjs';
+import { adapterFor, planConnect, planDeploy, selectedAdapters } from '../lib/hosts/index.ts';
 
 const pluginReady = { capabilities: { plugin: true }, actual: '1.0.0' };
 

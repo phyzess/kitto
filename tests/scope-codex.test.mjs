@@ -7,10 +7,10 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { hosts } from '../lib/host-pins.mjs';
+import { hosts } from '../lib/host-pins.ts';
 
 const run = promisify(execFile);
-const packageRoot = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT) : fileURLToPath(new URL('../', import.meta.url));
+const packageRoot = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT) : fileURLToPath(new URL('../dist/', import.meta.url));
 const cli = join(packageRoot, 'bin/kitto.mjs');
 
 test('Codex scopes preserve existing hooks and compose with native repo discovery', async t => {

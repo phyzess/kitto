@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { sameLocation } from '../lib/paths.mjs';
+import { sameLocation } from '../lib/paths.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -32,7 +32,7 @@ test('an installation whose runtime directory is a symlink is still recognised a
   const home = join(base, 'install');
   const target = join(home, 'runtime-target');
   mkdirSync(join(target, 'lib'), { recursive: true });
-  for (const name of ['kitto-home.mjs', 'paths.mjs']) cpSync(join(root, 'lib', name), join(target, 'lib', name));
+  for (const name of ['kitto-home.mjs', 'paths.mjs']) cpSync(join(root, 'dist', 'lib', name), join(target, 'lib', name));
   symlinkSync(target, join(home, 'runtime'));
   writeFileSync(join(home, 'state.json'), '{}');
   const env = { ...process.env, HOME: join(base, 'nohome') };

@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 
-const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
+const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
 async function fixture(t) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-audit-')));
   t.onTestFinished(() => rm(root, { recursive: true, force: true }));

@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import pty
+import shutil
 import select
 import subprocess
 import tempfile
@@ -21,6 +22,11 @@ fi
 exit 0
 '''
 
+FAKE_NPM = '''#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$KITTO_TEST_NPM_ARGS"
+exit 0
+'''
+
 
 class SetupEntrypointTests(unittest.TestCase):
     def setUp(self):
@@ -33,17 +39,32 @@ class SetupEntrypointTests(unittest.TestCase):
         fake = self.bin / 'node'
         fake.write_text(FAKE_NODE)
         fake.chmod(0o755)
+        npm = self.bin / 'npm'
+        npm.write_text(FAKE_NPM)
+        npm.chmod(0o755)
+        self.npm_record = self.base / 'npm-args.txt'
+        self.checkout = self.base / 'checkout'
+        for directory in ('bin', 'lib', 'integration', 'node_modules/vite-plus', 'node_modules/@clack/prompts', 'dist/bin'):
+            (self.checkout / directory).mkdir(parents=True)
+        shutil.copy2(ROOT / 'setup.sh', self.checkout / 'setup.sh')
+        (self.checkout / 'bin/kitto.ts').write_text('')
+        (self.checkout / 'package.json').write_text('{}')
+        self.built = self.checkout / 'dist/bin/kitto.mjs'
+        self.built.write_text('')
+        newer = time.time() + 60
+        os.utime(self.built, (newer, newer))
         inherited = {key: value for key, value in os.environ.items()
                      if not key.startswith('KITTO_')}
         self.env = {
             **inherited,
             'PATH': str(self.bin) + os.pathsep + os.environ['PATH'],
             'KITTO_TEST_NODE_ARGS': str(self.record),
+            'KITTO_TEST_NPM_ARGS': str(self.npm_record),
             'KITTO_HOME': str(self.base / 'kitto-home'),
         }
 
     def run_setup(self, *args, env=None):
-        return subprocess.run(['bash', str(ROOT / 'setup.sh'), *args], env=env or self.env,
+        return subprocess.run(['bash', str(self.checkout / 'setup.sh'), *args], env=env or self.env,
                               stdin=subprocess.DEVNULL, text=True, capture_output=True)
 
     def node_call(self):
@@ -52,11 +73,25 @@ class SetupEntrypointTests(unittest.TestCase):
         self.assertTrue(lines[-1].startswith('stdin_tty='), lines)
         stdin_tty = lines[-1] == 'stdin_tty=1'
         args = [line[len('arg='):] for line in lines[:-1]]
-        self.assertTrue(args and args[0].endswith('bin/kitto.mjs'), args)
+        self.assertTrue(args and args[0].endswith('dist/bin/kitto.mjs'), args)
         return args[1:], stdin_tty
 
     def node_args(self):
         return self.node_call()[0]
+
+    def test_fresh_dist_runs_without_building(self):
+        result = self.run_setup('--dry-run')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(self.npm_record.exists(), 'a fresh dist must not trigger npm')
+        self.assertEqual(self.node_args(), ['setup', '--dry-run'])
+
+    def test_stale_dist_is_rebuilt_before_setup(self):
+        older = time.time() - 60
+        os.utime(self.built, (older, older))
+        result = self.run_setup('--dry-run')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('build', self.npm_record.read_text())
+        self.assertEqual(self.node_args(), ['setup', '--dry-run'])
 
     def test_help_exits_without_node(self):
         result = self.run_setup('--help')
@@ -109,7 +144,7 @@ class SetupEntrypointTests(unittest.TestCase):
         master, slave = pty.openpty()
         proc = None
         try:
-            proc = subprocess.Popen(['bash', str(ROOT / 'setup.sh'), '--force'], env=self.env,
+            proc = subprocess.Popen(['bash', str(self.checkout / 'setup.sh'), '--force'], env=self.env,
                                     stdin=slave, stdout=slave, stderr=slave)
             os.close(slave)
             slave = None

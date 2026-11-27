@@ -2,6 +2,7 @@
   "compilerOptions": {
     "allowJs": true,
     "checkJs": true,
+    "allowImportingTsExtensions": true,
     "noEmit": true,
     "module": "nodenext",
     "moduleResolution": "nodenext",
@@ -11,5 +12,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["types", "lib/ownership.mjs", "lib/state-schema.mjs", "lib/state-io.mjs", "lib/hosts"]
+  "include": ["types/kitto.d.ts"]
 }

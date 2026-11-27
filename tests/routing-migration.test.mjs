@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writ
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { migrateRouting } from '../lib/routing-migration.mjs';
+import { migrateRouting } from '../lib/routing-migration.ts';
 
 const original = 'Custom first\r\n<!-- kitto:begin -->\r\nKitto rules\r\n<!-- kitto:end -->\r\nCustom last';
 const patch = '- id: agent-teams\n  config:\n    fallback: { provider: local, model: custom }\n    profiles:\n      dev-hard:\n        "fallback": { provider: local, model: other }\n';

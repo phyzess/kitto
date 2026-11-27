@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
-import kittoScopes from '../integration/scoped-pi/index.mjs';
-import { installPiScope } from '../lib/scope-pi.mjs';
+import kittoScopes from '../integration/scoped-pi/index.ts';
+import { installPiScope } from '../lib/scope-pi.ts';
 
 async function fixture(t) {
   const path = await realpath(await mkdtemp(join(tmpdir(), 'kitto-pi-scope-')));

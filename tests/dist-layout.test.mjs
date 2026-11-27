@@ -14,7 +14,7 @@ function files(dir) {
     entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]);
 }
 const runtimeSources = () => ['bin', 'lib', 'integration'].flatMap(dir => files(join(root, dir)))
-  .filter(file => file.endsWith('.mjs')).map(file => relative(root, file)).sort();
+  .filter(file => file.endsWith('.ts')).map(file => relative(root, file).replace(/\.ts$/u, '.mjs')).sort();
 const json = path => JSON.parse(readFileSync(path, 'utf8'));
 
 test('dist mirrors every runtime source file one to one', options, () => {

@@ -29,7 +29,7 @@ test('the repository tree satisfies the invariant rules', () => {
 
 test('path string equality and regex parsing of YAML or TOML are rejected', () => {
   const root = fixture({
-    'bad.mjs': [
+    'bad.ts': [
       "import { realpathSync } from 'node:fs';",
       "import { resolve } from 'node:path';",
       'export const a = (dir, other) => resolve(dir) === other;',
@@ -54,9 +54,9 @@ test('path string equality and regex parsing of YAML or TOML are rejected', () =
 
 test('the symlink-rejection idiom and neutral code pass', () => {
   const root = fixture({
-    'good.mjs': [
+    'good.ts': [
       "import { realpathSync } from 'node:fs';",
-      "import { sameLocation } from './paths.mjs';",
+      "import { sameLocation } from './paths.ts';",
       "export const regular = path => realpathSync(path) === path;",
       "export const symlink = path => realpathSync(path) !== path;",
       'export const same = (a, b) => sameLocation(a, b);',

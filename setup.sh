@@ -14,7 +14,7 @@ for arg in "$@"; do
 没有 state 的源码 checkout 首次安装时用 `./setup.sh --source .`；
 本机已 setup 过则直接 `./setup.sh`，会复用 state 中记录的配置源。
 
-其余参数原样传给 `node bin/kitto.mjs setup`：
+其余参数原样传给 `node dist/bin/kitto.mjs setup`（源码 checkout 会先构建 dist）：
   --agents pi,codex,dsh        选择宿主
   --source PATH_OR_GIT_URL     配置来源
   --ref BRANCH_OR_TAG          固定配置版本
@@ -52,6 +52,18 @@ for arg in "$@"; do
     esac
 done
 
+KITTO_ENTRY="$SCRIPT_DIR/bin/kitto.mjs"
+if [ -f "$SCRIPT_DIR/bin/kitto.ts" ]; then
+    if [ ! -d "$SCRIPT_DIR/node_modules/vite-plus" ]; then
+        npm ci --prefix "$SCRIPT_DIR" --ignore-scripts --no-audit --no-fund
+    fi
+    built="$SCRIPT_DIR/dist/bin/kitto.mjs"
+    if [ ! -f "$built" ] || [ -n "$(find "$SCRIPT_DIR/bin" "$SCRIPT_DIR/lib" "$SCRIPT_DIR/integration" "$SCRIPT_DIR/package.json" -newer "$built" -type f -print -quit)" ]; then
+        npm run --prefix "$SCRIPT_DIR" build --silent
+    fi
+    KITTO_ENTRY="$SCRIPT_DIR/dist/bin/kitto.mjs"
+fi
+
 wizard=0
 if [ "$force_seen" = 0 ]; then
     if [ "${#args[@]}" -eq 0 ]; then
@@ -67,8 +79,8 @@ fi
 
 if [ "${#args[@]}" -eq 0 ]; then
     if [ "$force_seen" = 1 ]; then
-        exec node "$SCRIPT_DIR/bin/kitto.mjs" setup </dev/null
+        exec node "$KITTO_ENTRY" setup </dev/null
     fi
-    exec node "$SCRIPT_DIR/bin/kitto.mjs" setup
+    exec node "$KITTO_ENTRY" setup
 fi
-exec node "$SCRIPT_DIR/bin/kitto.mjs" setup "${args[@]}"
+exec node "$KITTO_ENTRY" setup "${args[@]}"

@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const name = path.basename(process.argv[1]), args = process.argv.slice(2);
-const { hosts, pnpmVersion } = require('../../lib/host-pins.mjs');
+const { hosts, pnpmVersion } = require('../../lib/host-pins.ts');
 const versions = { pi: hosts.pi.version, codex: hosts.codex.version, dsh: hosts.dsh.version, pnpm: pnpmVersion, codegraph: '1.6.4',
   ...JSON.parse(process.env.FAKE_HOST_VERSIONS || '{}') };
 fs.appendFileSync(process.env.CALL_LOG, JSON.stringify({ command: name, args }) + '\n');

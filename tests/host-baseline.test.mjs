@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { hosts, routingHostVersion } from '../lib/host-pins.mjs';
-import { compareVersions } from '../lib/hosts.mjs';
+import { hosts, routingHostVersion } from '../lib/host-pins.ts';
+import { compareVersions } from '../lib/hosts.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const json = name => JSON.parse(readFileSync(new URL(`../${name}`, import.meta.url), 'utf8'));

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { createRouteObserver } from '../integration/dsh-route-evidence.mjs';
-import { apply } from '../integration/dsh.mjs';
-import { applyCapabilityEvidence, parseNativeModelResult } from '../lib/routing-evidence.mjs';
+import { createRouteObserver } from '../integration/dsh-route-evidence.ts';
+import { apply } from '../integration/dsh.ts';
+import { applyCapabilityEvidence, parseNativeModelResult } from '../lib/routing-evidence.ts';
 
 const route = { provider: 'test', model: 'model' };
 const raw = 'test/model — Example\nReasoning efforts:\nlow (default) — Low\nhigh — High';
