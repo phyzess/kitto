@@ -99,7 +99,16 @@ function release(version, publish) {
     run('bash', ['-n', 'setup.sh'], source);
     run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], source);
     run('npm', ['run', 'prepublishOnly'], source);
-    const [packed] = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '--dry-run=false', '--pack-destination', temp], source, true));
+    const dist = join(source, 'dist');
+    const built = JSON.parse(readFileSync(join(dist, 'package.json'), 'utf8'));
+    const builtPlugin = JSON.parse(readFileSync(join(dist, 'integration/plugin.json'), 'utf8'));
+    if (built.name !== packageName || built.version !== version || builtPlugin.version !== version) {
+      throw new Error(`Expected dist/package.json and dist/integration/plugin.json to carry ${spec}.`);
+    }
+    const [packed] = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '--dry-run=false', '--pack-destination', temp], dist, true));
+    if (packed.files.some(file => file.path.endsWith('.map')) || !packed.files.some(file => file.path === 'bin/kitto.mjs')) {
+      throw new Error('The tarball must contain bin/kitto.mjs and no source maps. Check the dist build.');
+    }
     const tarball = join(temp, packed.filename);
     console.log(`${packed.filename} (${packed.files.length} files)\n${packed.integrity}`);
 

@@ -2,7 +2,7 @@ import { deepStrictEqual, doesNotMatch, equal, match, notEqual, rejects } from '
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -16,7 +16,7 @@ function testExecutable() {
 }
 
 const executable = testExecutable();
-const root = fileURLToPath(new URL('../', import.meta.url));
+const root = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT) : fileURLToPath(new URL('../', import.meta.url));
 
 function available() {
   try {
