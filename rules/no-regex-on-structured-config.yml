@@ -1,0 +1,37 @@
+id: no-regex-on-structured-config
+language: JavaScript
+severity: error
+message: Do not parse TOML or YAML host config with regular expressions. Use the existing structured parser or CST helper and edit by node range.
+note: Name-based heuristic. It flags regex use whose receiver or argument is an identifier containing toml, yaml or yml (case-insensitive). Config text held in neutrally named variables is not detected, so review still applies.
+files:
+  - lib/**/*.mjs
+  - bin/**
+rule:
+  any:
+    - pattern: $T.match($$$)
+    - pattern: $T.matchAll($$$)
+    - pattern: $T.replace($$$)
+    - pattern: $T.replaceAll($$$)
+    - pattern: $T.search($$$)
+    - pattern: $T.split($$$)
+constraints:
+  T:
+    regex: '(?i)(toml|ya?ml)'
+---
+id: no-regex-test-on-structured-config
+language: JavaScript
+severity: error
+message: Do not parse TOML or YAML host config with regular expressions. Use the existing structured parser or CST helper and edit by node range.
+note: Name-based heuristic. It flags a regex literal tested against an identifier containing toml, yaml or yml (case-insensitive).
+files:
+  - lib/**/*.mjs
+  - bin/**
+rule:
+  any:
+    - pattern: $R.test($T)
+    - pattern: $R.exec($T)
+constraints:
+  R:
+    kind: regex
+  T:
+    regex: '(?i)(toml|ya?ml)'

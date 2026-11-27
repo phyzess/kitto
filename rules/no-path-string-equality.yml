@@ -1,0 +1,30 @@
+id: no-path-string-equality
+language: JavaScript
+severity: error
+message: Do not compare filesystem paths as strings. Use sameLocation from lib/paths.mjs so symlinked roots such as macOS /var compare by identity.
+note: realpathSync(x) !== x on the same variable is the allowed symlink-rejection idiom. Only direct resolve() or realpathSync() operands are detected; paths held in variables are not.
+files:
+  - lib/**/*.mjs
+  - bin/**
+  - scripts/**/*.mjs
+  - integration/**/*.mjs
+ignores:
+  - lib/worktree-audit.mjs
+  - scripts/release.mjs
+rule:
+  all:
+    - any:
+        - pattern: resolve($$$A) === $B
+        - pattern: $B === resolve($$$A)
+        - pattern: resolve($$$A) !== $B
+        - pattern: $B !== resolve($$$A)
+        - pattern: realpathSync($$$A) === $B
+        - pattern: $B === realpathSync($$$A)
+        - pattern: realpathSync($$$A) !== $B
+        - pattern: $B !== realpathSync($$$A)
+    - not:
+        any:
+          - pattern: realpathSync($X) === $X
+          - pattern: realpathSync($X) !== $X
+          - pattern: $X === realpathSync($X)
+          - pattern: $X !== realpathSync($X)
