@@ -27,6 +27,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.mjs'],
     pool: 'forks',
+    isolate: false,
     maxWorkers: process.env.CI ? availableParallelism() : Math.max(1, Math.floor(availableParallelism() / 2)),
     testTimeout: 240_000,
     hookTimeout: 60_000,
