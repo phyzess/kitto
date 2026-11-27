@@ -4,7 +4,25 @@ import { isAbsolute, join } from 'node:path';
 import { sameLocation } from './paths.ts';
 import { kittoHome } from './kitto-home.ts';
 import { createRoutingStore } from './routing-state.ts';
-import type { Json } from '../types/kitto.d.ts';
+import type { PoolReleaseRequest, QuotaFailureEvidence } from './routing-state.ts';
+
+interface CommandInput extends Record<string, unknown> {
+  host?: {
+    kind?: string;
+    surface?: string;
+    session?: string;
+    profile?: string;
+    native?: { sessionId?: string; model?: unknown; thinkingLevel?: unknown };
+  };
+  approval?: unknown;
+}
+
+interface CommandOutput {
+  status?: unknown;
+  independent?: unknown;
+  reason?: unknown;
+  advisory?: unknown;
+}
 
 const help =
   'Usage: kitto route plan|check --input FILE\n       kitto route go-metadata --input FILE --allow-network\n       kitto route permit|record-quota|release-pool --input FILE --operator\n       kitto route migrate --home DIRECTORY\nSupply sanitized JSON without prompts or credentials. Only go-metadata can access the network.';
@@ -38,7 +56,7 @@ export async function routeCommand(args: string[]): Promise<void> {
   const operator = operatorCommands.includes(operation) && args.length === 4 && args[3] === '--operator';
   if ((!optedIn && !operator && (args.length !== 3 || !['plan', 'check'].includes(operation))) || flag !== '--input' || !path)
     throw new Error(help);
-  let request: Json;
+  let request: CommandInput;
   try {
     if (operator) {
       const stats = await lstat(path);
@@ -50,7 +68,7 @@ export async function routeCommand(args: string[]): Promise<void> {
     throw new Error('Cannot read routing input as JSON.');
   }
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Routing input must be a JSON object.');
-  let output: Json;
+  let output: CommandOutput;
   if (operation === 'plan' || operation === 'check') {
     const input = { ...request };
     if (operation !== 'check') delete input.approval;
@@ -89,8 +107,8 @@ export async function routeCommand(args: string[]): Promise<void> {
       const store = createRoutingStore(local);
       if (operation === 'permit') output = issueRoutePermit({ state, home, request, store });
       else {
-        if (operation === 'record-quota') store.recordQuota(request);
-        else store.releasePool(request);
+        if (operation === 'record-quota') store.recordQuota(request as unknown as QuotaFailureEvidence);
+        else store.releasePool(request as unknown as PoolReleaseRequest);
         output = { status: operation === 'record-quota' ? 'pool-held' : 'pool-released' };
       }
     } else {
@@ -99,5 +117,6 @@ export async function routeCommand(args: string[]): Promise<void> {
     }
   }
   console.log(JSON.stringify(output, null, 2));
-  if (['stop', 'invalid', 'pending', 'unavailable'].includes(output.status) || output.independent === false) process.exitCode = 2;
+  const stopped = typeof output.status === 'string' && ['stop', 'invalid', 'pending', 'unavailable'].includes(output.status);
+  if (stopped || output.independent === false) process.exitCode = 2;
 }

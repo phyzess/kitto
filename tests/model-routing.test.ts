@@ -130,6 +130,8 @@ function fixture(
   };
 }
 const advise = (request: Json, saved: Json | null = state()) => adviseRoute({ request, state: saved as State, now });
+const recommend = (result: ReturnType<typeof adviseRoute>) =>
+  result.status === 'recommend' ? result : assert.fail(`routing stopped: ${result.reason}`);
 const reasons = (result: Json) => result.rejected.map((row: Json) => row.reason);
 
 test('missing, skipped, damaged, copied and non-local device confirmations stop', () => {
@@ -153,13 +155,13 @@ test('missing, skipped, damaged, copied and non-local device confirmations stop'
 test('company separates personal from approved custom Claude or OpenRouter upstreams', () => {
   const saved = state('company');
   const request = fixture([sol, claude], { role: 'implement', data: 'internal' });
-  const result = advise(request, saved);
+  const result = recommend(advise(request, saved));
   assert.equal(result.route.provider, claude.provider);
   assert.deepEqual(reasons(result), ['account-or-data-boundary']);
   assert.equal(saved.preserveMe, 42);
   assert.ok(saved.routingBoundary);
   assert.deepEqual(Object.keys(saved.routingBoundary).sort(), ['identity', 'mode', 'profile', 'schema']);
-  assert.equal(advise(fixture([router], { role: 'implement', data: 'restricted' }), saved).route.provider, router.provider);
+  assert.equal(recommend(advise(fixture([router], { role: 'implement', data: 'restricted' }), saved)).route.provider, router.provider);
   for (const invalid of [
     { ...router, billing: 'payg' },
     { ...router, upstream: 'unknown' },
@@ -170,25 +172,26 @@ test('company separates personal from approved custom Claude or OpenRouter upstr
   request.task.authorized[1].account = 'different';
   assert.equal(advise(request, saved).status, 'stop');
   const custom = state('custom', `${router.provider}/${router.model}`);
-  assert.equal(advise(fixture([router, claude], { role: 'implement' }), custom).route.provider, router.provider);
+  assert.equal(recommend(advise(fixture([router, claude], { role: 'implement' }), custom)).route.provider, router.provider);
   assert.throws(() => setRoutingBoundary(saved, 'custom', 'invalid'), /custom routing boundary/);
 });
 
 test('Go ranks plan-normalized estimates and selects the tightest time window', () => {
   const request = fixture();
-  assert.equal(advise(request).route.model, flash.model);
+  assert.equal(recommend(advise(request)).route.model, flash.model);
   request.go.plan = 'go-plus';
-  assert.equal(advise(request).route.model, flash.model);
+  assert.equal(recommend(advise(request)).route.model, flash.model);
   request.go.plan = 'go-teams';
-  assert.equal(advise(request).route.model, flash.model);
+  assert.equal(recommend(advise(request)).route.model, flash.model);
   request.go.plan = 'go';
   request.go.catalog.data[1].go.monthly_usage.go = 500;
   request.go.usage.weekly.percent = 98;
-  const result = advise(request);
+  const result = recommend(advise(request));
   assert.equal(result.route.model, glmFlash.model);
+  assert.ok(result.go?.status === 'available');
   assert.equal(result.go.limitingWindow, 'weekly');
   assert.equal(result.go.remaining, 0.005);
-  assert.ok(result.estimatedMonthlyFraction > 0);
+  assert.ok((result.estimatedMonthlyFraction ?? 0) > 0);
 });
 
 test('Go handles missing, expired, stale, malformed, exhausted and tiny headroom distinctly', () => {
@@ -252,13 +255,13 @@ test('unsupported efforts, unavailable routes, unknown models and unapproved pre
     'premium-not-approved',
   ]);
   request.task.effort = ['default'];
-  assert.ok(!Object.hasOwn(advise(request).route, 'reasoning_effort'));
+  assert.ok(!Object.hasOwn(recommend(advise(request)).route, 'reasoning_effort'));
   request.host.surface = 'teams';
   assert.equal(advise(request).reason, 'native-fallback-unverified-or-enabled');
   request.host.effectiveFallbacks = [{ provider: sol.provider, model: sol.model }];
   assert.equal(advise(request).reason, 'native-fallback-unverified-or-enabled');
   request.host.effectiveFallbacks = [];
-  assert.equal(advise(request).route.reasoning_effort, 'default');
+  assert.equal(recommend(advise(request)).route.reasoning_effort, 'default');
 });
 
 test('built-in short names cannot inherit a lower tier from a same-family catalog remap', () => {
@@ -285,7 +288,7 @@ test('native capability imports supply exact effort without changing authorizati
     })),
   };
   request.task.effort = ['medium'];
-  assert.equal(advise(request).route.reasoning_effort, 'medium');
+  assert.equal(recommend(advise(request)).route.reasoning_effort, 'medium');
   request.task.authorized = request.task.authorized.filter((route: Json) => route.provider !== sol.provider);
   assert.ok(reasons(advise(request)).includes('route-or-data-not-authorized'));
 });
@@ -323,7 +326,7 @@ test('review independence requires actual identities', () => {
     { provider: 'cross-provider', canonicalModel: sol.canonicalModel },
     { canonicalModel: 'anthropic/claude-opus-5-5' },
   ];
-  let result = advise(request);
+  let result = recommend(advise(request));
   assert.equal(result.route.model, glm.model);
   assert.ok(reasons(result).includes('same-model'));
   assert.ok(reasons(result).includes('same-family'));

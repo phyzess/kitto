@@ -10,6 +10,8 @@ import { adviseRoute } from '../lib/model-routing.ts';
 import { setRoutingBoundary } from '../lib/routing-policy.ts';
 import type { Json, State } from '../types/kitto.d.ts';
 
+const recommend = (result: ReturnType<typeof adviseRoute>) =>
+  result.status === 'recommend' ? result : assert.fail(`routing stopped: ${result.reason}`);
 const now = Date.parse('2026-11-25T12:00:00Z');
 const stamp = new Date(now).toISOString(),
   reset = new Date(now + 3600_000).toISOString();
@@ -213,7 +215,7 @@ test('metadata GET requests are fixed and the auth header is only on usage', asy
   assert.equal(calls[1][1].headers.Authorization, 'Bearer synthetic-key');
   assert.doesNotMatch(JSON.stringify(result), /synthetic-key|never copied/);
   args.request.go.metadata = result;
-  assert.equal(adviseRoute({ ...args, now }).route.provider, flash.provider);
+  assert.equal(recommend(adviseRoute({ ...args, now })).route.provider, flash.provider);
 });
 
 test('redirects, transport failures, bad or oversized content and body deadline give sanitized failures', async () => {
@@ -267,7 +269,7 @@ test('failed or mismatched meter evidence disables Go without overriding non-Go 
   assert.equal(denied.reason, 'metadata-meter-unverified');
   for (const metadata of [denied, { status: 'collected', account: 'other', plan: 'go' }, null]) {
     args.request.go.metadata = metadata;
-    assert.equal(adviseRoute({ ...args, now }).route.provider, sol.provider);
+    assert.equal(recommend(adviseRoute({ ...args, now })).route.provider, sol.provider);
   }
   calls = 0;
   const exhausted = await collectGoMetadata({
@@ -282,6 +284,6 @@ test('failed or mismatched meter evidence disables Go without overriding non-Go 
     }),
   });
   args.request.go.metadata = exhausted;
-  assert.equal(adviseRoute({ ...args, now }).go.status, 'exhausted');
-  assert.equal(adviseRoute({ ...args, now }).route.provider, sol.provider);
+  assert.equal(adviseRoute({ ...args, now }).go?.status, 'exhausted');
+  assert.equal(recommend(adviseRoute({ ...args, now })).route.provider, sol.provider);
 });

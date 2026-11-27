@@ -36,7 +36,7 @@ test('one preview shows exact managed addition without printing custom/auth, fix
   assert.throws(() => migrateRouting({ home, mode: 'apply-fixture', activeHomes: [home] }), /isolated/);
   assert.deepEqual(migrateRouting({ home, mode: 'apply-fixture' }).changes, preview.changes);
   const installed = readFileSync(agents, 'utf8');
-  assert.ok(installed.includes(`${preview.changes[0].add.join('\r\n')}\r\n<!-- kitto:end -->`));
+  assert.ok(installed.includes(`${preview.changes[0].add?.join('\r\n')}\r\n<!-- kitto:end -->`));
   assert.equal(statSync(agents).mode & 0o777, 0o640);
   assert.equal(migrateRouting({ home, mode: 'apply-fixture' }).changes[0].action, 'none');
   assert.equal(migrateRouting({ home, mode: 'rollback-fixture' }).changes[0].action, 'remove-managed-block');
