@@ -51,9 +51,19 @@ jobs:
           tool="$(mktemp -d "$RUNNER_TEMP/kitto-comments.XXXXXX")"
           cleanup() { test -n "$tool" && rm -rf -- "$tool"; }
           trap cleanup EXIT
-          git --no-replace-objects archive "$BASE_SHA" package.json package-lock.json scripts/check-comments.mjs scripts/comment-ratchet.mjs scripts/comment-ratchet | tar -x -C "$tool"
+          paths=(package.json package-lock.json scripts/comment-ratchet)
+          entry=""
+          for ext in ts mjs; do
+            if git --no-replace-objects cat-file -e "$BASE_SHA:scripts/check-comments.$ext" 2>/dev/null; then
+              paths+=("scripts/check-comments.$ext" "scripts/comment-ratchet.$ext")
+              entry="scripts/check-comments.$ext"
+              break
+            fi
+          done
+          [[ -n "$entry" ]] || { echo "pathspec scripts/check-comments.{ts,mjs} did not match any file in $BASE_SHA" >&2; exit 1; }
+          git --no-replace-objects archive "$BASE_SHA" "${paths[@]}" | tar -x -C "$tool"
           npm ci --ignore-scripts --prefix "$tool"
-          node "$tool/scripts/check-comments.mjs" "${args[@]}"
+          node "$tool/$entry" "${args[@]}"
       - name: Use a symlinked temporary directory
         shell: bash
         run: |
@@ -69,7 +79,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint:ox
       - run: npm run build
-      - run: node scripts/check-dist-determinism.mjs
+      - run: node scripts/check-dist-determinism.ts
       - run: npm test
   native:
     name: native (hosts, ${{ matrix.os }})
@@ -101,23 +111,23 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: ${{ runner.temp }}/kitto-hosts
-          key: kitto-hosts-${{ runner.os }}-${{ runner.arch }}-node${{ steps.node.outputs.node-version }}-${{ hashFiles('lib/host-pins.mjs', 'scripts/ci-install-native.mjs') }}
+          key: kitto-hosts-${{ runner.os }}-${{ runner.arch }}-node${{ steps.node.outputs.node-version }}-${{ hashFiles('lib/host-pins.ts', 'scripts/ci-install-native.ts') }}
       - name: Install validated native hosts
         if: steps.hosts.outputs.cache-hit != 'true'
-        run: node scripts/ci-install-native.mjs
+        run: node scripts/ci-install-native.ts
       - name: Verify native host versions
-        run: node scripts/ci-install-native.mjs --verify-only
+        run: node scripts/ci-install-native.ts --verify-only
       - name: Verify native lifecycle without model credentials
         env:
           KITTO_NATIVE_BIN: ${{ runner.temp }}/kitto-hosts/node_modules/.bin
           KITTO_TEST_PACKAGE_ROOT: ${{ github.workspace }}/dist
-        run: npx vp test run tests/native.test.mjs
+        run: npx vp test run tests/native.test.ts
       - name: Verify workspace sessions with native Codex and DSH
         env:
           KITTO_TEST_PACKAGE_ROOT: ${{ github.workspace }}/dist
         run: |
           export PATH="$RUNNER_TEMP/kitto-hosts/node_modules/.bin:$PATH"
-          npx vp test run tests/scope-codex.test.mjs tests/scope-dsh.test.mjs
+          npx vp test run tests/scope-codex.test.ts tests/scope-dsh.test.ts
   native-routing:
     name: Verify native DSH Web routing
     runs-on: ubuntu-latest
@@ -133,9 +143,9 @@ jobs:
       - name: Install exact DSH and run credential-free routing fixtures
         shell: bash
         run: |
-          routing_version="$(node scripts/print-host-pin.mjs routing)"
+          routing_version="$(node scripts/print-host-pin.ts routing)"
           scratch="$(mktemp -d "${RUNNER_TEMP:?}/kitto-dsh-routing.XXXXXX")"
           mkdir "$scratch/home"
           env -i PATH="$PATH" HOME="$scratch/home" npm install --prefix "$scratch" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@"$routing_version"
           install="$scratch/node_modules/@deepseek-ai/dsh"
-          env -i PATH="$PATH" HOME="$scratch/home" KITTO_TEST_DSH_INSTALL="$install" npx vp test run tests/dsh-routing.test.mjs
+          env -i PATH="$PATH" HOME="$scratch/home" KITTO_TEST_DSH_INSTALL="$install" npx vp test run tests/dsh-routing.test.ts

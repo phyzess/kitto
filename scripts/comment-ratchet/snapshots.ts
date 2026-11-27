@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { command, decode, formatFor, inspect } from '../comment-ratchet.mjs';
+import { command, decode, formatFor, inspect } from '../comment-ratchet.ts';
 
 const protectedPaths = new Map([
   ['config/pi/extensions/herdr-agent-state.ts', '276c964daf6a61f593ab3a8d3f7c1e0ed626d1b1'],

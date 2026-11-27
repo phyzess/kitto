@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { parse } from 'yaml';
-import { command, formatFor, inspect, nativeParser } from '../scripts/comment-ratchet.mjs';
-import { compare, repository } from '../scripts/comment-ratchet/snapshots.mjs';
+import { command, formatFor, inspect, nativeParser } from '../scripts/comment-ratchet.ts';
+import { compare, repository } from '../scripts/comment-ratchet/snapshots.ts';
 
 const parser = nativeParser();
 const genesis = '4400a587ef93343ec6c5c52d20b7dc8e8468638c';
@@ -246,16 +246,16 @@ function runRatchetStep(cwd, prefix, env) {
 
 test('normal PRs and main pushes run only the trusted base package, checker and imports', t => {
   const { cwd, git, commit } = fixture(t);
-  const checker = `import { lock } from './comment-ratchet/snapshots.mjs';
-    import { implementation } from './comment-ratchet.mjs';
+  const checker = `import { lock } from './comment-ratchet/snapshots.ts';
+    import { implementation } from './comment-ratchet.ts';
     console.log(JSON.stringify([lock, implementation, ...process.argv.slice(2)]));\n`;
   const lockfile = JSON.stringify({ marker: 'trusted lock' });
   const trustedFiles = {
     'package.json': JSON.stringify({ name: 'trusted-tool', type: 'module' }),
     'package-lock.json': lockfile,
-    'scripts/check-comments.mjs': checker,
-    'scripts/comment-ratchet.mjs': 'export const implementation = "trusted implementation";\n',
-    'scripts/comment-ratchet/snapshots.mjs': `import { readFileSync } from 'node:fs';
+    'scripts/check-comments.ts': checker,
+    'scripts/comment-ratchet.ts': 'export const implementation = "trusted implementation";\n',
+    'scripts/comment-ratchet/snapshots.ts': `import { readFileSync } from 'node:fs';
       export const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url))).marker;\n`,
   };
   mkdirSync(join(cwd, 'scripts/comment-ratchet'), { recursive: true });
@@ -293,5 +293,5 @@ test('missing parser fails, and the original workflow is auditable at the fixed 
   const original = command('git', ['show', `${genesis}:.github/workflows/check.yml`]);
   const comments = inspect(parser, '.github/workflows/check.yml', 'Yaml', original).tokens;
   assert.deepEqual(comments.map(t => [t.language, t.start.line]), [['JavaScript', 37], ['JavaScript', 38]]);
-  assert.equal(scan('scripts/ci-install-native.mjs', readFileSync(new URL('../scripts/ci-install-native.mjs', import.meta.url))).tokens.length, 0);
+  assert.equal(scan('scripts/ci-install-native.ts', readFileSync(new URL('../scripts/ci-install-native.ts', import.meta.url))).tokens.length, 0);
 });

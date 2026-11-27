@@ -25,9 +25,9 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 
 - Keep host version baselines only in `lib/host-pins.ts`. Do not repeat a version literal elsewhere. Enforced by `npm run lint:versions`. (R6)
 - Do not depend on the environment in tests or CI: no fixed timeouts that fail under parallel load, no immediate reads after npm publish (poll with a bound), no bash 4 features or `errexit` assumptions (macOS ships bash 3.2). Keep timeouts generous and name the reason. (R7)
-- When a change alters behavior or state shape, also update tests that only run in CI with real host CLIs (`tests/native.test.mjs`, `tests/scope-codex.test.mjs`, `tests/scope-dsh.test.mjs`, `tests/dsh-routing.test.mjs`); they skip locally, so read them. Run bash snippets under macOS `/bin/bash` 3.2 (brace `${var}` before non-ASCII text). Learned from rework in PRs #59 and #64. (R7)
+- When a change alters behavior or state shape, also update tests that only run in CI with real host CLIs (`tests/native.test.ts`, `tests/scope-codex.test.ts`, `tests/scope-dsh.test.ts`, `tests/dsh-routing.test.ts`); they skip locally, so read them. Run bash snippets under macOS `/bin/bash` 3.2 (brace `${var}` before non-ASCII text). Learned from rework in PRs #59 and #64. (R7)
 - Vitest runs with `isolate: false` (a worker reuses its module state across test files; this keeps the suite as fast as node:test was). Restore every process-global change a test makes — `process.env`, `console.*`, `globalThis.*`, module-level flags — in `finally` or `t.onTestFinished`. Mutate globals inside spawned child processes (preload scripts) where possible. (R7)
-- Put every test in `tests/*.test.mjs`; `npm test` (Vitest via `vp test run`) runs them; `vite.config.mjs` holds the include pattern. Write tests with `import { test } from 'vitest'`, not `node:test`. Run one file with `npx vp test run tests/<name>.test.mjs`. Enforced by `npm run check:test-wiring`. (R8)
+- Put every test in `tests/*.test.ts`; `npm test` (Vitest via `vp test run`) runs them; `vite.config.mjs` holds the include pattern. Write tests with `import { test } from 'vitest'`, not `node:test`. Run one file with `npx vp test run tests/<name>.test.ts`. Enforced by `npm run check:test-wiring`. (R8)
 - A change to behavior needs a test that fails without it.
 
 ## Comments
@@ -36,7 +36,7 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 
 ## Sources and build
 
-- Runtime sources in `bin/`, `lib/` and `integration/` are `.ts` files that use erasable TypeScript syntax only (no enums, namespaces or parameter properties), so Node type stripping runs them. Import siblings with the `.ts` extension. Tests, `scripts/` and `vite.config.mjs` stay `.mjs`.
+- Runtime sources in `bin/`, `lib/` and `integration/` are `.ts` files that use erasable TypeScript syntax only (no enums, namespaces or parameter properties), so Node type stripping runs them. Import siblings with the `.ts` extension. Tests and `scripts/` are `.ts` and run directly with Node type stripping; `vite.config.mjs` stays `.mjs`. `tests/helpers/*.cjs` stay CommonJS on purpose: `fake-agent.cjs` and `fake-hosts-tool.cjs` are `require`d from extensionless fake binaries, and `native-import.cjs` escapes Vitest's module runner.
 - The published package is `dist/`, built by `npm run build` with `.mjs` output. Hosts, the installed runtime and `$KITTO_HOME/runtime` only ever see `.mjs`; strings that name runtime files (for example `integration/scoped-pi/index.mjs`) stay `.mjs`. Do not run `npm pack` or `npm publish` from the repository root; `npm run release` packs `dist/`.
 - From a source checkout use `./setup.sh` (it runs `npm ci --ignore-scripts` when needed and `npm run build`, then `node dist/bin/kitto.mjs`). `node bin/kitto.ts` works for quick local runs, but installing a runtime from a directory that holds `.ts` entries is refused.
 - Tests that install a runtime or spawn the CLI use `dist/`; run `npm run build` before `npm test`.
@@ -51,7 +51,7 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 Run from the repository root with `npm ci --ignore-scripts` done. Use the full 40-character SHA of the target branch tip for `<base>` and of `HEAD` for `<head>`.
 
 ```sh
-node scripts/check-comments.mjs --base <base> --head <head>
+node scripts/check-comments.ts --base <base> --head <head>
 npm run lint:versions
 npm run check:test-wiring
 npm run lint:invariants

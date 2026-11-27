@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { test } from 'vitest';
-import { subtest } from './helpers/subtest.mjs';
+import { subtest } from './helpers/subtest.ts';
 import { fileURLToPath } from 'node:url';
 import { hosts } from '../lib/host-pins.ts';
 

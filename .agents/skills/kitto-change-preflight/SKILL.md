@@ -18,7 +18,7 @@ Record the full 40-character SHA of the target branch tip (`<base>`) and of `HEA
 
 ```sh
 npm ci --ignore-scripts
-node scripts/check-comments.mjs --base <base> --head <head>
+node scripts/check-comments.ts --base <base> --head <head>
 npm run lint:versions
 npm run check:test-wiring
 npm run lint:invariants
@@ -28,11 +28,11 @@ npm test
 python3 -m unittest discover -s tests -v
 ```
 
-Skip the Python line only if no Python tests remain. `npm test` runs Vitest (`vp test run`); run one file with `npx vp test run tests/<name>.test.mjs`. On a loaded machine, run the targeted test files for the change first, then the full suites. A failure under load is a test defect (R7): fix the hidden assumption, do not raise the timeout without a reason.
+Skip the Python line only if no Python tests remain. `npm test` runs Vitest (`vp test run`); run one file with `npx vp test run tests/<name>.test.ts`. On a loaded machine, run the targeted test files for the change first, then the full suites. A failure under load is a test defect (R7): fix the hidden assumption, do not raise the timeout without a reason.
 
 ## 3. Self-review questions
 
-- CI-only tests: When a change alters behavior or state shape, also update the tests that only run in CI with real host CLIs (`tests/native.test.mjs`, `tests/scope-codex.test.mjs`, `tests/scope-dsh.test.mjs`, `tests/dsh-routing.test.mjs`). They skip locally, so read them. Run bash snippets under macOS `/bin/bash` 3.2 and brace `${var}` before non-ASCII text. This came from rework in PRs #59 and #64.
+- CI-only tests: When a change alters behavior or state shape, also update the tests that only run in CI with real host CLIs (`tests/native.test.ts`, `tests/scope-codex.test.ts`, `tests/scope-dsh.test.ts`, `tests/dsh-routing.test.ts`). They skip locally, so read them. Run bash snippets under macOS `/bin/bash` 3.2 and brace `${var}` before non-ASCII text. This came from rework in PRs #59 and #64.
 - R1: Do preview and apply consume the same plan? Is there a test asserting they agree?
 - R2: Are filesystem paths compared by identity (`sameLocation`), including through a symlinked `TMPDIR`?
 - R3: Is any TOML, YAML or DSH reference parsed with a regular expression instead of the structured helper?
@@ -40,7 +40,7 @@ Skip the Python line only if no Python tests remain. `npm test` runs Vitest (`vp
 - R5: Did agent-rule text change? If so, follow `.agents/skills/rule-eval/SKILL.md`.
 - R6: Does any host version literal appear outside `lib/host-pins.ts`, including docs and workflow files?
 - R7: Do new tests or CI steps assume timing, network consistency, bash 4 or a particular home directory?
-- R8: Is every new test file under `tests/*.test.mjs`?
+- R8: Is every new test file under `tests/*.test.ts`?
 - Threat model: Does each new defensive branch map to an in-scope threat in `docs/adr/007-threat-model.md`?
 
 ## 4. Documents

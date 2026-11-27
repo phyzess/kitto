@@ -1,5 +1,5 @@
 import { test } from 'vitest';
-import { subtest } from './helpers/subtest.mjs';
+import { subtest } from './helpers/subtest.ts';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

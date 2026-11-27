@@ -6,11 +6,11 @@ note: realpathSync(x) !== x on the same variable is the allowed symlink-rejectio
 files:
   - lib/**/*.ts
   - bin/**
-  - scripts/**/*.mjs
+  - scripts/**/*.ts
   - integration/**/*.ts
 ignores:
   - lib/worktree-audit.ts
-  - scripts/release.mjs
+  - scripts/release.ts
 rule:
   all:
     - any:

@@ -1,6 +1,6 @@
 import { availableParallelism } from 'node:os';
 import { defineConfig } from 'vite-plus';
-import { stableNodeImports } from './scripts/stable-node-imports.mjs';
+import { stableNodeImports } from './scripts/stable-node-imports.ts';
 
 export default defineConfig({
   pack: {
@@ -19,13 +19,13 @@ export default defineConfig({
     deps: { neverBundle: [/^node:/, '@clack/prompts'] },
     hooks: {
       'build:done': async () => {
-        const { assembleDist } = await import('./scripts/build-dist.mjs');
+        const { assembleDist } = await import('./scripts/build-dist.ts');
         assembleDist();
       },
     },
   },
   test: {
-    include: ['tests/**/*.test.mjs'],
+    include: ['tests/**/*.test.ts'],
     pool: 'forks',
     isolate: false,
     maxWorkers: process.env.CI ? availableParallelism() : Math.max(1, Math.floor(availableParallelism() / 2)),

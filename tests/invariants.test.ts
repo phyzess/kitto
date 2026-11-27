@@ -7,7 +7,7 @@ import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
-const script = join(repo, 'scripts', 'check-invariants.mjs');
+const script = join(repo, 'scripts', 'check-invariants.ts');
 
 function fixture(files) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'kitto-invariants-')));
