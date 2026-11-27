@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { adviseRoute, auditReview, classifyRoutingFailure } from '../lib/model-routing.mjs';
 import { estimateGoFraction, goMeter, goModel, normalizeGoCharge } from '../lib/go-allowance.mjs';
+import { hosts } from '../lib/host-pins.mjs';
 import { setRoutingBoundary } from '../lib/routing-policy.mjs';
 import { parseOptions } from '../lib/kitto.mjs';
 import { issueRoutePermit, ROUTING_HOST_VERSION } from '../integration/dsh-routing.mjs';
@@ -312,7 +313,7 @@ test('full setup persists only an explicit local boundary and dry-run leaves sta
   for (const dir of [home, bin, join(source, 'config/dsh'), join(source, 'config/instructions')]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(source, 'config/dsh/AGENTS.md'), 'DSH fixture');
   writeFileSync(join(source, 'config/instructions/common.md'), 'Shared fixture');
-  for (const name of ['dsh', 'pnpm']) writeFileSync(join(bin, name), '#!/bin/sh\nprintf "0.2.2-rc.2\n"\n', { mode: 0o755 });
+  for (const name of ['dsh', 'pnpm']) writeFileSync(join(bin, name), `#!/bin/sh\nprintf "${hosts.dsh.version}\n"\n`, { mode: 0o755 });
   const env = { ...process.env, HOME: home, KITTO_HOME: kitto, DSH_HOME: join(home, 'dsh'), DSH_AGENTS_HOME: join(home, 'agents'),
     PATH: `${bin}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
   const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 10_000 });

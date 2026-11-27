@@ -3,12 +3,13 @@ import { createRequire } from 'node:module';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { createRouteObserver } from './dsh-route-evidence.mjs';
 import { timestamp } from '../lib/go-allowance.mjs';
+import { routingHostVersion } from '../lib/host-pins.mjs';
 import { kittoHome } from '../lib/kitto-home.mjs';
 import { adviseRoute } from '../lib/model-routing.mjs';
 import { activeRoutingBoundary, routeId } from '../lib/routing-policy.mjs';
 import { createRoutingStore, newTicketId, ticketId } from '../lib/routing-state.mjs';
 
-export const ROUTING_HOST_VERSION = '0.2.2-rc.5';
+export const ROUTING_HOST_VERSION = routingHostVersion;
 const TTL = 120_000;
 const OBSERVATION_TTL = 300_000;
 const unsupported = 'Kitto requires a fresh operator permit and native one-time approval for this subagent call.';

@@ -66,6 +66,7 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: npm ci --ignore-scripts
       - run: npm run check:test-wiring
+      - run: npm run lint:versions
       - run: npm test
       - name: Install validated native hosts
         run: node scripts/ci-install-native.mjs
@@ -78,7 +79,7 @@ jobs:
           export PATH="$RUNNER_TEMP/kitto-hosts/node_modules/.bin:$PATH"
           node --test tests/scope-codex.test.mjs tests/scope-dsh.test.mjs
   native-routing:
-    name: Verify native DSH Web routing (0.2.2-rc.5)
+    name: Verify native DSH Web routing
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -91,8 +92,9 @@ jobs:
       - name: Install exact DSH and run credential-free routing fixtures
         shell: bash
         run: |
+          routing_version="$(node scripts/print-host-pin.mjs routing)"
           scratch="$(mktemp -d "${RUNNER_TEMP:?}/kitto-dsh-routing.XXXXXX")"
           mkdir "$scratch/home"
-          env -i PATH="$PATH" HOME="$scratch/home" npm install --prefix "$scratch" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.5
+          env -i PATH="$PATH" HOME="$scratch/home" npm install --prefix "$scratch" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@"$routing_version"
           install="$scratch/node_modules/@deepseek-ai/dsh"
           env -i PATH="$PATH" HOME="$scratch/home" KITTO_TEST_DSH_INSTALL="$install" node --test tests/dsh-routing.test.mjs

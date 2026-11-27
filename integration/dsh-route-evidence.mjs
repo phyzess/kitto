@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join } from 'node:path';
+import { routingHostVersion } from '../lib/host-pins.mjs';
 import { fresh } from '../lib/go-allowance.mjs';
 import { kittoHome } from '../lib/kitto-home.mjs';
 import { sameLocation } from '../lib/paths.mjs';
@@ -50,7 +51,7 @@ export function registerRouteEvidence(ctx) {
     try {
       const require = createRequire(installAnchor);
       const manifest = require('./package.json');
-      if (manifest.name !== '@deepseek-ai/dsh' || manifest.version !== '0.2.2-rc.5') return;
+      if (manifest.name !== '@deepseek-ai/dsh' || manifest.version !== routingHostVersion) return;
       ({ defineTool } = require('@deepseek-ai/dsh-tools'));
     } catch { return; }
     if (typeof defineTool !== 'function') return;
