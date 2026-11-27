@@ -480,8 +480,13 @@ test('normal PRs and main pushes run only the trusted base package, checker and 
   assert.equal(missing.stdout, '');
 });
 
-test('missing parser fails, and the original workflow is auditable at the fixed bootstrap', () => {
+test('a missing parser fails', () => {
   assert.throws(() => inspect('/no/such/ast-grep', 'a.mjs', 'JavaScript', Buffer.from('export {};\n')), /ENOENT/u);
+});
+
+const hasHistory = spawnSync('git', ['cat-file', '-e', genesis], { stdio: 'ignore' }).status === 0;
+
+test.skipIf(!hasHistory)('the original workflow is auditable at the fixed bootstrap', () => {
   const original = command('git', ['show', `${genesis}:.github/workflows/check.yml`]);
   const comments = inspect(parser, '.github/workflows/check.yml', 'Yaml', original).tokens;
   assert.deepEqual(
