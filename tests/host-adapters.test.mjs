@@ -18,7 +18,7 @@ async function fixture(t, overrides = {}) {
   const common = { home, run };
   const deps = {
     common,
-    pi: { sync: (_state, command, apply) => calls.push(`sync ${command} apply=${apply}`), checkTools: () => {} },
+    pi: { sync: (_state, command, apply) => calls.push(`sync ${command} apply=${apply}`) },
     codex: { inspect: () => pluginReady, syncMcp: async () => { calls.push('codex-mcp apply'); } },
     dsh: { inspect: () => pluginReady, hasPnpm: () => true, syncMcp: async (_state, { dryRun }) => { calls.push(`dsh-mcp dryRun=${dryRun}`); } },
   };
@@ -41,7 +41,7 @@ test('connect actions describe exactly the commands apply runs, for every host',
 
 test('pi plans one pull whose preview is the dry run and whose apply is the real sync', async t => {
   const { state, calls, deps } = await fixture(t);
-  const [pull] = adapterFor(state, 'pi', deps).plan(state, { codeRoot: '/code' });
+  const [pull] = adapterFor(state, 'pi', deps).plan(state);
   assert.equal(pull.kind, 'pi-pull');
   assert.equal(pull.phase, 'sync');
   await pull.preview();
