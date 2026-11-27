@@ -7,14 +7,41 @@ import { hosts } from './host-pins.ts';
 import { kittoHome } from './kitto-home.ts';
 import { isDesktopProfile } from './dsh-profile.ts';
 import { compareVersions, isExactPin, readVersion } from './version-order.ts';
+import type { HostName, State } from '../types/kitto.d.ts';
+
+export interface HostsOptions {
+  apply?: boolean;
+  host?: HostName;
+  version?: string;
+}
+
+type HostProbe =
+  | { status: 'missing' }
+  | { status: 'unreadable'; detail: string }
+  | { status: 'found'; current: string };
+
+type RowAction = 'none' | 'upgrade' | 'install' | 'pin' | 'same-build-precedence' | 'newer' | 'unreadable';
+
+interface HostRow {
+  name: HostName;
+  appManaged?: boolean;
+  package: string;
+  baseline: string;
+  target?: string;
+  command?: string[];
+  status?: HostProbe['status'];
+  current?: string;
+  detail?: string;
+  action?: RowAction;
+}
 
 export { compareVersions };
 
 const policy = 'Policy: default to the pinned Kitto-validated baseline, never the latest release; '
   + 'an explicit --version overrides it only when you ask. Kitto never upgrades or checks host CLIs automatically.';
 
-export function parseHostsArgs(args = []) {
-  const options = {};
+export function parseHostsArgs(args: string[] = []): HostsOptions {
+  const options: Record<string, any> = {};
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--check') options.check = true;
@@ -27,20 +54,20 @@ export function parseHostsArgs(args = []) {
     } else throw new Error(`Unknown hosts option: ${arg}. Read the Kitto skill or run kitto --help.`);
   }
   if (options.check && options.apply) throw new Error('Choose either --check or --apply for hosts.');
-  if (options.host && !hosts[options.host]) throw new Error('--host must be pi, codex or dsh.');
+  if (options.host && !hosts[options.host as HostName]) throw new Error('--host must be pi, codex or dsh.');
   if (options.version && !isExactPin(options.version)) {
     throw new Error(`--version must be one exact semantic version (got ${options.version}); dist-tags and ranges are refused.`);
   }
   delete options.check;
-  return options;
+  return options as HostsOptions;
 }
 
-async function readState() {
+async function readState(): Promise<{ home: string; state: State }> {
   const home = kittoHome();
-  let state;
+  let state: State;
   try { state = await loadKittoState(home, { dryRun: true }); }
   catch (error) {
-    if (error.code === 'ENOENT') throw new Error(`Kitto is not set up in ${home}. Run kitto setup first.`);
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Kitto is not set up in ${home}. Run kitto setup first.`);
     throw error;
   }
   if (state.detached || state.removing) throw new Error('Kitto is detached or removal is incomplete. Use setup to reconnect, or finish remove.');
@@ -48,16 +75,16 @@ async function readState() {
   return { home, state };
 }
 
-const appManaged = (state, name) => name === 'dsh' && isDesktopProfile(state.dshProfile);
+const appManaged = (state: State, name: HostName) => name === 'dsh' && isDesktopProfile(state.dshProfile);
 
-function probeHost(name) {
+function probeHost(name: HostName): HostProbe {
   const probe = name === 'codex' ? mkdtempSync(join(tmpdir(), 'kitto-codex-hosts-')) : null;
   try {
     const result = spawnSync(name, ['--version'], {
       encoding: 'utf8', timeout: 8000,
       env: probe ? { ...process.env, CODEX_HOME: probe } : process.env,
     });
-    if (result.error?.code === 'ENOENT') return { status: 'missing' };
+    if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return { status: 'missing' };
     if (result.error) return { status: 'unreadable', detail: result.error.message };
     if (result.status !== 0) {
       const detail = `${result.stderr ?? ''}\n${result.stdout ?? ''}`.trim().split('\n')[0];
@@ -72,7 +99,7 @@ function probeHost(name) {
   }
 }
 
-function selectHosts(state, options) {
+function selectHosts(state: State, options: HostsOptions): HostName[] {
   const selected = options.host ? state.agents.filter(name => name === options.host) : [...state.agents];
   if (!selected.length) {
     throw new Error(`${options.host} is not a selected host (${state.agents.join(', ')}). Run kitto setup --agents ${options.host} first.`);
@@ -83,10 +110,10 @@ function selectHosts(state, options) {
   return selected;
 }
 
-function buildRows(state, options) {
+function buildRows(state: State, options: HostsOptions): HostRow[] {
   const selected = selectHosts(state, options);
   const pin = options.version;
-  const rows = selected.map(name => {
+  const rows = selected.map((name): HostRow => {
     const baseline = hosts[name].version;
     if (appManaged(state, name)) {
       if (pin) throw new Error('The DSH desktop profile is app-managed; Kitto never installs or pins its CLI. Upgrade it in DeepSeek Harness Desktop.');
@@ -94,7 +121,7 @@ function buildRows(state, options) {
     }
     const target = pin || baseline;
     const command = ['npm', 'install', '--global', `${hosts[name].package}@${target}`];
-    const row = { name, package: hosts[name].package, baseline, target, command, ...probeHost(name) };
+    const row: HostRow = { name, package: hosts[name].package, baseline, target, command, ...probeHost(name) };
     if (row.status !== 'found') row.action = row.status === 'missing' ? 'install' : 'unreadable';
     else if (row.current === target) row.action = 'none';
     else {
@@ -106,13 +133,13 @@ function buildRows(state, options) {
   return rows;
 }
 
-function currentLabel(row) {
+function currentLabel(row: HostRow) {
   if (row.status === 'found') return row.current;
   if (row.status === 'missing') return 'not found';
   return `unreadable (${row.detail})`;
 }
 
-function actionLabel(row) {
+function actionLabel(row: HostRow) {
   switch (row.action) {
     case 'none': return 'already at the target version';
     case 'upgrade': return 'upgrade needed';
@@ -124,14 +151,14 @@ function actionLabel(row) {
   }
 }
 
-const actionable = row => !row.appManaged && ['upgrade', 'install', 'pin'].includes(row.action);
+const actionable = (row: HostRow) => !row.appManaged && ['upgrade', 'install', 'pin'].includes(row.action);
 
-function pinWarning(row) {
+function pinWarning(row: HostRow) {
   if (row.appManaged || row.target === row.baseline) return null;
   return `      WARNING: ${row.target} is an explicit --version pin, not the Kitto-validated baseline ${row.baseline}; only the baseline is validated.`;
 }
 
-function printRow(row) {
+function printRow(row: HostRow) {
   if (row.appManaged) {
     console.log(`  ${row.name}: app-managed by DeepSeek Harness Desktop; Kitto baseline ${row.baseline}; Kitto never upgrades its CLI`);
     console.log('      upgrade through DeepSeek Harness Desktop');
@@ -139,12 +166,12 @@ function printRow(row) {
   }
   const target = row.target === row.baseline ? row.target : `${row.target} (explicit pin; Kitto baseline ${row.baseline})`;
   console.log(`  ${row.name}: current ${currentLabel(row)}; Kitto baseline ${row.baseline}; target ${target}; ${actionLabel(row)}`);
-  console.log(`      native manager: ${row.command.join(' ')}`);
+  console.log(`      native manager: ${row.command!.join(' ')}`);
   const warning = pinWarning(row);
   if (warning) console.log(warning);
 }
 
-function printCheck(state, rows) {
+function printCheck(state: State, rows: HostRow[]) {
   console.log(`Kitto ${state.version} host CLIs (check only; no writes).`);
   console.log(policy);
   for (const row of rows) printRow(row);
@@ -164,7 +191,7 @@ function npmAvailable() {
 const permissionHint = 'npm could not write to its global prefix. Retry with a writable npm prefix '
   + '(for example `npm config set prefix ~/.npm-global`) or use an administrator/sudo shell.';
 
-function runCommand(command) {
+function runCommand(command: string[]) {
   const [name, ...args] = command;
   const result = spawnSync(name, args, { stdio: ['inherit', 'inherit', 'pipe'], encoding: 'utf8', timeout: 600_000 });
   const stderr = (result.stderr ?? '').trim();
@@ -177,7 +204,7 @@ function runCommand(command) {
   }
 }
 
-function applyRows(state, rows) {
+function applyRows(state: State, rows: HostRow[]) {
   console.log(`Kitto ${state.version} host CLIs (apply: pinned versions only).`);
   console.log(policy);
   const managed = rows.filter(row => !row.appManaged);
@@ -212,7 +239,7 @@ function applyRows(state, rows) {
   console.log('Installing pinned versions with the native npm global manager (no npx, no dist-tags):');
   const changed = [];
   const notChanged = [];
-  let failure;
+  let failure: { row: HostRow; error: unknown } | undefined;
   for (let index = 0; index < changes.length; index++) {
     const row = changes[index];
     console.log(`  ${row.name}: current ${currentLabel(row)} -> ${row.target}`);
@@ -235,13 +262,13 @@ function applyRows(state, rows) {
   }
   if (failure) {
     console.log(`Summary: updated ${changed.join(', ') || 'none'}; not updated ${notChanged.join(', ')}. Kitto wrote no state.`);
-    throw new Error(`${failure.row.name}: ${failure.error.message}`);
+    throw new Error(`${failure.row.name}: ${(failure.error as Error).message}`);
   }
   console.log(`Summary: updated ${changed.join(', ')}; unchanged ${unchanged.map(row => row.name).join(', ') || 'none'}. `
     + 'Restart each updated host to load the new CLI.');
 }
 
-export async function hostsCommand(args = []) {
+export async function hostsCommand(args: string[] = []): Promise<void> {
   const options = parseHostsArgs(args);
   const { state } = await readState();
   const rows = buildRows(state, options);

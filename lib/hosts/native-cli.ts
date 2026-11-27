@@ -5,15 +5,28 @@ import { join } from 'node:path';
 import { hosts } from '../host-pins.ts';
 import { meetsBaseline, readVersion } from '../version-order.ts';
 import { available, run } from '../process.ts';
+import type { HostCapabilities, HostReport } from '../../types/kitto.d.ts';
 
-export function nativeCli(name, { scratchHomeVariable = undefined, capabilityArgs = {} } = {}) {
-  const withProbeEnv = callback => {
+export interface NativeCliOptions {
+  scratchHomeVariable?: string;
+  capabilityArgs?: Record<string, string[]>;
+}
+
+export interface NativeCli {
+  name: string;
+  available(): boolean;
+  inspect(): HostReport;
+  reportVersion(): void;
+}
+
+export function nativeCli(name: keyof typeof hosts, { scratchHomeVariable = undefined, capabilityArgs = {} }: NativeCliOptions = {}): NativeCli {
+  const withProbeEnv = <T>(callback: (env: NodeJS.ProcessEnv) => T): T => {
     if (!scratchHomeVariable) return callback(process.env);
     const probe = mkdtempSync(join(tmpdir(), 'kitto-codex-check-'));
     try { return callback({ ...process.env, [scratchHomeVariable]: probe }); }
     finally { rmSync(probe, { recursive: true, force: true }); }
   };
-  const capabilities = env => Object.fromEntries(Object.entries(capabilityArgs).map(([capability, args]) => [
+  const capabilities = (env: NodeJS.ProcessEnv): HostCapabilities => Object.fromEntries(Object.entries(capabilityArgs).map(([capability, args]) => [
     capability, spawnSync(name, args, { stdio: 'ignore', timeout: 8000, env }).status === 0,
   ]));
   return {
@@ -24,7 +37,7 @@ export function nativeCli(name, { scratchHomeVariable = undefined, capabilityArg
       const stdout = (result.stdout ?? '').trim();
       const actual = !result.error && result.status === 0 ? readVersion(stdout) : null;
       const baseline = hosts[name].version;
-      const missing = result.error?.['code'] === 'ENOENT';
+      const missing = (result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
       const detail = (stdout.split('\n')[0] || (result.stderr ?? '').trim().split('\n')[0] || `exit ${result.status}`);
       return {
         name, baseline, actual, status: missing ? 'missing' : actual ? 'found' : 'unreadable', detail,

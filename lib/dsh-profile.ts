@@ -3,19 +3,26 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync } f
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+export type DesktopProbeKind = 'uninitialized' | 'unknown' | 'timeout' | 'unavailable' | 'npm-cli' | 'desktop-cli';
+
+export interface DesktopProbe {
+  kind: DesktopProbeKind;
+  detail?: string;
+}
+
 export const desktopProfile = 'desktop';
 const profileName = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
-export function normalizeDshProfile(value = 'web') {
+export function normalizeDshProfile(value: unknown = 'web'): string {
   const profile = String(value);
   return profile.toLowerCase() === desktopProfile ? desktopProfile : profile;
 }
 
-export function isDesktopProfile(value) {
+export function isDesktopProfile(value: unknown): boolean {
   return typeof value === 'string' && value.toLowerCase() === desktopProfile;
 }
 
-export function validateDshProfile(value, message = 'Invalid DSH CLI profile name.') {
+export function validateDshProfile(value: string, message = 'Invalid DSH CLI profile name.'): string {
   if (!profileName.test(value)) throw new Error(message);
   return normalizeDshProfile(value);
 }
@@ -29,7 +36,7 @@ export const desktopScopeError = 'The DSH desktop profile is managed by the Deep
   'Kitto v1 does not write scoped profile patches or adapters for it. Use global setup ' +
   '(kitto setup --agents dsh --dsh-profile desktop) or select the web profile for scoped configuration.';
 
-const desktopProbeWarnings = {
+const desktopProbeWarnings: Record<string, string> = {
   'npm-cli': 'The dsh on PATH is the npm CLI and cannot manage the desktop profile. Kitto does not use it for this ' +
     'profile and still deploys only global rules and skills; use --dsh-profile web for Kitto bundle or scope support.',
   uninitialized: 'The DSH desktop profile has not been initialized. Start DeepSeek Harness Desktop once so it can ' +
@@ -40,16 +47,16 @@ const desktopProbeWarnings = {
     'global rules and skills; fully quit DeepSeek Harness Desktop and rerun if you want the check repeated.',
 };
 
-export function probeDesktopProfile({ dshHome, env = process.env, timeoutMs = 60_000 } = {}) {
+export function probeDesktopProfile({ dshHome, env = process.env, timeoutMs = 60_000 }: { dshHome?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): DesktopProbe {
   const home = dshHome || env.DSH_HOME || join(homedir(), '.dsh');
   const profileDir = join(home, 'profiles', desktopProfile);
   const manifest = join(profileDir, 'package.json');
   try { lstatSync(manifest); } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return { kind: 'uninitialized', detail: manifest };
-    return { kind: 'unknown', detail: `cannot inspect ${manifest}: ${error.code || error.message}` };
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return { kind: 'uninitialized', detail: manifest };
+    return { kind: 'unknown', detail: `cannot inspect ${manifest}: ${(error as NodeJS.ErrnoException).code || (error as Error).message}` };
   }
 
-  let scratch;
+  let scratch: string | undefined;
   try {
     scratch = mkdtempSync(join(tmpdir(), 'kitto-dsh-desktop-'));
     const scratchProfile = join(scratch, 'profiles', desktopProfile);
@@ -61,10 +68,10 @@ export function probeDesktopProfile({ dshHome, env = process.env, timeoutMs = 60
       encoding: 'utf8', timeout: timeoutMs, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...env, DSH_HOME: scratch },
     });
-    if (result.error?.code === 'ETIMEDOUT' || result.signal === 'SIGTERM' || result.signal === 'SIGKILL') {
+    if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' || result.signal === 'SIGTERM' || result.signal === 'SIGKILL') {
       return { kind: 'timeout', detail: `probe timed out after ${timeoutMs}ms` };
     }
-    if (result.error?.code === 'ENOENT') return { kind: 'unavailable', detail: 'dsh was not found on PATH' };
+    if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return { kind: 'unavailable', detail: 'dsh was not found on PATH' };
     if (result.error) return { kind: 'unavailable', detail: result.error.message };
     const detail = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
     if (/managed exclusively by the Electron application/i.test(detail)) return { kind: 'npm-cli', detail };
@@ -77,13 +84,13 @@ export function probeDesktopProfile({ dshHome, env = process.env, timeoutMs = 60
     }
     return { kind: 'unknown', detail: detail || `exit ${result.status}` };
   } catch (error) {
-    return { kind: 'unknown', detail: error.message };
+    return { kind: 'unknown', detail: (error as Error).message };
   } finally {
     if (scratch) rmSync(scratch, { recursive: true, force: true });
   }
 }
 
-export function reportDesktopProbe(probe, { log = console.log, warn = console.warn } = {}) {
+export function reportDesktopProbe(probe: DesktopProbe, { log = console.log, warn = console.warn }: { log?: (message: string) => void; warn?: (message: string) => void } = {}): void {
   if (probe.kind === 'desktop-cli') {
     log('DSH desktop CLI: initialized profile detected (probe ran against a temporary copy).');
     return;

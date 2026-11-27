@@ -7,27 +7,39 @@ import { sameLocation } from '../paths.ts';
 import { available, run as defaultRun } from '../process.ts';
 import { hostAction } from './action.ts';
 import { nativeCli } from './native-cli.ts';
+import type { HostAction, PreviewOptions } from './action.ts';
+import type { HostAdapter, HostReport, State } from '../../types/kitto.d.ts';
+import type { RunFunction } from '../process.ts';
+
+export interface DshWebAdapterDeps {
+  home?: string;
+  run?: RunFunction;
+  syncMcp?: typeof syncDshMcp;
+  removeMcp?: typeof removeDshMcp;
+  hasPnpm?: () => boolean;
+  inspect?: () => HostReport;
+}
 
 const quiet = { log: () => {}, warn: () => {} };
 
 export function createDshWebAdapter({
   home = kittoHome(), run = defaultRun, syncMcp = syncDshMcp, removeMcp = removeDshMcp, hasPnpm = () => available('pnpm'), inspect = undefined,
-} = {}) {
+}: DshWebAdapterDeps = {}): HostAdapter {
   const runtime = join(home, 'runtime');
   const cli = nativeCli('dsh', { capabilityArgs: { plugin: ['plugin', '--help'] } });
   const inspectCli = inspect ?? cli.inspect;
-  const profileOf = state => state.dshProfile || 'web';
+  const profileOf = (state: State) => state.dshProfile || 'web';
   return {
     ...cli,
     assertConnectable() {
       if (!hasPnpm()) throw new Error('DSH native plugin operations require pnpm on PATH. Run setup --install-agents to install the missing prerequisite.');
     },
-    plan: state => [hostAction('dsh', 'sync-mcp', 'sync Kitto MCP servers into the DSH home patch', {
+    plan: (state: State) => [hostAction('dsh', 'sync-mcp', 'sync Kitto MCP servers into the DSH home patch', {
       phase: 'sync',
       preview: async () => { await syncMcp(state, { dryRun: true }); },
       apply: async () => { await syncMcp(state, { dryRun: false }); },
     })],
-    planConnect: state => [hostAction('dsh', 'register-bundle', `dsh plugin --profile ${profileOf(state)} add ${runtime}`, {
+    planConnect: (state: State) => [hostAction('dsh', 'register-bundle', `dsh plugin --profile ${profileOf(state)} add ${runtime}`, {
       phase: 'connect',
       apply: async () => {
         const dsh = inspectCli();
@@ -42,10 +54,10 @@ export function createDshWebAdapter({
         });
       },
     })],
-    async planDetach(state) {
-      const mcp = dryRun => ({ announce = true } = {}) => removeMcp(state, { dryRun, ...(announce ? {} : quiet) });
-      let registered;
-      const bundleRegistered = async () => {
+    async planDetach(state: State): Promise<HostAction[]> {
+      const mcp = (dryRun: boolean) => ({ announce = true }: PreviewOptions = {}) => removeMcp(state, { dryRun, ...(announce ? {} : quiet) });
+      let registered: boolean | undefined;
+      const bundleRegistered = async (): Promise<boolean> => {
         if (registered !== undefined) return registered;
         const manifest = join(state.dshHome, 'profiles', profileOf(state), 'package.json');
         if (!await present(manifest)) return registered = false;
