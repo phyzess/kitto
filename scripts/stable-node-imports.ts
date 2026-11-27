@@ -1,8 +1,8 @@
 const nodeImport = /^import [^;\n]+ from "node:[^"\n]+";$/u;
 
-export function sortNodeImports(code) {
+export function sortNodeImports(code: string): string {
   const lines = code.split('\n');
-  const out = [];
+  const out: string[] = [];
   for (let index = 0; index < lines.length;) {
     if (!nodeImport.test(lines[index])) {
       out.push(lines[index++]);
@@ -17,5 +17,5 @@ export function sortNodeImports(code) {
 
 export const stableNodeImports = {
   name: 'kitto-stable-node-imports',
-  renderChunk: (code) => ({ code: sortNodeImports(code), map: null }),
+  renderChunk: (code: string) => ({ code: sortNodeImports(code), map: null }),
 };

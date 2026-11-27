@@ -46,6 +46,6 @@ function main() {
 try {
   main();
 } catch (error) {
-  console.error(`Comment ratchet: ${JSON.stringify(error.message)}`);
+  console.error(`Comment ratchet: ${JSON.stringify(error instanceof Error ? error.message : String(error))}`);
   process.exitCode = 1;
 }

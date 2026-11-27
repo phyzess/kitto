@@ -12,11 +12,20 @@ const registryArgs = [`--registry=${registry}`, `--@phyzess:registry=${registry}
 const verifyAttempts = 24;
 const verifyDelayMs = 15_000;
 
-function waitSync(ms) {
+function waitSync(ms: number): void {
   if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-export function waitForPublish(spec, integrity, read, { attempts = verifyAttempts, delayMs = verifyDelayMs, sleep = waitSync } = {}) {
+export function waitForPublish(
+  spec: string,
+  integrity: string,
+  read: () => string | undefined,
+  {
+    attempts = verifyAttempts,
+    delayMs = verifyDelayMs,
+    sleep = waitSync,
+  }: { attempts?: number; delayMs?: number; sleep?: (ms: number) => void } = {},
+): number {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const found = read();
     if (found === integrity) {
@@ -35,7 +44,7 @@ export function waitForPublish(spec, integrity, read, { attempts = verifyAttempt
   );
 }
 
-function run(command, args, cwd = root, capture = false) {
+function run(command: string, args: string[], cwd: string = root, capture = false): string {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
@@ -46,24 +55,34 @@ function run(command, args, cwd = root, capture = false) {
   return result.stdout;
 }
 
-function git(...args) {
+function git(...args: string[]): string {
   return run('git', args, root, true).trim();
 }
 
-function npmView(spec, field, cwd) {
+function npmView(spec: string, field: string, cwd?: string): string | undefined {
   const result = spawnSync('npm', ['view', spec, field, '--json', '--tag=latest', '--prefer-online', '--offline=false', ...registryArgs], {
     cwd,
     encoding: 'utf8',
   });
   if (result.error) throw result.error;
-  let data;
+  let data: unknown;
   if (result.stdout.trim()) data = JSON.parse(result.stdout);
-  if (result.status === 0) return data;
-  if (data?.error?.code === 'E404') return undefined;
+  if (result.status === 0) {
+    if (typeof data === 'string' || data === undefined) return data;
+    throw new Error(`Unexpected npm view result for ${spec} ${field}.`);
+  }
+  const failure = typeof data === 'object' && data !== null && 'error' in data ? data.error : undefined;
+  if (typeof failure === 'object' && failure !== null && 'code' in failure && failure.code === 'E404') return undefined;
   throw new Error(`Cannot read ${spec} ${field} from npm.\n${result.stderr.trim()}`);
 }
 
-function release(version, publish) {
+interface PackedTarball {
+  filename: string;
+  integrity: string;
+  files: Array<{ path: string }>;
+}
+
+function release(version: string, publish: boolean): void {
   const nodeMajor = readFileSync(join(root, '.node-version'), 'utf8').trim();
   if (process.versions.node.split('.')[0] !== nodeMajor) {
     throw new Error(`Releases use Node.js ${nodeMajor}. Found ${process.version}.`);
@@ -110,7 +129,7 @@ function release(version, publish) {
     if (built.name !== packageName || built.version !== version || builtPlugin.version !== version) {
       throw new Error(`Expected dist/package.json and dist/integration/plugin.json to carry ${spec}.`);
     }
-    const [packed] = JSON.parse(
+    const [packed]: PackedTarball[] = JSON.parse(
       run('npm', ['pack', '--json', '--ignore-scripts', '--dry-run=false', '--pack-destination', temp], dist, true),
     );
     if (packed.files.some((file) => file.path.endsWith('.map')) || !packed.files.some((file) => file.path === 'bin/kitto.mjs')) {
@@ -194,7 +213,7 @@ if (invokedDirectly()) {
       release(version, option === '--publish');
     }
   } catch (error) {
-    console.error(`Release failed: ${error.message}`);
+    console.error(`Release failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   }
 }

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const dist = join(root, 'dist');
 
-function files(dir) {
+function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)],
   );

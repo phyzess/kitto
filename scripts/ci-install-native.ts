@@ -16,7 +16,10 @@ const signatures = new Map([
 ]);
 const signature = signatures.get(platform);
 if (!signature) throw new Error(`Unsupported native pnpm platform: ${platform}.`);
-if (platform === 'linux-x64' && !process.report.getReport().header.glibcVersionRuntime) {
+const report: unknown = process.report.getReport();
+const header = typeof report === 'object' && report !== null && 'header' in report ? report.header : undefined;
+const glibc = typeof header === 'object' && header !== null && 'glibcVersionRuntime' in header && header.glibcVersionRuntime;
+if (platform === 'linux-x64' && !glibc) {
   throw new Error('The Linux native pnpm package requires glibc.');
 }
 
@@ -26,7 +29,8 @@ if (!verifyOnly) {
   try {
     mkdirSync(prefix);
   } catch (error) {
-    if (error.code === 'EEXIST') throw new Error(`Native host prefix already exists: ${prefix}.`);
+    if (error instanceof Error && 'code' in error && error.code === 'EEXIST')
+      throw new Error(`Native host prefix already exists: ${prefix}.`);
     throw error;
   }
 }
