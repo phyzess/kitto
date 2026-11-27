@@ -1,5 +1,12 @@
 # Kitto
 
+## 0.4.0
+
+- Task routing: choose models and reasoning effort per task across DSH, Pi, and Codex. Reuse role preferences, group unresolved choices, and defer work without launching its dependants. Metered routes require explicit task authorization. (#56)
+- DSH: stage AgentTeams before routing preflight and recheck the exact runnable scope after edits. Web **Approve & Run** does not invoke the checker; it remains a separate pre-launch verification step. The opt-in native `subagent` permit is unchanged. (#56)
+- Add `kitto route plan` and `kitto route check`, a Pi native route picker, and a Codex Plan-mode decision prompt. (#56)
+- Add a DSH delivery audit skill to distinguish unavailable workspace audit evidence from missing candidate files.
+
 ## 0.3.4
 
 - DSH routing: add offline preflight, bounded read-only reselection and reviewer independence checks. On DSH Web `0.2.2-rc.5`, operators can opt in to a one-use permit for the default native `subagent` spawn path. Native approval and allowlist checks still apply; failures are not replayed.
