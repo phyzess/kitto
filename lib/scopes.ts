@@ -5,22 +5,35 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+export interface ScopeRegistry {
+  version: 1;
+  global: boolean;
+  workspaces: string[];
+  workspaceParents?: string[];
+}
+
+export interface ResolvedScope {
+  root: string;
+  instructions: string;
+  skills: string;
+}
+
 const packageDir = fileURLToPath(new URL('../', import.meta.url));
 const runtimeDir = resolve(packageDir);
 
-export function scopeHome() {
+export function scopeHome(): string {
   if (runtimeDir.endsWith(sep + 'scope-runtime') && existsSync(join(runtimeDir, '.kitto-scope-runtime'))) return dirname(runtimeDir);
   return resolve(process.env.KITTO_HOME || join(process.env.XDG_DATA_HOME || join(homedir(), '.local/share'), 'kitto'));
 }
 
-const registryPath = home => join(home, 'scopes.json');
+const registryPath = (home: string) => join(home, 'scopes.json');
 
-function emptyScopeRegistry() {
+function emptyScopeRegistry(): ScopeRegistry {
   return { version: 1, global: false, workspaces: [], workspaceParents: [] };
 }
 
-function validateScopeRegistry(registry, file) {
-  const paths = value => Array.isArray(value) && value.every(path => typeof path === 'string' && isAbsolute(path));
+function validateScopeRegistry(registry: any, file: string): asserts registry is ScopeRegistry {
+  const paths = (value: unknown) => Array.isArray(value) && value.every((path: unknown) => typeof path === 'string' && isAbsolute(path));
   if (!registry || typeof registry !== 'object' || Array.isArray(registry) ||
       registry.version !== 1 || typeof registry.global !== 'boolean' ||
       !paths(registry.workspaces) ||
@@ -29,22 +42,22 @@ function validateScopeRegistry(registry, file) {
   }
 }
 
-export async function readScopeRegistry(home = scopeHome()) {
+export async function readScopeRegistry(home = scopeHome()): Promise<ScopeRegistry> {
   const file = registryPath(home);
-  let contents;
+  let contents: string;
   try { contents = await readFile(file, 'utf8'); }
   catch (error) {
-    if (error.code === 'ENOENT') return emptyScopeRegistry();
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyScopeRegistry();
     throw error;
   }
-  let registry;
+  let registry: unknown;
   try { registry = JSON.parse(contents); }
   catch (error) { throw new Error('Invalid Kitto scope registry: ' + file, { cause: error }); }
   validateScopeRegistry(registry, file);
   return registry;
 }
 
-export async function writeScopeRegistry(home, registry) {
+export async function writeScopeRegistry(home: string, registry: ScopeRegistry): Promise<void> {
   const file = registryPath(home);
   validateScopeRegistry(registry, file);
   const next = {
@@ -63,15 +76,15 @@ export async function writeScopeRegistry(home, registry) {
   }
 }
 
-function descendantPath(root, directory) {
+function descendantPath(root: string, directory: string): string | undefined {
   const path = relative(root, directory);
   if (path !== '..' && !path.startsWith('..' + sep) && !isAbsolute(path)) return path;
 }
 
-export async function resolveScopes(cwd, home = scopeHome()) {
+export async function resolveScopes(cwd: string, home = scopeHome()): Promise<ResolvedScope[]> {
   const registry = await readScopeRegistry(home);
   const directory = await realpath(cwd);
-  const roots = registry.workspaces.filter(root => descendantPath(root, directory) !== undefined);
+  const roots = registry.workspaces.filter((root: string) => descendantPath(root, directory) !== undefined);
   for (const parent of registry.workspaceParents ?? []) {
     const path = descendantPath(parent, directory);
     if (path) roots.push(join(parent, path.split(sep, 1)[0]));

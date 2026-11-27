@@ -1,23 +1,50 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { sameLocation } from './paths.ts';
 import { readScopeRegistry, scopeHome } from './scopes.ts';
+import type { State } from '../types/kitto.d.ts';
+
+export interface CodegraphTargetOptions {
+  source?: string;
+  dshHome?: string;
+  agentsHome?: string;
+  home?: string;
+  cwd?: string;
+  registeredOnly?: boolean;
+}
+
+export type CodegraphAction = 'ready' | 'missing-cli' | 'unwritable' | 'init';
+
+export interface CodegraphPlanItem {
+  path: string;
+  action: CodegraphAction;
+}
+
+export interface CodegraphEnsureOptions {
+  apply?: boolean;
+  log?: (message: string) => void;
+  targets?: string[];
+  available?: boolean;
+  writable?: (path: string) => boolean;
+  run?: (path: string) => Pick<SpawnSyncReturns<unknown>, 'status' | 'error'> | undefined;
+  registeredOnly?: boolean;
+}
 
 const INDEX_DIR = '.codegraph';
 
-function isInside(path, root) {
+function isInside(path: string, root: string): boolean {
   const rel = relative(root, path);
   return rel === '' || (rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel));
 }
 
-function isDirectory(path) {
+function isDirectory(path: string): boolean {
   try { return statSync(path).isDirectory(); } catch { return false; }
 }
 
-function gitRoot(path) {
-  let directory;
+function gitRoot(path: string): string | undefined {
+  let directory: string;
   try { directory = resolve(path); } catch { return undefined; }
   for (;;) {
     try {
@@ -30,28 +57,28 @@ function gitRoot(path) {
   }
 }
 
-function childRepos(parent) {
+function childRepos(parent: string): string[] {
   try {
     return readdirSync(parent, { withFileTypes: true })
       .filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules')
       .map(entry => gitRoot(join(parent, entry.name)))
-      .filter(Boolean);
+      .filter(Boolean) as string[];
   } catch {
     return [];
   }
 }
 
-export async function codegraphTargets(options = {}) {
+export async function codegraphTargets(options: CodegraphTargetOptions = {}): Promise<string[]> {
   const { source, dshHome, agentsHome, home = scopeHome(), cwd = process.cwd(), registeredOnly = false } = options;
   const registry = await readScopeRegistry(home);
-  const targets = new Set();
-  const excluded = [source, dshHome, agentsHome].filter(Boolean).map(path => resolve(path));
-  const add = path => {
+  const targets = new Set<string>();
+  const excluded = [source, dshHome, agentsHome].filter(Boolean).map(path => resolve(path as string));
+  const add = (path: string) => {
     const repo = gitRoot(path);
     if (!repo || excluded.some(root => isInside(repo, root))) return;
     targets.add(repo);
   };
-  const addWorkspace = root => {
+  const addWorkspace = (root: string) => {
     if (!existsSync(root)) return;
     const repo = gitRoot(root);
     if (repo) add(repo);
@@ -66,7 +93,7 @@ export async function codegraphTargets(options = {}) {
   return [...targets].sort();
 }
 
-export function canWrite(path) {
+export function canWrite(path: string): boolean {
   try {
     accessSync(path, constants.W_OK);
     return true;
@@ -75,23 +102,23 @@ export function canWrite(path) {
   }
 }
 
-export function hasCodegraph() {
+export function hasCodegraph(): boolean {
   return spawnSync('codegraph', ['--version'], { stdio: 'ignore', timeout: 8000 }).status === 0;
 }
 
-export function codegraphPlan(targets, { available = true, writable = canWrite } = {}) {
+export function codegraphPlan(targets: string[], { available = true, writable = canWrite }: { available?: boolean; writable?: (path: string) => boolean } = {}): CodegraphPlanItem[] {
   return targets.map(path => {
     const indexed = isDirectory(join(path, INDEX_DIR));
-    const action = indexed ? 'ready' : !available ? 'missing-cli' : !writable(path) ? 'unwritable' : 'init';
+    const action: CodegraphAction = indexed ? 'ready' : !available ? 'missing-cli' : !writable(path) ? 'unwritable' : 'init';
     return { path, action };
   });
 }
 
-function defaultRun(path) {
+function defaultRun(path: string) {
   return spawnSync('codegraph', ['init', '-y', path], { stdio: 'inherit', timeout: 600_000 });
 }
 
-export async function reportCodeGraphIndexes(state = {}) {
+export async function reportCodeGraphIndexes(state: Partial<State> = {}) {
   const plan = codegraphPlan(await codegraphTargets(state), { available: hasCodegraph() });
   for (const item of plan) {
     if (item.action === 'ready') continue;
@@ -102,7 +129,7 @@ export async function reportCodeGraphIndexes(state = {}) {
   return plan;
 }
 
-export async function ensureCodeGraphIndexes(state = {}, options = {}) {
+export async function ensureCodeGraphIndexes(state: Partial<State> = {}, options: CodegraphEnsureOptions = {}) {
   const { apply = false, log = console.log, targets, available = hasCodegraph(), writable = canWrite, run = defaultRun, registeredOnly = false } = options;
   const paths = targets ?? await codegraphTargets({ ...state, registeredOnly });
   if (paths.length === 0) return [];

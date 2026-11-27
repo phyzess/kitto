@@ -4,22 +4,24 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { desktopScopeError, isDesktopProfile, validateDshProfile } from './dsh-profile.ts';
 import { DshNotInstalledError, dshExecutable, importFromDsh } from '../integration/scoped-dsh/native.ts';
+import type { Json } from '../types/kitto.d.ts';
+import type { ScopeInstallOptions } from './scope-pi.ts';
 
 const pluginId = 'phyzess-kitto-scopes';
 const defaultRuntime = fileURLToPath(new URL('../', import.meta.url));
 
-async function readPatch(path) {
+async function readPatch(path: string): Promise<{ content: string | null; mode: number }> {
   try {
     const info = await lstat(path);
     if (!info.isFile()) throw new Error(`DSH profile patch is not a regular file: ${path}`);
     return { content: await readFile(path, 'utf8'), mode: info.mode & 0o777 };
   } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return { content: null, mode: 0o600 };
   }
 }
 
-export async function installDshScope({ dryRun, home, runtime = defaultRuntime, dshProfile = 'web' }) {
+export async function installDshScope({ dryRun, home, runtime = defaultRuntime, dshProfile = 'web' }: ScopeInstallOptions & { home: string }): Promise<void> {
   const profile = validateDshProfile(dshProfile);
   if (isDesktopProfile(profile)) throw new Error(desktopScopeError);
   const configuredHome = process.env.DSH_HOME?.trim() || join(home, '.dsh');
@@ -27,7 +29,7 @@ export async function installDshScope({ dryRun, home, runtime = defaultRuntime, 
     : configuredHome.startsWith('~/') ? join(home, configuredHome.slice(2)) : configuredHome);
   const path = join(dshHome, 'profiles', profile, 'cordis.patch.yml');
   const plugin = join(runtime, 'integration', 'scoped-dsh', 'index.mjs');
-  let executable;
+  let executable: string;
   try {
     executable = await dshExecutable();
   } catch (error) {
@@ -44,12 +46,12 @@ export async function installDshScope({ dryRun, home, runtime = defaultRuntime, 
   }
   const before = await readPatch(path);
   const document = parseDocument(before.content ?? '[]\n', {
-    customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: value => value }],
+    customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: unknown) => value }],
   });
   if (document.errors.length) throw document.errors[0];
   if (!isSeq(document.contents)) throw new Error(`DSH profile patch must be a YAML sequence: ${path}`);
 
-  const rows = document.toJS().flatMap(item => item?.insert ?? []).filter(row => row?.id === pluginId);
+  const rows = document.toJS().flatMap((item: Json) => item?.insert ?? []).filter((row: Json) => row?.id === pluginId);
   if (rows.length) {
     if (rows.length === 1 && rows[0].name === plugin) {
       if (dryRun) console.log(`DSH scoped configuration already registered: ${path}`);

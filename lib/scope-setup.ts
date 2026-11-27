@@ -6,25 +6,28 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sameLocation } from './paths.ts';
 import { readScopeRegistry, scopeHome, writeScopeRegistry } from './scopes.ts';
 import { canWrite, ensureCodeGraphIndexes } from './codegraph.ts';
+import type { HostName } from '../types/kitto.d.ts';
 import { desktopScopeError, isDesktopProfile, validateDshProfile } from './dsh-profile.ts';
+import type { KittoOptions } from './kitto.ts';
+import type { ScopeInstallOptions } from './scope-pi.ts';
 
 const packageDir = fileURLToPath(new URL('../', import.meta.url));
-const installers = { pi: 'installPiScope', codex: 'installCodexScope', dsh: 'installDshScope' };
+const installers: Record<string, string> = { pi: 'installPiScope', codex: 'installCodexScope', dsh: 'installDshScope' };
 
-async function exists(path) {
+async function exists(path: string): Promise<boolean> {
   try { await lstat(path); return true; }
-  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
 }
 
-async function workspacePath(path) {
+async function workspacePath(path: string): Promise<string> {
   try { return await realpath(path); }
   catch (error) {
-    if (error.code !== 'ENOENT' || await exists(path)) throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || await exists(path)) throw error;
     return join(await workspacePath(dirname(path)), basename(path));
   }
 }
 
-async function installRuntime(home) {
+async function installRuntime(home: string): Promise<string> {
   const runtime = join(home, 'scope-runtime');
   const backup = join(home, 'scope-runtime.previous');
   if (sameLocation(packageDir, runtime)) return runtime;
@@ -60,7 +63,7 @@ async function installRuntime(home) {
   } finally { await rm(temp, { recursive: true, force: true }); }
 }
 
-export async function setupScope(options) {
+export async function setupScope(options: KittoOptions): Promise<void> {
   const workspaceParent = options['workspace-parent'];
   if ([options.global, options.workspace, workspaceParent].filter(Boolean).length !== 1) {
     throw new Error('Choose exactly one of --global, --workspace PATH or --workspace-parent PATH.');
@@ -80,16 +83,16 @@ export async function setupScope(options) {
     throw new Error('--dsh-service requires --workspace PATH and the DSH host.');
   }
   const dshProfile = validateDshProfile(options['dsh-profile'] || 'web', 'Invalid DSH profile.');
-  const requestedAgents = options.agents || Object.keys(installers).filter(name =>
+  const requestedAgents = options.agents || (Object.keys(installers) as HostName[]).filter((name: HostName) =>
     (name === 'dsh' && unit) || spawnSync(name, ['--version'], { stdio: 'ignore', timeout: 8000 }).status === 0);
   if (options['dsh-profile'] && !requestedAgents.includes('dsh')) throw new Error('--dsh-profile requires DSH.');
   if (unit && isDesktopProfile(dshProfile)) {
     throw new Error('The DSH desktop profile cannot be configured for a system service. Use --dsh-profile web.');
   }
-  let agents = requestedAgents;
+  let agents: HostName[] = requestedAgents;
   if (agents.includes('dsh') && isDesktopProfile(dshProfile)) {
-    if (!agents.some(name => name !== 'dsh')) throw new Error(desktopScopeError);
-    agents = agents.filter(name => name !== 'dsh');
+    if (!agents.some((name: HostName) => name !== 'dsh')) throw new Error(desktopScopeError);
+    agents = agents.filter((name: HostName) => name !== 'dsh');
     console.warn('Kitto: skipping the DSH desktop profile in scoped setup; the Desktop app manages it and Kitto v1 does not write its profile patch.');
   }
   if (!agents.length) throw new Error('No supported host CLI found in this account. Use --agents to select a host.');
@@ -101,14 +104,14 @@ export async function setupScope(options) {
   if (!global && await exists(root) && !canWrite(root)) {
     console.warn(`Kitto: workspace ${root} is not writable by the current user. Agents cannot create CodeGraph indexes or edit files there; grant write access (chown or setfacl) before starting a session.`);
   }
-  async function installHosts(directory, preview) {
+  async function installHosts(directory: string, preview: boolean) {
     for (const name of agents) {
       if (unit && name === 'dsh') continue;
-      const module = await import(pathToFileURL(join(directory, 'lib', 'scope-' + name + '.mjs')));
-      await module[installers[name]]({ ...args, runtime: join(home, 'scope-runtime'), dryRun: preview });
+      const module = await import(pathToFileURL(join(directory, 'lib', 'scope-' + name + '.mjs')).href);
+      await (module as Record<string, (options: ScopeInstallOptions) => Promise<unknown>>)[installers[name]]({ ...args, runtime: join(home, 'scope-runtime'), dryRun: preview });
     }
   }
-  async function configureService(preview) {
+  async function configureService(preview: boolean) {
     if (!unit) return;
     const { configureServiceScope } = await import('./scope-service.ts');
     await configureServiceScope({ unit, root, dryRun: preview, packageDir, dshProfile });
@@ -129,7 +132,7 @@ export async function setupScope(options) {
   const lock = join(home, '.scope-setup.lock');
   try { await mkdir(lock); }
   catch (error) {
-    if (error.code === 'EEXIST') throw new Error('Scope setup is locked: ' + lock);
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Scope setup is locked: ' + lock);
     throw error;
   }
   try {
@@ -140,7 +143,7 @@ export async function setupScope(options) {
     } else if (!workspaceParent) {
       await mkdir(skills, { recursive: true });
       try { await writeFile(instructions, '', { flag: 'wx' }); }
-      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
     }
     await installHosts(runtime, false);
     if (global) registry.global = true;
@@ -151,7 +154,7 @@ export async function setupScope(options) {
     await writeScopeRegistry(home, registry);
     console.log('Scope ready. Start a new agent session in your project.');
     if (!global) {
-      const owner = await stat(root).then(info => info.uid).catch(() => null);
+      const owner = await stat(root).then(info => info.uid).catch((): null => null);
       if (process.getuid?.() === 0 && owner !== null && owner !== 0) {
         console.warn(`CodeGraph indexes: setup runs as root but ${root} belongs to uid ${owner}; run codegraph init as that user instead.`);
       } else {

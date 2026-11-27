@@ -7,37 +7,53 @@ import { promisify } from 'node:util';
 import { loadDshModule } from '../integration/scoped-dsh/native.ts';
 import { piServers } from './dependencies.ts';
 import { isDesktopProfile, validateDshProfile } from './dsh-profile.ts';
+import type { State } from '../types/kitto.d.ts';
+
+export interface McpParity {
+  hosts: Record<string, string[]>;
+  all: string[];
+  missing: Record<string, string[]>;
+  globalOnly: string[];
+  unavailable: Record<string, string>;
+}
+
+export interface McpParityOptions {
+  codex?: string;
+  dsh?: string;
+}
+
+type Row = Record<string, any>;
 
 const run = promisify(execFile);
 const client = '@deepseek-ai/dsh-mcp-client';
 const manager = '@deepseek-ai/dsh-mcp-manager';
-const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isRecord = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-async function optionalText(path) {
+async function optionalText(path: string): Promise<string> {
   try {
     return await readFile(path, 'utf8');
   } catch (error) {
-    if (error.code === 'ENOENT') return '';
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
     throw error;
   }
 }
 
-async function codexExecutable() {
+async function codexExecutable(): Promise<string> {
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     const path = resolve(dir, 'codex');
     try {
       await access(path, constants.X_OK);
       if ((await stat(path)).isFile()) return path;
     } catch (error) {
-      if (!['ENOENT', 'ENOTDIR', 'EACCES'].includes(error.code)) throw error;
+      if (!['ENOENT', 'ENOTDIR', 'EACCES'].includes((error as NodeJS.ErrnoException).code as string)) throw error;
     }
   }
   throw new Error('Codex is not available on PATH.');
 }
 
-export async function codexMcpNames(home, { codex } = {}) {
+export async function codexMcpNames(home: string | undefined, { codex }: McpParityOptions = {}): Promise<string[]> {
   if (!home) return [];
-  let sandbox;
+  let sandbox: string | undefined;
   try {
     const text = await optionalText(join(home, 'config.toml'));
     if (!text.trim()) return [];
@@ -56,10 +72,10 @@ export async function codexMcpNames(home, { codex } = {}) {
       },
     });
     const rows = JSON.parse(stdout);
-    if (!Array.isArray(rows) || rows.some(row => typeof row?.name !== 'string' || typeof row.enabled !== 'boolean')) {
+    if (!Array.isArray(rows) || rows.some((row: Row) => typeof row?.name !== 'string' || typeof row.enabled !== 'boolean')) {
       throw new Error('Unexpected Codex response.');
     }
-    return [...new Set(rows.filter(row => row.enabled).map(row => row.name))].sort();
+    return [...new Set(rows.filter((row: Row) => row.enabled).map((row: Row) => row.name))].sort();
   } catch {
     throw new Error('Cannot read Codex MCP declarations using codex mcp list --json.');
   } finally {
@@ -71,7 +87,7 @@ const groupNames = new Set(['cordis:group', '@deepseek-ai/cordis-plugin-group'])
 const includeNames = new Set(['cordis:include', '@deepseek-ai/cordis-plugin-include']);
 const expression = 1n;
 
-function parseDeclarations(yaml, text) {
+function parseDeclarations(yaml: any, text: string): Row[] {
   const doc = yaml.parseDocument(text, {
     intAsBigInt: false,
     customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: () => expression }],
@@ -79,12 +95,12 @@ function parseDeclarations(yaml, text) {
   if (doc.errors.length || doc.warnings.length) throw new Error('Invalid patch.');
   const value = doc.toJS();
   if (value == null) return [];
-  if (!Array.isArray(value) || value.some(patch => !isRecord(patch) || patch.id === expression ||
+  if (!Array.isArray(value) || value.some((patch: unknown) => !isRecord(patch) || patch.id === expression ||
     patch.name === expression || patch.insert === expression)) throw new Error('Invalid patch list.');
   return value;
 }
 
-function collectNames(rows, found) {
+function collectNames(rows: unknown[], found: Set<string>): void {
   for (const row of rows) {
     if (!isRecord(row)) throw new Error('Invalid entry.');
     if (row.disabled === true) continue;
@@ -116,7 +132,7 @@ function collectNames(rows, found) {
   }
 }
 
-export async function dshMcpNames(home, profile = 'web', { dsh } = {}) {
+export async function dshMcpNames(home: string | undefined, profile = 'web', { dsh }: McpParityOptions = {}): Promise<string[]> {
   if (!home) return [];
   try {
     const texts = await Promise.all([
@@ -127,9 +143,9 @@ export async function dshMcpNames(home, profile = 'web', { dsh } = {}) {
     const [yaml, { composeEntries }] = await Promise.all([
       loadDshModule('yaml', dsh), loadDshModule('@deepseek-ai/dsh-app-boot', dsh),
     ]);
-    const layers = texts.map(text => parseDeclarations(yaml, text));
+    const layers = texts.map((text: string) => parseDeclarations(yaml, text));
     const rows = composeEntries(layers, () => { throw new Error('Patch depends on an uninspected entry.'); });
-    const found = new Set();
+    const found = new Set<string>();
     collectNames(rows, found);
     return [...found].sort();
   } catch {
@@ -137,13 +153,13 @@ export async function dshMcpNames(home, profile = 'web', { dsh } = {}) {
   }
 }
 
-export async function mcpParity(state, options) {
-  const hosts = {}, globalOnly = [], unavailable = {};
-  async function inspect(host, read) {
+export async function mcpParity(state: State, options?: McpParityOptions): Promise<McpParity> {
+  const hosts: Record<string, string[]> = {}, globalOnly: string[] = [], unavailable: Record<string, string> = {};
+  async function inspect(host: string, read: () => Promise<string[]>) {
     try {
       hosts[host] = await read();
     } catch (error) {
-      unavailable[host] = error.message;
+      unavailable[host] = (error as Error).message;
     }
   }
   if (state.agents?.includes('pi')) hosts.pi = Object.keys(await piServers(state)).sort();
@@ -153,12 +169,12 @@ export async function mcpParity(state, options) {
     else await inspect('dsh', () => dshMcpNames(state.dshHome, state.dshProfile || 'web', options));
   }
   const all = [...new Set(Object.values(hosts).flat())].sort();
-  const missing = {};
+  const missing: Record<string, string[]> = {};
   for (const [host, entries] of Object.entries(hosts)) missing[host] = all.filter(name => !entries.includes(name));
   return { hosts, all, missing, globalOnly, unavailable };
 }
 
-export async function printMcpParity(state, log = console.log, options) {
+export async function printMcpParity(state: State, log: (message: string) => void = console.log, options?: McpParityOptions): Promise<McpParity> {
   const parity = await mcpParity(state, options);
   for (const [host, entries] of Object.entries(parity.hosts)) {
     log(`mcp ${host}: ${entries.length ? entries.join(', ') : '(none)'}`);

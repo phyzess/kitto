@@ -4,8 +4,24 @@ import { checkSelectedHosts, installMissingHosts, maintain, setup } from './kitt
 import { query } from './dependencies.ts';
 import { isDesktopProfile } from './dsh-profile.ts';
 import { configureServiceEnvironment } from './scope-service.ts';
+import type { HostName } from '../types/kitto.d.ts';
+import type { KittoOptions } from './kitto.ts';
 
-export async function runEnvironmentSetup(plan) {
+export interface SetupPlan {
+  agents: HostName[];
+  source?: string | false;
+  installAgents?: boolean;
+  deps?: boolean;
+  workspace?: string;
+  unit?: string;
+  dshProfile?: string;
+  dryRun?: boolean;
+  routingBoundary?: string;
+  routingRoutes?: string;
+  serviceInstallAgents?: boolean;
+}
+
+export async function runEnvironmentSetup(plan: SetupPlan): Promise<void> {
   const { unit, deps, installAgents, dryRun, dshProfile } = plan;
   const desktopDsh = isDesktopProfile(dshProfile);
   const source = plan.source && existsSync(plan.source) ? resolve(plan.source) : plan.source;
@@ -14,11 +30,11 @@ export async function runEnvironmentSetup(plan) {
       'mode would deploy no global rules. Choose a source or use --dsh-profile web.');
   }
   const workspace = plan.workspace && resolve(plan.workspace);
-  const agents = plan.agents.filter(name => name !== 'dsh' || !unit);
+  const agents = plan.agents.filter((name: HostName) => name !== 'dsh' || !unit);
   const serviceOptions = { unit, source, deps, workspace, global: true, installAgents: plan.serviceInstallAgents ?? false, dshProfile };
   if (unit) await configureServiceEnvironment({ ...serviceOptions, dryRun: true });
   if (agents.length) {
-    const options = { agents, 'dry-run': dryRun };
+    const options: KittoOptions = { agents, 'dry-run': dryRun };
     if (agents.includes('dsh')) options['dsh-profile'] = dshProfile;
     if (source === false) {
       checkSelectedHosts(agents, installAgents);
@@ -28,14 +44,14 @@ export async function runEnvironmentSetup(plan) {
         'routing-boundary': plan.routingBoundary, 'routing-routes': plan.routingRoutes });
     }
     const pendingDsh = !desktopDsh && dryRun && installAgents && agents.includes('dsh') && query('dsh', ['--version']) === null;
-    const scopedAgents = agents.filter(name => !(pendingDsh && name === 'dsh'))
-      .filter(name => !(name === 'dsh' && desktopDsh));
+    const scopedAgents = agents.filter((name: HostName) => !(pendingDsh && name === 'dsh'))
+      .filter((name: HostName) => !(name === 'dsh' && desktopDsh));
     if (desktopDsh && agents.includes('dsh')) {
       console.log('DSH Desktop：由 App 管理，跳过 scoped 适配器；本次只处理全局规则和 skills。');
     }
     if (pendingDsh) console.log('DSH scope registration will run after its CLI is installed.');
     if (scopedAgents.length) {
-      const scope = { ...options, agents: scopedAgents };
+      const scope: KittoOptions = { ...options, agents: scopedAgents };
       if (!scopedAgents.includes('dsh')) delete scope['dsh-profile'];
       await setup({ ...scope, global: true });
       if (workspace) await setup({ ...scope, 'workspace-parent': workspace });

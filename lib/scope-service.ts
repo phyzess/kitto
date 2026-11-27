@@ -3,12 +3,31 @@ import { constants } from 'node:fs';
 import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { State } from '../types/kitto.d.ts';
+import type { KittoOptions } from './kitto.ts';
+
+export interface ServiceAccount {
+  name: string;
+  uid: string;
+  environment: Record<string, string>;
+}
+
+export interface ServiceSetupRequest {
+  source?: string | false;
+  dryRun?: boolean;
+  dshProfile?: string;
+  deps?: boolean;
+  workspace?: string;
+  global?: boolean;
+  installAgents?: boolean;
+  workspaceParent?: boolean;
+}
 
 const defaultPackageDir = fileURLToPath(new URL('../', import.meta.url));
 const systemEnv = { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C' };
 const properties = ['Id', 'LoadState', 'ActiveState', 'MainPID', 'User', 'DynamicUser', 'RootDirectory', 'RootImage'];
 
-function execute(program, args, { cwd = '/', capture = true, timeout = 8_000 } = {}) {
+function execute(program: string, args: string[], { cwd = '/', capture = true, timeout = 8_000 }: { cwd?: string; capture?: boolean; timeout?: number } = {}): string {
   const result = spawnSync(program, args, {
     cwd, env: systemEnv, encoding: 'utf8', timeout, stdio: capture ? 'pipe' : 'inherit',
   });
@@ -18,8 +37,8 @@ function execute(program, args, { cwd = '/', capture = true, timeout = 8_000 } =
   return result.stdout ?? '';
 }
 
-export function readServiceProperties(unit, output) {
-  const details = Object.fromEntries(output.trimEnd().split('\n').map(line => {
+export function readServiceProperties(unit: string, output: string): { pid: string; user: string } {
+  const details = Object.fromEntries(output.trimEnd().split('\n').map((line): [string, string] => {
     const equals = line.indexOf('=');
     return [line.slice(0, equals), line.slice(equals + 1)];
   }));
@@ -35,14 +54,14 @@ export function readServiceProperties(unit, output) {
   return { pid: details.MainPID, user: details.User };
 }
 
-function serviceDetails(unit) {
+function serviceDetails(unit: string) {
   return readServiceProperties(unit, execute('/usr/bin/systemctl', [
     '--system', 'show', '--no-pager', '--property=' + properties.join(','), '--', unit,
   ]));
 }
 
-export function readServiceEnvironment(data) {
-  const env = {};
+export function readServiceEnvironment(data: string): Record<string, string> {
+  const env: Record<string, string> = {};
   for (const item of data.split('\0')) {
     const equals = item.indexOf('=');
     if (equals === -1) continue;
@@ -51,7 +70,7 @@ export function readServiceEnvironment(data) {
     if (Object.hasOwn(env, key)) throw new Error(`Duplicate service environment variable: ${key}`);
     const value = item.slice(equals + 1);
     const paths = key === 'PATH' ? value.split(':') : [value];
-    if (paths.some(path => !isAbsolute(path) || /[\u0000-\u001f\u007f]/.test(path))) {
+    if (paths.some((path: string) => !isAbsolute(path) || /[\u0000-\u001f\u007f]/.test(path))) {
       throw new Error(`Service environment ${key} must contain absolute paths.`);
     }
     env[key] = value;
@@ -60,7 +79,7 @@ export function readServiceEnvironment(data) {
   return env;
 }
 
-async function accountForService(unit) {
+async function accountForService(unit: string): Promise<ServiceAccount> {
   const { pid, user } = serviceDetails(unit);
   const [name, , uid] = execute('/usr/bin/getent', ['passwd', user]).trimEnd().split(':');
   if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.-]*[$]?$/.test(name) || !/^[1-9][0-9]*$/.test(uid ?? '')) {
@@ -70,12 +89,12 @@ async function accountForService(unit) {
   const before = await readFile(join(proc, 'stat'), 'utf8');
   const status = await readFile(join(proc, 'status'), 'utf8');
   const processUids = status.match(/^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$/m)?.slice(1);
-  if (!processUids || !processUids.every(value => value === uid)) {
+  if (!processUids || !processUids.every((value: string) => value === uid)) {
     throw new Error(`Service process does not match the configured account: ${unit}`);
   }
   const environment = readServiceEnvironment(await readFile(join(proc, 'environ'), 'utf8'));
   const after = await readFile(join(proc, 'stat'), 'utf8');
-  const startTime = value => value.slice(value.lastIndexOf(')') + 2).split(' ')[19];
+  const startTime = (value: string) => value.slice(value.lastIndexOf(')') + 2).split(' ')[19];
   const current = serviceDetails(unit);
   if (!startTime(before) || startTime(before) !== startTime(after) || current.pid !== pid || current.user !== user) {
     throw new Error(`Service changed while reading its account settings: ${unit}`);
@@ -83,20 +102,20 @@ async function accountForService(unit) {
   return { name, uid, environment };
 }
 
-async function requireWorkspaceAccess(workspace, includeAssets) {
-  async function requireDirectory(path) {
-    let info;
+async function requireWorkspaceAccess(workspace: string, includeAssets: boolean): Promise<void> {
+  async function requireDirectory(path: string): Promise<void> {
+    let info: Awaited<ReturnType<typeof stat>>;
     try {
       info = await stat(path);
     } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       const parent = dirname(path);
       if (parent === path) throw error;
       await requireDirectory(parent);
       try {
         await access(parent, constants.W_OK | constants.X_OK);
       } catch (accessError) {
-        if (accessError.code !== 'ENOENT') throw accessError;
+        if ((accessError as NodeJS.ErrnoException).code !== 'ENOENT') throw accessError;
       }
       return;
     }
@@ -110,13 +129,13 @@ async function requireWorkspaceAccess(workspace, includeAssets) {
   try {
     await access(join(workspace, 'AGENTS.md'), constants.R_OK);
   } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     try { await access(workspace, constants.W_OK | constants.X_OK); }
-    catch (accessError) { if (accessError.code !== 'ENOENT') throw accessError; }
+    catch (accessError) { if ((accessError as NodeJS.ErrnoException).code !== 'ENOENT') throw accessError; }
   }
 }
 
-async function checkLocalSource(source) {
+async function checkLocalSource(source: string | false | undefined): Promise<void> {
   if (!source || !isAbsolute(source)) return;
   try {
     await access(source, constants.R_OK | constants.X_OK);
@@ -134,11 +153,11 @@ async function runServiceSetup() {
   if (!/^[1-9][0-9]*$/.test(uid ?? '') || String(process.getuid?.()) !== uid || String(process.geteuid?.()) !== uid) {
     throw new Error('DSH setup must run under the selected non-root service account.');
   }
-  const { source, dryRun, dshProfile, deps, workspace, global, installAgents, workspaceParent } = JSON.parse(request);
+  const { source, dryRun, dshProfile, deps, workspace, global, installAgents, workspaceParent }: ServiceSetupRequest = JSON.parse(request);
   await checkLocalSource(source);
   if (workspace) await requireWorkspaceAccess(workspace, !workspaceParent);
   const { setup, maintain, kittoHome } = await import('./kitto.ts');
-  const options = { agents: ['dsh'], 'dry-run': dryRun };
+  const options: KittoOptions = { agents: ['dsh'], 'dry-run': dryRun };
   if (dshProfile) options['dsh-profile'] = dshProfile;
   if (source !== false) {
     await setup({ ...options, keepExistingSkills: true, serviceSetup: true,
@@ -152,7 +171,7 @@ async function runServiceSetup() {
     for (const plan of plans) await setup({ ...options, ...plan });
   }
   if (deps) {
-    const hasState = await stat(join(kittoHome(), 'state.json')).then(() => true, error => {
+    const hasState = await stat(join(kittoHome(), 'state.json')).then(() => true, (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return false;
       throw error;
     });
@@ -160,15 +179,15 @@ async function runServiceSetup() {
       await maintain(['deps', ...(!dryRun ? ['--apply'] : [])]);
     } else if (source && isAbsolute(source)) {
       const { installDependencies } = await import('./dependencies.ts');
-      await installDependencies({ agents: ['dsh'], source }, false);
+      await installDependencies({ agents: ['dsh'], source } as State, false);
     } else {
       console.log('DSH dependency checks will run after the configuration checkout is available.');
     }
   }
 }
 
-export async function stageServicePackage(packageDir, stage, fullRuntime = false) {
-  async function copy(relative, include = () => true) {
+export async function stageServicePackage(packageDir: string, stage: string, fullRuntime = false): Promise<void> {
+  async function copy(relative: string, include: (entry: string) => boolean = () => true): Promise<void> {
     const source = join(packageDir, relative);
     const target = join(stage, relative);
     const info = await lstat(source);
@@ -189,13 +208,13 @@ export async function stageServicePackage(packageDir, stage, fullRuntime = false
     }
   }
 
-  await copy('bin', name => name.endsWith('.mjs'));
-  await copy('lib', name => name.endsWith('.mjs'));
-  await copy('integration', name => fullRuntime || name.startsWith('scoped-'));
+  await copy('bin', (name: string) => name.endsWith('.mjs'));
+  await copy('lib', (name: string) => name.endsWith('.mjs'));
+  await copy('integration', (name: string) => fullRuntime || name.startsWith('scoped-'));
   if (fullRuntime) for (const name of ['package.json', 'CHANGELOG.md']) await copy(name);
 }
 
-function validateServiceHost(unit) {
+function validateServiceHost(unit: unknown): asserts unit is string {
   if (typeof unit !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.@-]*\.service$/.test(unit)) {
     throw new Error('Expected a systemd service unit name ending in .service.');
   }
@@ -204,12 +223,12 @@ function validateServiceHost(unit) {
   }
 }
 
-function serviceInvocation({ name, environment }, command) {
+function serviceInvocation({ name, environment }: Pick<ServiceAccount, 'name' | 'environment'>, command: string[]): string[] {
   const assignments = Object.entries({ ...environment, USER: name, LOGNAME: name }).map(([key, value]) => key + '=' + value);
   return ['-u', name, '--', '/usr/bin/env', '-i', ...assignments, ...command];
 }
 
-export async function servicePnpmAvailable(unit) {
+export async function servicePnpmAvailable(unit: string): Promise<boolean> {
   validateServiceHost(unit);
   const account = await accountForService(unit);
   const result = spawnSync('/usr/sbin/runuser', serviceInvocation(account, ['pnpm', '--version']), {
@@ -219,7 +238,7 @@ export async function servicePnpmAvailable(unit) {
   return result.status === 0;
 }
 
-async function delegateServiceSetup(unit, packageDir, request) {
+async function delegateServiceSetup(unit: string, packageDir: string, request: ServiceSetupRequest): Promise<void> {
   validateServiceHost(unit);
   if (request.workspace !== undefined && (typeof request.workspace !== 'string' || !isAbsolute(request.workspace))) {
     throw new Error('Service workspace must be an absolute path.');
@@ -238,20 +257,20 @@ async function delegateServiceSetup(unit, packageDir, request) {
   }
 }
 
-export async function configureServiceScope({ unit, root, dryRun = false, packageDir = defaultPackageDir, dshProfile }) {
+export async function configureServiceScope({ unit, root, dryRun = false, packageDir = defaultPackageDir, dshProfile }: { unit: string; root: string; dryRun?: boolean; packageDir?: string; dshProfile?: string }): Promise<void> {
   if (typeof root !== 'string' || !isAbsolute(root)) throw new Error('Service workspace must be an absolute path.');
   return delegateServiceSetup(unit, packageDir, { source: false, workspace: root, dryRun, dshProfile });
 }
 
 export async function configureServiceEnvironment({
   unit, source, dryRun = false, dshProfile, deps = false, workspace, global = false, installAgents = false,
-}) {
+}: { unit: string; source?: string | false; dryRun?: boolean; dshProfile?: string; deps?: boolean; workspace?: string; global?: boolean; installAgents?: boolean }): Promise<void> {
   if (typeof source === 'string' && source && !/^(https:\/\/|ssh:\/\/|git@)/.test(source)) source = resolve(source);
   return delegateServiceSetup(unit, defaultPackageDir, { source, dryRun, dshProfile, deps, workspace, global, installAgents, workspaceParent: true });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  void runServiceSetup().catch(error => {
+  void runServiceSetup().catch((error: Error) => {
     console.error('Kitto service setup: ' + error.message);
     process.exitCode = 1;
   });

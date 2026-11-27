@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { Dirent } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { dependencyPlan, executable, npmSpec, npxPackage, optionalJson, piServers, query } from './dependencies.ts';
@@ -6,14 +7,26 @@ import { isDesktopProfile } from './dsh-profile.ts';
 import { hostSkillRoots } from './host-config.ts';
 
 import { readVersion } from './version-order.ts';
+import type { HostName, State } from '../types/kitto.d.ts';
+import type { HostPin } from './host-pins.ts';
 
-async function entries(path) {
-  try { return await readdir(path, { withFileTypes: true }); }
-  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+export interface VersionRow {
+  kind: string;
+  owner?: string;
+  name?: string;
+  installed?: string | null;
+  target?: string | null;
+  tested?: string;
+  [key: string]: unknown;
 }
 
-async function resources(root, revision, hashTree) {
-  const rows = [];
+async function entries(path: string): Promise<Dirent[]> {
+  try { return await readdir(path, { withFileTypes: true }); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
+}
+
+async function resources(root: string, revision: string, hashTree: (path: string, flag?: boolean) => Promise<string>): Promise<VersionRow[]> {
+  const rows: VersionRow[] = [];
   for (const entry of await entries(root)) {
     const path = join(root, entry.name);
     if (!entry.isDirectory() || !(await entries(path)).some(file => file.name === 'SKILL.md' && file.isFile())) continue;
@@ -22,11 +35,11 @@ async function resources(root, revision, hashTree) {
   return rows;
 }
 
-async function piVersions(state, revision) {
-  const rows = [];
+async function piVersions(state: State, revision: string): Promise<VersionRow[]> {
+  const rows: VersionRow[] = [];
   const settings = await optionalJson(join(state.source, 'config/pi/settings.json'));
   const machine = await optionalJson(join(state.piHome, 'settings.json'), settings);
-  const specs = new Map();
+  const specs = new Map<string, string | null>();
   for (const list of [settings.packages || [], machine.packages || []]) {
     for (const entry of list) {
       const source = typeof entry === 'string' ? entry : entry.source;
@@ -55,11 +68,11 @@ async function piVersions(state, revision) {
   return rows.map(row => ({ ...row, owner: 'pi' }));
 }
 
-async function codexVersions(state) {
+async function codexVersions(state: State): Promise<VersionRow[]> {
   const output = query('codex', ['plugin', 'list', '--json'], { ...process.env, CODEX_HOME: state.codexHome });
   if (!output) return [{ kind: 'inventory', owner: 'codex', note: 'Native plugin inventory unavailable.' }];
   try {
-    return JSON.parse(output).installed.map(plugin => ({
+    return JSON.parse(output).installed.map((plugin: any) => ({
       kind: 'plugin', owner: 'codex', name: plugin.pluginId, installed: plugin.version || null, enabled: plugin.enabled,
     }));
   } catch {
@@ -67,11 +80,11 @@ async function codexVersions(state) {
   }
 }
 
-async function dshVersions(state) {
+async function dshVersions(state: State): Promise<VersionRow[]> {
   const profile = state.dshProfile || 'web';
   const root = join(state.dshHome, 'profiles', profile);
   const manifest = await optionalJson(join(root, 'package.json'));
-  const rows = [];
+  const rows: VersionRow[] = [];
   for (const name of manifest.dsh?.profile?.bundles || []) {
     const target = manifest.dependencies?.[name];
     const bundled = !target;
@@ -83,7 +96,7 @@ async function dshVersions(state) {
   return rows;
 }
 
-async function upstream(kind, name) {
+async function upstream(kind: string, name: string): Promise<Record<string, unknown>> {
   const encoded = encodeURIComponent(name);
   const url = kind === 'npm' ? `https://registry.npmjs.org/${encoded}` : `https://pypi.org/pypi/${encoded}/json`;
   try {
@@ -94,18 +107,18 @@ async function upstream(kind, name) {
     const channels = Object.fromEntries(Object.entries(data['dist-tags'] || {}).filter(
       ([tag]) => ['latest', 'next', 'alpha', 'beta', 'canary'].includes(tag),
     ));
-    const requirements = Object.fromEntries(Object.entries(channels).map(([tag, value]) => {
+    const requirements = Object.fromEntries(Object.entries(channels).map(([tag, value]: [string, any]) => {
       const release = data.versions?.[value];
       return [tag, { engines: release?.engines, peers: release?.peerDependencies, deprecated: release?.deprecated }];
     }));
     return { source: url, channels, requirements };
   } catch (error) {
-    return { source: url, error: error.message };
+    return { source: url, error: (error as Error).message };
   }
 }
 
-export async function versionReport(state, hosts, pnpmVersion, online, hashTree) {
-  const rows = [{ kind: 'npm', owner: 'kitto', name: '@phyzess/kitto', installed: state.version }];
+export async function versionReport(state: State, hosts: Record<HostName, HostPin>, pnpmVersion: string, online: boolean, hashTree: (path: string, flag?: boolean) => Promise<string>): Promise<{ checkedAt: string; online: boolean; components: VersionRow[] }> {
+  const rows: VersionRow[] = [{ kind: 'npm', owner: 'kitto', name: '@phyzess/kitto', installed: state.version }];
   for (const name of state.agents) {
     rows.push({ kind: 'npm', owner: name, name: hosts[name].package, installed: readVersion(query(name, ['--version'])), tested: hosts[name].version });
   }
@@ -123,20 +136,20 @@ export async function versionReport(state, hosts, pnpmVersion, online, hashTree)
     rows.push(...(await resources(source, revision, hashTree)).map(row => ({ ...row, owner: name })));
   }
   for (const tool of await dependencyPlan(state)) {
-    const kind = { mise: 'npm', pip: 'pypi', brew: 'brew' }[tool.manager] || 'external';
+    const kind = ({ mise: 'npm', pip: 'pypi', brew: 'brew' } as Record<string, string>)[tool.manager!] || 'external';
     rows.push({ ...tool, kind });
   }
   if (online) {
-    const groups = new Map();
+    const groups = new Map<string, VersionRow[]>();
     for (const row of rows.filter(row => ['npm', 'pypi'].includes(row.kind))) {
       const key = `${row.kind}:${row.name}`;
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(row);
+      groups.get(key)!.push(row);
     }
     const batches = [...groups.values()];
     for (let i = 0; i < batches.length; i += 6) {
-      await Promise.all(batches.slice(i, i + 6).map(async group => {
-        const result = await upstream(group[0].kind, group[0].name);
+      await Promise.all(batches.slice(i, i + 6).map(async (group: VersionRow[]) => {
+        const result = await upstream(group[0].kind, group[0].name!);
         for (const row of group) row.upstream = result;
       }));
     }

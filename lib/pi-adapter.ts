@@ -8,33 +8,35 @@ import { basename, dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { executable } from './dependencies.ts';
 import { processAlive } from './process-alive.ts';
+import { platformOverlay } from './platform.ts';
+import type { PiPackageSpec } from './package-key.ts';
 import {
-  composeAgents, exportMcp, extractAgents, listSharedPackages, loadJson, mergeMcp, mergeSettings, recordSettings, sanitizeSettings,
+  type JsonObject, composeAgents, exportMcp, extractAgents, listSharedPackages, loadJson, mergeMcp, mergeSettings, recordSettings, sanitizeSettings,
 } from './pi-settings.ts';
 
-const color = { red: '\u001b[0;31m', green: '\u001b[0;32m', cyan: '\u001b[0;36m', yellow: '\u001b[0;33m', dim: '\u001b[2m', none: '\u001b[0m' };
-const tag = (name, text, message) => `${color[name]}${text}${color.none}${message}`;
-const info = message => console.log(tag('cyan', '[info]', ` ${message}`));
-const ok = message => console.log(tag('green', '[ok]', `   ${message}`));
-const same = message => console.log(tag('dim', '[=]', `    ${message}`));
-const warn = message => console.log(tag('yellow', '[skip]', ` ${message}`));
-const fail = message => console.log(tag('red', '[fail]', ` ${message}`));
-const indent = lines => lines.map(line => `    ${line}`);
+const color: Record<string, string> = { red: '\u001b[0;31m', green: '\u001b[0;32m', cyan: '\u001b[0;36m', yellow: '\u001b[0;33m', dim: '\u001b[2m', none: '\u001b[0m' };
+const tag = (name: string, text: string, message: string) => `${color[name]}${text}${color.none}${message}`;
+const info = (message: string) => console.log(tag('cyan', '[info]', ` ${message}`));
+const ok = (message: string) => console.log(tag('green', '[ok]', `   ${message}`));
+const same = (message: string) => console.log(tag('dim', '[=]', `    ${message}`));
+const warn = (message: string) => console.log(tag('yellow', '[skip]', ` ${message}`));
+const fail = (message: string) => console.log(tag('red', '[fail]', ` ${message}`));
+const indent = (lines: string[]) => lines.map(line => `    ${line}`);
 
-const platformName = platform => (platform === 'darwin' ? 'macos' : platform === 'linux' ? 'linux' : 'unknown');
-const sameFileBytes = (a, b) => existsSync(a) && existsSync(b) && readFileSync(a).equals(readFileSync(b));
-const jsonOrNull = path => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
-const jsonSame = (a, b) => isDeepStrictEqual(jsonOrNull(a), jsonOrNull(b));
-const managedFiles = (directory, suffix) => (existsSync(directory) ? readdirSync(directory).filter(name => name.endsWith(suffix)).sort() : []);
+const platformName = (platform: string) => platformOverlay(platform) ?? 'unknown';
+const sameFileBytes = (a: string, b: string) => existsSync(a) && existsSync(b) && readFileSync(a).equals(readFileSync(b));
+const jsonOrNull = (path: string): any => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+const jsonSame = (a: string, b: string) => isDeepStrictEqual(jsonOrNull(a), jsonOrNull(b));
+const managedFiles = (directory: string, suffix: string): string[] => (existsSync(directory) ? readdirSync(directory).filter(name => name.endsWith(suffix)).sort() : []);
 
-function subdirectories(directory) {
+function subdirectories(directory: string): string[] {
   if (!existsSync(directory)) return [];
   return readdirSync(directory, { withFileTypes: true }).filter(entry => {
     try { return statSync(join(directory, entry.name)).isDirectory(); } catch { return false; }
   }).map(entry => entry.name).sort();
 }
 
-function sameTree(a, b) {
+function sameTree(a: string, b: string): boolean {
   const left = readdirSync(a).sort(), right = readdirSync(b).sort();
   if (!isDeepStrictEqual(left, right)) return false;
   return left.every(name => {
@@ -45,17 +47,17 @@ function sameTree(a, b) {
   });
 }
 
-function lockHolder(pid, isAlive) {
+function lockHolder(pid: string, isAlive: (pid: number) => boolean | undefined) {
   if (!/^\d+$/.test(pid)) return 'unknown';
   const alive = isAlive(Number(pid));
   return alive === undefined ? 'unknown' : alive ? 'alive' : 'dead';
 }
 
-function acquireSyncLock(local, isAlive, onLock) {
+function acquireSyncLock(local: string, isAlive: (pid: number) => boolean | undefined, onLock?: (lock: string) => void): string {
   mkdirSync(local, { recursive: true });
   const lock = join(local, '.sync-lock');
   try { mkdirSync(lock); } catch (error) {
-    if (error.code !== 'EEXIST') throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     const pidFile = join(lock, 'pid');
     const holder = existsSync(pidFile) ? readFileSync(pidFile, 'utf8').trim() : '';
     const state = holder ? lockHolder(holder, isAlive) : '';
@@ -70,7 +72,24 @@ function acquireSyncLock(local, isAlive, onLock) {
   return lock;
 }
 
-export function piAdapter(command, options) {
+export type PiCommand = 'status' | 'pull' | 'push';
+
+export interface PiAdapterOptions {
+  source: string;
+  piHome: string;
+  agentsHome: string;
+  dryRun?: boolean;
+  platform?: string;
+  env?: NodeJS.ProcessEnv;
+  home?: string;
+  isAlive?: (pid: number) => boolean | undefined;
+  onLock?: (lock: string) => void;
+  onUnlock?: (lock: string) => void;
+  ownedPackages?: unknown[];
+  onPackages?: (specs: unknown[]) => void;
+}
+
+export function piAdapter(command: PiCommand, options: PiAdapterOptions): void {
   const {
     source: root, piHome, agentsHome, dryRun = false, platform = process.platform, env = process.env,
     home = homedir(), isAlive = processAlive, onLock, onUnlock, ownedPackages = [], onPackages,
@@ -83,14 +102,14 @@ export function piAdapter(command, options) {
   const platformKey = platformName(platform);
   const childEnv = { ...env, PI_CODING_AGENT_DIR: piHome, PI_AGENTS_DIR: agentsHome };
   const temp = mkdtempSync(join(tmpdir(), 'kitto-pi-'));
-  let lock = null;
+  let lock: string | null = null;
 
-  const run = (label, action) => {
+  const run = (label: string, action: () => void) => {
     if (dry) info(`[dry-run] ${label}`);
     else action();
   };
 
-  const showJsonDiff = (current, next, label) => {
+  const showJsonDiff = (current: string, next: string, label: string) => {
     if (jsonSame(current, next)) { same(`${label}（内容一致，仅格式差异）`); return; }
     const result = spawnSync('diff', ['-u', current, next], { encoding: 'utf8' });
     const lines = (result.stdout ?? '').split('\n').slice(2, 60);
@@ -98,14 +117,14 @@ export function piAdapter(command, options) {
     for (const line of indent(lines)) console.log(line);
   };
 
-  const deployFile = (src, dst, label = dst) => {
+  const deployFile = (src: string, dst: string, label = dst) => {
     if (existsSync(dst) && statSync(dst).isFile() && sameFileBytes(src, dst)) { same(label); return; }
     info(`${existsSync(dst) && statSync(dst).isFile() ? 'update' : 'create'} ${label}`);
     run(`mkdir -p ${dirname(dst)}`, () => mkdirSync(dirname(dst), { recursive: true }));
     run(`cp -f ${src} ${dst}`, () => writeFileSync(dst, readFileSync(src), { mode: statSync(src).mode & 0o777 }));
   };
 
-  const deployDirectory = (src, dst, label = dst) => {
+  const deployDirectory = (src: string, dst: string, label = dst) => {
     if (existsSync(dst) && lstatSync(dst).isSymbolicLink()) { warn(`${label} 是指向别处的软链，保持不动`); return; }
     const present = existsSync(dst) && statSync(dst).isDirectory();
     if (present && sameTree(src, dst)) { same(label); return; }
@@ -115,12 +134,12 @@ export function piAdapter(command, options) {
     run(`cp -R ${src} ${dst}`, () => cpSync(src, dst, { recursive: true }));
   };
 
-  const extensionSkipped = name => platformKey === 'linux' && name === 'herdr-agent-state.ts';
+  const extensionSkipped = (name: string) => platformKey === 'linux' && name === 'herdr-agent-state.ts';
 
-  const composeSource = out => {
+  const composeSource = (out: string) => {
     try { composeAgents(commonAgents, piAgents, out); } catch (error) {
       fail(`组合 ${commonAgents} 与 ${piAgents} 失败`);
-      throw new Error(`Could not compose ${commonAgents} with ${piAgents}: ${error.message}`);
+      throw new Error(`Could not compose ${commonAgents} with ${piAgents}: ${(error as Error).message}`);
     }
     return out;
   };
@@ -188,7 +207,7 @@ export function piAdapter(command, options) {
       run(`chmod 600 ${envFile}`, () => chmodSync(envFile, 0o600));
     }
     const shell = basename(env.SHELL ?? '');
-    let rc;
+    let rc: string;
     if (shell === 'zsh') rc = join(env.ZDOTDIR || home, '.zshrc');
     else if (shell === 'bash') rc = join(home, '.bashrc');
     else { warn('请在你的 shell 启动文件中加载 ~/.pi-agent-env'); return; }
@@ -227,7 +246,7 @@ export function piAdapter(command, options) {
     info('AGENTS.md（只导出 Pi 专属段）');
     try { console.log(extractAgents(join(piHome, 'AGENTS.md'), commonAgents, join(temp, 'AGENTS.md'))); } catch (error) {
       fail('AGENTS.md 未按共享层组合，拒绝把 common 写回 config/pi/AGENTS.md');
-      throw new Error(`Refusing to export AGENTS.md: ${error.message}`);
+      throw new Error(`Refusing to export AGENTS.md: ${(error as Error).message}`);
     }
     info('settings.json（脱敏）');
     const repoSettings = join(root, 'config/pi/settings.json');
@@ -262,7 +281,7 @@ export function piAdapter(command, options) {
   };
 
   const status = () => {
-    const row = (name, mark, label) => console.log(`  ${color[name]}${mark}${color.none}  ${label}`);
+    const row = (name: string, mark: string, label: string) => console.log(`  ${color[name]}${mark}${color.none}  ${label}`);
     console.log(`\n${tag('cyan', '==> status', `  platform: ${platformKey}`)}`);
     console.log(`    repo: ${root}\n    pi:   ${piHome}\n    env:  ${join(home, '.pi-agent-env')}\n`);
     info('托管文件');
@@ -300,10 +319,10 @@ export function piAdapter(command, options) {
     }
     console.log('');
     info('包');
-    const stripped = path => (existsSync(path) ? readFileSync(path, 'utf8').split('\n').map(line => line.split('#', 1)[0].trim()).filter(Boolean) : []);
-    const label = item => (typeof item === 'string' ? item : item?.source ?? '');
-    const repoPackages = (loadJson(join(root, 'config/pi/settings.json'), {}) ?? {}).packages ?? [];
-    const machinePackages = (jsonOrNull(settings) ?? {}).packages ?? [];
+    const stripped = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8').split('\n').map(line => line.split('#', 1)[0].trim()).filter(Boolean) : []);
+    const label = (item: PiPackageSpec | null | undefined) => (typeof item === 'string' ? item : item?.source ?? '');
+    const repoPackages: PiPackageSpec[] = (loadJson(join(root, 'config/pi/settings.json'), {}) ?? {}).packages ?? [];
+    const machinePackages: PiPackageSpec[] = (jsonOrNull(settings) ?? {}).packages ?? [];
     const extra = new Set(stripped(join(local, 'packages.txt'))), skip = new Set(stripped(join(local, 'packages.skip.txt')));
     const repoNames = new Set(repoPackages.map(label)), machineNames = new Set(machinePackages.map(label));
     for (const item of repoPackages) {
@@ -320,7 +339,7 @@ export function piAdapter(command, options) {
     info('MCP');
     const servers = (jsonOrNull(mcp) ?? {}).mcpServers ?? {};
     if (!Object.keys(servers).length) console.log('  (无)');
-    for (const [name, entry] of Object.entries(servers)) {
+    for (const [name, entry] of Object.entries(servers as Record<string, JsonObject>)) {
       const state = entry.enabled ?? true ? 'on ' : 'off';
       console.log(`  ${state} ${name.padEnd(22)} ${entry.enabled === false ? 'platform/local' : 'shared'}`);
     }
@@ -332,7 +351,7 @@ export function piAdapter(command, options) {
 
   try {
     if (!dry && command !== 'status') lock = acquireSyncLock(local, isAlive, onLock);
-    ({ pull, push, status })[command]();
+    ({ pull, push, status } satisfies Record<PiCommand, () => void>)[command]();
   } finally {
     rmSync(temp, { recursive: true, force: true });
     if (lock) {
