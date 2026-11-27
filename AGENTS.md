@@ -33,6 +33,11 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 
 - New code comments are ratcheted. Put intent in names and tests, decisions in ADRs. Read `docs/comment-policy.md` before adding a comment. Enforced by `npm run lint:comments`.
 
+## Types and lint
+
+- `npm run typecheck` checks the plain `.mjs` sources with `tsc` (no build). Shared shapes live in `types/kitto.d.ts`; `types/conformance.ts` asserts that the code matches them. Comments are ratcheted, so do not add JSDoc, `@ts-check` or `@ts-expect-error`; declare a module's types in a sibling `.d.mts` file instead. `tsconfig.json` lists the typed modules in `include`; widen it as more modules get typed.
+- `npm run lint:ox` runs oxlint (correctness rules). Fix the finding or turn the rule off in `.oxlintrc.json` with a reason in the PR.
+
 ## Verify before PR
 
 Run from the repository root with `npm ci --ignore-scripts` done. Use the full 40-character SHA of the target branch tip for `<base>` and of `HEAD` for `<head>`.
@@ -42,6 +47,8 @@ node scripts/check-comments.mjs --base <base> --head <head>
 npm run lint:versions
 npm run check:test-wiring
 npm run lint:invariants
+npm run typecheck
+npm run lint:ox
 npm test
 python3 -m unittest discover -s tests -v   # while Python tests exist
 ```

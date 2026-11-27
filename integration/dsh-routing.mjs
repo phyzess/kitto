@@ -7,7 +7,7 @@ import { routingHostVersion } from '../lib/host-pins.mjs';
 import { kittoHome } from '../lib/kitto-home.mjs';
 import { adviseRoute } from '../lib/model-routing.mjs';
 import { activeRoutingBoundary, routeId } from '../lib/routing-policy.mjs';
-import { createRoutingStore, newTicketId, ticketId } from '../lib/routing-state.mjs';
+import { createRoutingStore, newTicketId } from '../lib/routing-state.mjs';
 
 export const ROUTING_HOST_VERSION = routingHostVersion;
 const TTL = 120_000;

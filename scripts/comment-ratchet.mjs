@@ -274,7 +274,7 @@ function literalRun(pair, bytes) {
       return row.origin + offset - row.cursor;
     } };
   }
-  if (rows.length !== 1 || /^[\s>|\[{&*!]/u.test(header)) throw new Error('Unsupported workflow run scalar');
+  if (rows.length !== 1 || /^[\s>|[{&*!]/u.test(header)) throw new Error('Unsupported workflow run scalar');
   const trim = header.trimEnd();
   const quoted = trim.startsWith('"') || trim.startsWith("'");
   const body = quoted ? trim.slice(1, -1) : trim;
