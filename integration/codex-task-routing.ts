@@ -1,7 +1,8 @@
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 import { routeQuestions } from '../lib/task-route-questions.ts';
+import type { Json } from '../types/kitto.d.ts';
 
-export function evaluateCodexTaskRoutes(input, now = Date.now()) {
+export function evaluateCodexTaskRoutes(input: Json, now: number = Date.now()): Json {
   const host = input?.host, native = host?.native;
   if (host?.kind !== 'codex' || !native?.thread?.id || native.thread.id !== host.session ||
     typeof native.modelProvider !== 'string' || typeof native.model !== 'string' || !Array.isArray(host.routes)) {
@@ -11,7 +12,7 @@ export function evaluateCodexTaskRoutes(input, now = Date.now()) {
   const params = native.spawnParameters;
   const overrideModel = Array.isArray(params) && params.includes('model');
   const overrideEffort = Array.isArray(params) && params.includes('reasoning_effort');
-  const routes = host.routes.map(route => {
+  const routes = host.routes.map((route: Json) => {
     if (!route || typeof route !== 'object') return route;
     const providerMatches = route.provider === current.provider;
     const currentMatches = providerMatches && route.model === current.model;

@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { composeInstructions, normalizeInstructions } from './host-config.ts';
-import { packageKey } from './package-key.ts';
+import { packageKey, type PiPackageSpec } from './package-key.ts';
+
+export type JsonObject = Record<string, any>;
 
 export { packageKey };
 
@@ -23,19 +25,19 @@ const SECRET_VALUE_PATTERNS = new Map([
   ['private key', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
 ]);
 
-const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const own = (object, key) => Object.hasOwn(object, key);
-const contains = (list, item) => list.some(entry => isDeepStrictEqual(entry, item));
-const truthy = value => (Array.isArray(value) ? value.length > 0 : isObject(value) ? Object.keys(value).length > 0 : Boolean(value));
+const isObject = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
+const own = (object: object, key: string) => Object.hasOwn(object, key);
+const contains = (list: unknown[], item: unknown) => list.some(entry => isDeepStrictEqual(entry, item));
+const truthy = (value: unknown) => (Array.isArray(value) ? value.length > 0 : isObject(value) ? Object.keys(value).length > 0 : Boolean(value));
 
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${(value as unknown[]).map(canonical).join(',')}]`;
   if (isObject(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
   return JSON.stringify(value);
 }
 
-export function unique(items) {
-  const seen = new Set();
+export function unique<T>(items: T[]): T[] {
+  const seen = new Set<string>();
   return items.filter(item => {
     const key = canonical(item);
     if (seen.has(key)) return false;
@@ -44,17 +46,17 @@ export function unique(items) {
   });
 }
 
-export function deepMerge(base, over) {
+export function deepMerge(base: unknown, over: unknown): any {
   if (!isObject(base) || !isObject(over)) return over;
   const out = { ...base };
   for (const [key, value] of Object.entries(over)) out[key] = own(out, key) ? deepMerge(out[key], value) : value;
   return out;
 }
 
-export function scanSecrets(value, path = '') {
-  const removed = [], found = [];
+export function scanSecrets(value: unknown, path = ''): { cleaned: any; removed: string[]; found: Array<[string, string]> } {
+  const removed: string[] = [], found: Array<[string, string]> = [];
   if (isObject(value)) {
-    const out = {};
+    const out: JsonObject = {};
     for (const [key, item] of Object.entries(value)) {
       const child = path ? `${path}.${key}` : key;
       if (SECRET_KEY_NAMES.has(key.toLowerCase())) { removed.push(child); continue; }
@@ -80,26 +82,26 @@ export function scanSecrets(value, path = '') {
   return { cleaned: value, removed, found };
 }
 
-export function refuseSecrets(found) {
+export function refuseSecrets(found: Array<[string, string]>): void {
   if (!found.length) return;
   const lines = found.map(([path, label]) => `refusing to export a literal secret (${label}) at ${path}`);
   lines.push('Replace the literal with an environment-variable reference or remove it before exporting.');
   throw new Error(lines.join('\n'));
 }
 
-export function readText(path) {
+export function readText(path: string | undefined): string | null {
   if (!path || !existsSync(path)) return null;
   return readFileSync(path, 'utf8');
 }
 
-export function loadJson(path, fallback = null) {
+export function loadJson(path: string | undefined, fallback: any = null): any {
   const text = readText(path);
   if (text === null) return fallback;
   try { return JSON.parse(text); }
-  catch (error) { throw new Error(`invalid JSON in ${path}: ${error.message}`); }
+  catch (error) { throw new Error(`invalid JSON in ${path}: ${(error as Error).message}`); }
 }
 
-function replaceFile(path, text) {
+function replaceFile(path: string, text: string) {
   mkdirSync(dirname(path) || '.', { recursive: true });
   const temporary = join(dirname(path), `.kitto-${process.pid}-${Math.random().toString(36).slice(2)}`);
   try {
@@ -108,41 +110,41 @@ function replaceFile(path, text) {
   } finally { rmSync(temporary, { force: true }); }
 }
 
-export function writeText(path, text) {
+export function writeText(path: string, text: string): boolean {
   if (readText(path) === text) return false;
   replaceFile(path, text);
   return true;
 }
 
-export function dumpJson(path, data) {
+export function dumpJson(path: string, data: unknown): boolean {
   return writeText(path, `${JSON.stringify(data, null, 2)}\n`);
 }
 
-export function dumpSemantic(path, data) {
+export function dumpSemantic(path: string, data: unknown): boolean {
   if (existsSync(path) && isDeepStrictEqual(loadJson(path), data)) return false;
   return dumpJson(path, data);
 }
 
-export function readList(path) {
+export function readList(path: string): string[] {
   const text = readText(path);
   if (text === null) return [];
   return text.split(/\r\n|\n|\r/).map(line => line.trim()).filter(line => line && !line.startsWith('#'));
 }
 
-function writeList(path, values) {
+function writeList(path: string, values: string[]) {
   const header = '# generated by kitto sync — machine-only pi packages\n';
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, values.length ? `${header}${values.join('\n')}\n` : header);
 }
 
-export function listSharedPackages(repoPath, skipPath) {
+export function listSharedPackages(repoPath: string, skipPath: string): string[] {
   const skip = new Set(readList(skipPath).map(packageKey));
   const settings = loadJson(repoPath);
   if (!settings || !Array.isArray(settings.packages)) throw new Error(`missing packages in ${repoPath}`);
-  return settings.packages.filter(item => !skip.has(packageKey(item))).map(item => (typeof item === 'string' ? item : item.source));
+  return settings.packages.filter((item: PiPackageSpec) => !skip.has(packageKey(item))).map((item: PiPackageSpec) => (typeof item === 'string' ? item : item.source));
 }
 
-export function mergeSettings(repoPath, machinePath, localDir, outPath, { previous = [] } = {}) {
+export function mergeSettings(repoPath: string, machinePath: string, localDir: string, outPath: string, { previous = [] }: { previous?: unknown[] } = {}): string[] {
   const repoConfig = loadJson(repoPath, {}) || {};
   const machineConfig = loadJson(machinePath, {}) || {};
   for (const key of VOLATILE_KEYS) delete repoConfig[key];
@@ -150,32 +152,32 @@ export function mergeSettings(repoPath, machinePath, localDir, outPath, { previo
   const repoPackages = repoConfig.packages ?? [];
   const machinePackages = machineConfig.packages ?? [];
   const extra = unique([...readList(join(localDir, 'packages.txt')),
-    ...machinePackages.filter(item => !contains(repoPackages, item) && !contains(previous, item))]);
+    ...machinePackages.filter((item: unknown) => !contains(repoPackages, item) && !contains(previous, item))]);
   const overrides = loadJson(join(localDir, 'settings.json'), {}) || {};
-  let result = { ...machineConfig, ...repoConfig };
+  let result: JsonObject = { ...machineConfig, ...repoConfig };
   result = deepMerge(result, overrides);
   const packages = unique([...repoPackages, ...extra].filter(item => !skip.has(packageKey(item))));
   result.packages = packages;
   const changed = dumpJson(outPath, result);
   const lines = [`settings: ${changed ? 'updated' : 'unchanged'}`];
   const added = packages.filter(item => !contains(machinePackages, item));
-  const removed = machinePackages.filter(item => !contains(packages, item));
+  const removed = machinePackages.filter((item: unknown) => !contains(packages, item));
   if (added.length) lines.push(`  packages added: ${added.join(', ')}`);
   if (removed.length) lines.push(`  packages dropped: ${removed.join(', ')}`);
   if (extra.length) lines.push(`  machine-only packages kept: ${extra.join(', ')}`);
   return lines;
 }
 
-export function recordSettings(repoPath, machinePath, localDir) {
+export function recordSettings(repoPath: string, machinePath: string, localDir: string): unknown[] {
   const repo = (loadJson(repoPath, {}) || {}).packages ?? [];
   const machine = (loadJson(machinePath, {}) || {}).packages ?? [];
   const extraPath = join(localDir, 'packages.txt');
-  const extra = unique([...readList(extraPath), ...machine.filter(item => !contains(repo, item))]);
+  const extra = unique([...readList(extraPath), ...machine.filter((item: unknown) => !contains(repo, item))]);
   writeList(extraPath, extra.filter(item => typeof item === 'string'));
   return repo;
 }
 
-function restoreOverrides(out, repo, overrides) {
+function restoreOverrides(out: JsonObject, repo: JsonObject, overrides: JsonObject): JsonObject {
   const result = { ...out };
   for (const [key, value] of Object.entries(overrides)) {
     if (isObject(value) && isObject(result[key])) {
@@ -187,17 +189,17 @@ function restoreOverrides(out, repo, overrides) {
   return result;
 }
 
-export function sanitizeSettings(machinePath, repoPath, localDir, outPath) {
+export function sanitizeSettings(machinePath: string, repoPath: string, localDir: string, outPath: string): string[] {
   const machine = loadJson(machinePath, {}) || {};
   const repo = loadJson(repoPath, {}) || {};
   const extra = readList(join(localDir, 'packages.txt'));
   const skip = readList(join(localDir, 'packages.skip.txt'));
   const repoPackages = [...(repo.packages ?? [])];
   const machinePackages = [...(machine.packages ?? [])];
-  const dropped = machinePackages.filter(item => extra.includes(item) || skip.includes(item));
-  const additions = machinePackages.filter(item => !contains(repoPackages, item) && !extra.includes(item) && !skip.includes(item));
+  const dropped = machinePackages.filter((item: string) => extra.includes(item) || skip.includes(item));
+  const additions = machinePackages.filter((item: string) => !contains(repoPackages, item) && !extra.includes(item) && !skip.includes(item));
   const packages = unique([...repoPackages, ...additions]);
-  let out = {};
+  let out: JsonObject = {};
   for (const key of Object.keys(repo)) {
     if (VOLATILE_KEYS.includes(key)) continue;
     out[key] = key === 'packages' ? packages : own(machine, key) ? machine[key] : repo[key];
@@ -207,7 +209,7 @@ export function sanitizeSettings(machinePath, repoPath, localDir, outPath) {
   out = restoreOverrides(out, repo, overrides);
   const scanned = scanSecrets(out);
   refuseSecrets(scanned.found);
-  const lines = [];
+  const lines: string[] = [];
   if (scanned.removed.length) lines.push(`  credential-shaped keys left out: ${[...scanned.removed].sort().join(', ')}`);
   const changed = dumpSemantic(outPath, scanned.cleaned);
   lines.push(`settings: ${changed ? 'exported' : 'unchanged'}`);
@@ -216,10 +218,10 @@ export function sanitizeSettings(machinePath, repoPath, localDir, outPath) {
   return lines;
 }
 
-const servers = path => (loadJson(path, {}) || {}).mcpServers || {};
+const servers = (path: string): JsonObject => (loadJson(path, {}) || {}).mcpServers || {};
 
-export function mergeMcp(repoPath, platformPath, localPath, machinePath, outPath) {
-  const merged = {};
+export function mergeMcp(repoPath: string, platformPath: string, localPath: string, machinePath: string, outPath: string): string[] {
+  const merged: JsonObject = {};
   for (const path of [machinePath, repoPath, platformPath, localPath]) {
     for (const [name, entry] of Object.entries(servers(path))) {
       if (name.startsWith('_') || !isObject(entry)) continue;
@@ -244,10 +246,10 @@ export function mergeMcp(repoPath, platformPath, localPath, machinePath, outPath
   return lines;
 }
 
-export function exportMcp(repoPath, machinePath, platformPath, localPath, privatePath, outPath) {
+export function exportMcp(repoPath: string, machinePath: string, platformPath: string, localPath: string, privatePath: string, outPath: string): string[] {
   const repo = servers(repoPath), machine = servers(machinePath), platform = servers(platformPath);
   const local = servers(localPath), privateServers = servers(privatePath);
-  const out = {}, replaced = [], dropped = [];
+  const out: JsonObject = {}, replaced: string[] = [], dropped: string[] = [];
   for (const [name, entry] of Object.entries(machine)) {
     if (own(local, name) || own(privateServers, name)) {
       if (own(repo, name)) out[name] = repo[name];
@@ -259,7 +261,7 @@ export function exportMcp(repoPath, machinePath, platformPath, localPath, privat
   }
   const scanned = scanSecrets(out);
   refuseSecrets(scanned.found);
-  const lines = [];
+  const lines: string[] = [];
   if (scanned.removed.length) lines.push(`  credential-shaped keys left out: ${[...scanned.removed].sort().join(', ')}`);
   const changed = dumpSemantic(outPath, { mcpServers: scanned.cleaned });
   lines.push(`mcp: ${changed ? 'exported' : 'unchanged'} (${Object.keys(scanned.cleaned).length} servers)`);
@@ -268,7 +270,7 @@ export function exportMcp(repoPath, machinePath, platformPath, localPath, privat
   return lines;
 }
 
-export function composeAgents(commonPath, addendumPath, outPath) {
+export function composeAgents(commonPath: string, addendumPath: string, outPath: string): void {
   const common = readText(commonPath), addendum = readText(addendumPath);
   if (common === null) throw new Error(`missing shared instructions: ${commonPath}`);
   for (const [path, text] of [[commonPath, common], [addendumPath, addendum]]) {
@@ -277,7 +279,7 @@ export function composeAgents(commonPath, addendumPath, outPath) {
   writeText(outPath, composeInstructions(common, addendum));
 }
 
-export function extractAgents(machinePath, commonPath, outPath) {
+export function extractAgents(machinePath: string, commonPath: string, outPath: string): string {
   const machine = readText(machinePath), common = readText(commonPath);
   if (machine === null) throw new Error(`missing deployed instructions: ${machinePath}`);
   if (common === null) throw new Error(`missing shared instructions: ${commonPath}`);

@@ -8,54 +8,121 @@ import {
   bearerCredentialReference, literalSecretsIn, transportCredentialProblem, unresolvedPlaceholdersIn,
 } from './mcp-credentials.ts';
 import { forgetPending as forgetPendingEntry, get, list as ledgerList, markPending, promote, recordedHash, release } from './ownership.ts';
+import { platformOverlay } from './platform.ts';
+import type { State } from '../types/kitto.d.ts';
 
-const platformDirectories = { darwin: 'macos', linux: 'linux' };
+type Json = Record<string, any>;
+
+export type Transport =
+  | { type: 'stdio'; command: string; args: string[] }
+  | { type: 'http'; url: string; bearerTokenEnvVar?: string };
+
+export interface SourceServer {
+  name: string;
+  skip?: string;
+  transport?: Transport;
+  hash?: string;
+}
+
+export type McpAction = 'add' | 'update' | 'same' | 'skip' | 'conflict' | 'remove' | 'adopt' | 'forget' | 'forgetPending';
+
+export interface McpOperation {
+  name: string;
+  action: McpAction;
+  reason?: string;
+  transport?: Transport;
+  hash?: string;
+}
+
+export interface LiveEntry {
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface RemovalPlan {
+  operations: McpOperation[];
+  stale: string[];
+  stalePending: string[];
+}
+
+export interface CodexRunOptions {
+  env?: NodeJS.ProcessEnv;
+  timeout?: number;
+  cwd?: string;
+}
+
+export type CodexRun = (args: string[], options?: CodexRunOptions) => string;
+export type ReadSource = (source: string, platform?: string, options?: { includePrivate?: boolean }) => Promise<SourceServer[]>;
+type ListLive = () => Promise<LiveEntry[]> | LiveEntry[];
+
+export interface CodexMcpOptions {
+  apply?: boolean;
+  run?: CodexRun;
+  env?: NodeJS.ProcessEnv;
+  home?: string;
+  platform?: string;
+  save?: () => Promise<unknown>;
+  log?: (...data: unknown[]) => void;
+  warn?: (...data: unknown[]) => void;
+  readSource?: ReadSource;
+  list?: ListLive;
+  readOnly?: boolean;
+}
+
+interface PlanContext {
+  servers?: SourceServer[];
+  owned?: Record<string, string>;
+  pending?: Record<string, string>;
+  live?: LiveEntry[];
+  details?: Map<string, Json>;
+  liveVerified?: boolean;
+}
 const acceptedName = /^[A-Za-z0-9_:@/.-]+$/;
 
-const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
-const confirmedOf = state => Object.fromEntries(ledgerList(state, 'mcp', 'codex').flatMap(entry => {
+const isObject = (value: unknown): value is Json => value !== null && typeof value === 'object' && !Array.isArray(value);
+const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
+const confirmedOf = (state: State): Record<string, string> => Object.fromEntries(ledgerList(state, 'mcp', 'codex').flatMap((entry): Array<[string, string]> => {
   const hash = entry.status === 'owned' ? entry.hash : entry.status === 'pending' ? entry.previous : undefined;
   return hash === undefined ? [] : [[entry.name, hash]];
 }));
-const pendingOf = state => Object.fromEntries(ledgerList(state, 'mcp', 'codex', 'pending').map(entry => [entry.name, entry.hash]));
-const confirmedHash = (state, name) => {
+const pendingOf = (state: State): Record<string, string> => Object.fromEntries(ledgerList(state, 'mcp', 'codex', 'pending').map(entry => [entry.name, entry.hash]));
+const confirmedHash = (state: State, name: string) => {
   const entry = get(state, 'mcp', 'codex', name);
   return entry?.status === 'owned' ? entry.hash : entry?.status === 'pending' ? entry.previous : undefined;
 };
-const empty = value => value === undefined || value === null
+const empty = (value: unknown) => value === undefined || value === null
   || (isObject(value) && Object.keys(value).length === 0)
   || (Array.isArray(value) && value.length === 0);
 
-function deepMerge(base, over) {
+function deepMerge(base: unknown, over: unknown): any {
   if (!isObject(base) || !isObject(over)) return over;
-  const merged = { ...base };
+  const merged: Json = { ...base };
   for (const [key, value] of Object.entries(over)) {
     merged[key] = hasOwn(merged, key) ? deepMerge(merged[key], value) : value;
   }
   return merged;
 }
 
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${(value as unknown[]).map(canonicalJson).join(',')}]`;
   if (isObject(value)) {
     return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
   }
   return JSON.stringify(value);
 }
 
-function hasTemplate(value) {
+function hasTemplate(value: unknown): boolean {
   if (typeof value === 'string') return value.includes('${');
   if (Array.isArray(value)) return value.some(hasTemplate);
   if (isObject(value)) return Object.values(value).some(hasTemplate);
   return false;
 }
 
-export function transportHash(transport) {
+export function transportHash(transport: Transport): string {
   return createHash('sha256').update(canonicalJson(transport)).digest('hex');
 }
 
-export function sourceTransport(entry) {
+export function sourceTransport(entry: unknown): { skip?: string; transport?: Transport } {
   if (!isObject(entry)) return { skip: 'server definition is not an object' };
   const [secret] = literalSecretsIn(entry);
   if (secret) return { skip: `contains a literal secret (${secret.label}) at ${secret.path}` };
@@ -78,13 +145,13 @@ export function sourceTransport(entry) {
     }
     if (!empty(entry.env)) return { skip: 'env is not synced in v1' };
     if (hasTemplate(url)) return { skip: 'url contains a credential template' };
-    let bearerTokenEnvVar;
+    let bearerTokenEnvVar: string | undefined;
     if (!empty(entry.headers)) {
       if (!isObject(entry.headers)) return { skip: 'headers is not an object of strings' };
       const names = Object.keys(entry.headers);
       const [header] = names;
       const value = header === undefined ? undefined : entry.headers[header];
-      const reference = names.length === 1 && header.toLowerCase() === 'authorization'
+      const reference = names.length === 1 && header!.toLowerCase() === 'authorization'
         ? bearerCredentialReference(value) : null;
       if (!reference) {
         return { skip: 'headers are not synced in v1: only Authorization: Bearer ${VAR} is supported' };
@@ -96,7 +163,7 @@ export function sourceTransport(entry) {
   if (!hasCommand) return { skip: 'has neither a command nor a url' };
   if (command.includes('${')) return { skip: 'command contains a credential template' };
   const args = entry.args ?? [];
-  if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) {
+  if (!Array.isArray(args) || args.some((value: unknown) => typeof value !== 'string')) {
     return { skip: 'args is not an array of strings' };
   }
   if (hasTemplate(args)) return { skip: 'args contain a credential template' };
@@ -108,29 +175,29 @@ export function sourceTransport(entry) {
   return { transport: { type: 'stdio', command, args } };
 }
 
-async function optionalJson(path) {
+async function optionalJson(path: string): Promise<any> {
   let text;
   try {
     text = await readFile(path, 'utf8');
   } catch (error) {
-    if (error.code === 'ENOENT') return null;
-    throw new Error(`Cannot read ${path}: ${error.message}`);
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error(`Cannot read ${path}: ${(error as Error).message}`);
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    throw new Error(`Invalid JSON in ${path}: ${error.message}`);
+    throw new Error(`Invalid JSON in ${path}: ${(error as Error).message}`);
   }
 }
 
-export async function sourceServers(source, platform = process.platform, { includePrivate = false } = {}) {
+export async function sourceServers(source: string, platform: string = process.platform, { includePrivate = false }: { includePrivate?: boolean } = {}): Promise<SourceServer[]> {
   const basePath = join(source, 'config/pi/mcp.json');
   const base = await optionalJson(basePath);
   if (base === null) {
     throw new Error(`Codex MCP sync needs ${basePath}, but the Pi MCP source is missing.`);
   }
-  const platformName = platformDirectories[platform];
-  const sources = [[basePath, base]];
+  const platformName = platformOverlay(platform);
+  const sources: Array<[string, any]> = [[basePath, base]];
   if (platformName) {
     const overlayPath = join(source, `config/pi/platform/${platformName}/mcp.json`);
     sources.push([overlayPath, await optionalJson(overlayPath)]);
@@ -140,7 +207,7 @@ export async function sourceServers(source, platform = process.platform, { inclu
       sources.push([path, await optionalJson(path)]);
     }
   }
-  const merged = new Map();
+  const merged = new Map<string, Json>();
   for (const [label, config] of sources) {
     if (config == null) continue;
     if (!isObject(config) || (config.mcpServers !== undefined && !isObject(config.mcpServers))) {
@@ -151,7 +218,7 @@ export async function sourceServers(source, platform = process.platform, { inclu
       merged.set(name, deepMerge(merged.get(name) ?? {}, entry));
     }
   }
-  const servers = [];
+  const servers: SourceServer[] = [];
   for (const [name, entry] of merged) {
     if (entry.enabled === false) continue;
     if (!acceptedName.test(name)) {
@@ -165,12 +232,12 @@ export async function sourceServers(source, platform = process.platform, { inclu
   return servers;
 }
 
-export function liveTransport(entry) {
+export function liveTransport(entry: unknown): Transport | null {
   const transport = isObject(entry) ? entry.transport : null;
   if (!isObject(transport)) return null;
   if (transport.type === 'stdio' && typeof transport.command === 'string' && transport.command !== '') {
     const args = transport.args ?? [];
-    if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) return null;
+    if (!Array.isArray(args) || args.some((value: unknown) => typeof value !== 'string')) return null;
     return { type: 'stdio', command: transport.command, args };
   }
   if ((transport.type === 'streamable_http' || transport.type === 'http')
@@ -185,9 +252,9 @@ export function liveTransport(entry) {
   return null;
 }
 
-export function liveExtras(entry) {
+export function liveExtras(entry: unknown): string[] {
   if (!isObject(entry)) return ['unknown definition'];
-  const extras = [];
+  const extras: string[] = [];
   if (entry.enabled === false) extras.push('enabled=false');
   if (!empty(entry.enabled_tools)) extras.push('enabled_tools');
   if (!empty(entry.disabled_tools)) extras.push('disabled_tools');
@@ -207,7 +274,7 @@ export function liveExtras(entry) {
   return extras;
 }
 
-export function formatOperation(operation) {
+export function formatOperation(operation: McpOperation): string {
   const reason = operation.reason ? `: ${operation.reason}` : '';
   switch (operation.action) {
     case 'add': return `mcp add: ${operation.name} (codex)`;
@@ -225,11 +292,11 @@ export function formatOperation(operation) {
 
 export function buildMcpPlan({
   servers = [], owned = {}, pending = {}, live = [], details = new Map(), liveVerified = false,
-}) {
-  const sources = new Map(servers.map(server => [server.name, server]));
-  const current = new Map(live.map(entry => [entry.name, entry]));
-  const operations = [];
-  const added = new Set();
+}: PlanContext): McpOperation[] {
+  const sources = new Map(servers.map((server: SourceServer) => [server.name, server]));
+  const current = new Map(live.map((entry: LiveEntry): [string, LiveEntry] => [entry.name, entry]));
+  const operations: McpOperation[] = [];
+  const added = new Set<string>();
   for (const server of servers) {
     if (server.skip) {
       operations.push({ name: server.name, action: 'skip', reason: server.skip });
@@ -285,7 +352,7 @@ export function buildMcpPlan({
       operations.push({ name, action: 'conflict', reason: 'unrecognized live transport' });
       continue;
     }
-    const fingerprints = [owned[name], pending[name]].filter(value => value);
+    const fingerprints = [owned[name], pending[name]].filter((value: string) => value);
     if (!fingerprints.includes(transportHash(transport))) {
       operations.push({ name, action: 'conflict',
         reason: 'source removed the server, but the live server changed outside Kitto' });
@@ -333,11 +400,11 @@ export function buildMcpPlan({
   return operations;
 }
 
-export function buildRemovalPlan({ owned = {}, pending = {}, live = [], details = new Map() }) {
-  const current = new Map(live.map(entry => [entry.name, entry]));
-  const operations = [];
-  const stale = [];
-  const stalePending = [];
+export function buildRemovalPlan({ owned = {}, pending = {}, live = [], details = new Map() }: PlanContext): RemovalPlan {
+  const current = new Map(live.map((entry: LiveEntry): [string, LiveEntry] => [entry.name, entry]));
+  const operations: McpOperation[] = [];
+  const stale: string[] = [];
+  const stalePending: string[] = [];
   for (const name of new Set([...Object.keys(owned), ...Object.keys(pending)])) {
     const liveEntry = current.get(name);
     if (!liveEntry) {
@@ -352,7 +419,7 @@ export function buildRemovalPlan({ owned = {}, pending = {}, live = [], details 
       continue;
     }
     const liveHash = transportHash(transport);
-    const fingerprints = [owned[name], pending[name]].filter(value => value);
+    const fingerprints = [owned[name], pending[name]].filter((value: string) => value);
     if (!fingerprints.includes(liveHash)) {
       operations.push({ name, action: 'conflict',
         reason: 'live server differs from the recorded ownership fingerprint' });
@@ -369,7 +436,7 @@ export function buildRemovalPlan({ owned = {}, pending = {}, live = [], details 
   return { operations, stale, stalePending };
 }
 
-export function defaultCodexRun(args, { env = process.env, timeout = 30_000, cwd } = {}) {
+export function defaultCodexRun(args: string[], { env = process.env, timeout = 30_000, cwd }: CodexRunOptions = {}): string {
   const result = spawnSync('codex', args, { encoding: 'utf8', env, timeout, cwd });
   if (result.error || result.status !== 0) {
     const detail = result.error?.message || result.stderr?.trim() || `exit ${result.status}`;
@@ -378,15 +445,15 @@ export function defaultCodexRun(args, { env = process.env, timeout = 30_000, cwd
   return result.stdout.trim();
 }
 
-function parseResponse(text, label) {
+function parseResponse(text: string, label: string): any {
   try {
     return JSON.parse(text);
   } catch (error) {
-    throw new Error(`${label} returned invalid JSON: ${error.message}`);
+    throw new Error(`${label} returned invalid JSON: ${(error as Error).message}`);
   }
 }
 
-export function listCodexMcp({ run = defaultCodexRun, env = process.env, home } = {}) {
+export function listCodexMcp({ run = defaultCodexRun, env = process.env, home }: { run?: CodexRun; env?: NodeJS.ProcessEnv; home?: string } = {}): LiveEntry[] {
   const target = home ?? env?.CODEX_HOME;
   if (target && !existsSync(target)) return [];
   const parsed = parseResponse(run(['mcp', 'list', '--json'], { env }), 'codex mcp list --json');
@@ -394,31 +461,38 @@ export function listCodexMcp({ run = defaultCodexRun, env = process.env, home } 
   return parsed;
 }
 
-export function getCodexMcp(name, { run = defaultCodexRun, env = process.env } = {}) {
+export function getCodexMcp(name: string, { run = defaultCodexRun, env = process.env }: { run?: CodexRun; env?: NodeJS.ProcessEnv } = {}): Json {
   const parsed = parseResponse(run(['mcp', 'get', name, '--json'], { env }), `codex mcp get ${name} --json`);
   if (!isObject(parsed)) throw new Error(`codex mcp get ${name} --json did not return an object.`);
   return parsed;
 }
 
-function codexEnvironment(state) {
+function codexEnvironment(state: State): NodeJS.ProcessEnv {
   return { ...process.env, CODEX_HOME: state.codexHome };
 }
 
-function liveDetails({ owned, pending = {}, live, run, env }) {
+function liveDetails({ owned, pending = {}, live, run, env }: { owned: Record<string, string>; pending?: Record<string, string>; live: LiveEntry[]; run?: CodexRun; env?: NodeJS.ProcessEnv }): Map<string, Json> {
   const tracked = new Set([...Object.keys(owned), ...Object.keys(pending)]);
-  const details = new Map();
+  const details = new Map<string, Json>();
   for (const entry of live) {
     if (tracked.has(entry?.name)) details.set(entry.name, getCodexMcp(entry.name, { run, env }));
   }
   return details;
 }
 
-function liveVerifiedFor(home, env) {
+function liveVerifiedFor(home: string | undefined, env: NodeJS.ProcessEnv | undefined) {
   const target = home ?? env?.CODEX_HOME;
   return target ? existsSync(target) : false;
 }
 
-async function withLive({ run, env, home, list, readOnly }, callback) {
+interface Live {
+  live: LiveEntry[];
+  env: NodeJS.ProcessEnv | undefined;
+  verified: boolean;
+  home: string | undefined;
+}
+
+async function withLive<T>({ run, env, home, list, readOnly }: CodexMcpOptions, callback: (live: Live) => T | Promise<T>): Promise<T> {
   if (list) return callback({ live: await list(), env, verified: true, home });
   if (readOnly && home && existsSync(home)) {
     const scratch = await mkdtemp(join(tmpdir(), 'kitto-codex-mcp-'));
@@ -436,33 +510,33 @@ async function withLive({ run, env, home, list, readOnly }, callback) {
   return callback({ live, env, verified: liveVerifiedFor(home, env), home });
 }
 
-async function collectPlan(state, { run, env, home, platform, readSource, list, readOnly = false }) {
+async function collectPlan(state: State, { run, env, home, platform, readSource, list, readOnly = false }: CodexMcpOptions): Promise<PlanContext> {
   const owned = confirmedOf(state);
   const pending = pendingOf(state);
-  const servers = await readSource(state.source, platform, { includePrivate: state.includePrivate === true });
+  const servers = await readSource!(state.source, platform, { includePrivate: state.includePrivate === true });
   return withLive({ run, env, home, list, readOnly }, ({ live, env: liveEnv, verified }) => ({
     servers, owned, pending, live, liveVerified: verified,
     details: liveDetails({ owned, pending, live, run, env: liveEnv }),
   }));
 }
 
-function addArguments(name, transport) {
+function addArguments(name: string, transport: Transport): string[] {
   if (transport.type === 'stdio') return ['mcp', 'add', name, '--', transport.command, ...transport.args];
   return ['mcp', 'add', name, '--url', transport.url,
     ...(transport.bearerTokenEnvVar ? ['--bearer-token-env-var', transport.bearerTokenEnvVar] : [])];
 }
 
-export async function planCodexMcp(state, {
+export async function planCodexMcp(state: State, {
   run = defaultCodexRun, env = codexEnvironment(state), home = state.codexHome,
   platform = process.platform, log = console.log, readSource = sourceServers, list, readOnly = true,
-} = {}) {
+}: CodexMcpOptions = {}): Promise<McpOperation[]> {
   const context = await collectPlan(state, { run, env, home, platform, readSource, list, readOnly });
   const operations = buildMcpPlan(context);
   for (const operation of operations) log(formatOperation(operation));
   return operations;
 }
 
-function verifyLive(name, recorded, run, env) {
+function verifyLive(name: string, recorded: string | null | undefined, run: CodexRun, env: NodeJS.ProcessEnv): { entry: LiveEntry | null | undefined; problem?: string; transport?: Transport } {
   const live = listCodexMcp({ run, env });
   const entry = live.find(item => item.name === name);
   if (!entry) return { entry: null, problem: 'live server disappeared' };
@@ -476,22 +550,22 @@ function verifyLive(name, recorded, run, env) {
   return { entry, transport };
 }
 
-async function savePending(state, name, hash, save) {
+async function savePending(state: State, name: string, hash: string, save: () => Promise<unknown>) {
   markPending(state, 'mcp', 'codex', name, hash);
   await save();
 }
 
-async function promotePending(state, name, hash) {
+async function promotePending(state: State, name: string, hash: string) {
   promote(state, 'mcp', 'codex', name, hash);
 }
 
-const forgetPending = (state, name) => forgetPendingEntry(state, 'mcp', 'codex', name);
+const forgetPending = (state: State, name: string) => forgetPendingEntry(state, 'mcp', 'codex', name);
 
-export async function applyCodexMcp(state, {
+export async function applyCodexMcp(state: State, {
   run = defaultCodexRun, env = codexEnvironment(state), home = state.codexHome,
   platform = process.platform, save = async () => {}, log = () => {},
   warn = console.warn, readSource = sourceServers, list,
-} = {}) {
+}: CodexMcpOptions = {}): Promise<McpOperation[]> {
   const context = await collectPlan(state, { run, env, home, platform, readSource, list });
   const operations = buildMcpPlan(context);
   for (const operation of operations) {
@@ -527,7 +601,7 @@ export async function applyCodexMcp(state, {
         } catch {  }
         const transport = detail ? liveTransport(detail) : null;
         if (!transport || transportHash(transport) !== operation.hash || liveExtras(detail).length) throw error;
-        warn(`mcp warning: ${operation.name} (codex): native ${operation.action} failed after writing the server (${error.message}); adopted. Run \`codex mcp login ${operation.name}\` if it needs authentication.`);
+        warn(`mcp warning: ${operation.name} (codex): native ${operation.action} failed after writing the server (${(error as Error).message}); adopted. Run \`codex mcp login ${operation.name}\` if it needs authentication.`);
         await promotePending(state, operation.name, operation.hash);
         await save();
         log(`mcp adopt: ${operation.name} (codex)`);
@@ -609,10 +683,10 @@ export async function applyCodexMcp(state, {
   return operations;
 }
 
-export async function removeCodexMcp(state, {
+export async function removeCodexMcp(state: State, {
   apply = false, run = defaultCodexRun, env = codexEnvironment(state), home = state.codexHome,
   save = async () => {}, log = console.log, warn = console.warn, list,
-} = {}) {
+}: CodexMcpOptions = {}): Promise<RemovalPlan> {
   const owned = confirmedOf(state);
   const pending = pendingOf(state);
   if (!Object.keys(owned).length && !Object.keys(pending).length) {

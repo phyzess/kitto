@@ -3,7 +3,12 @@ export const REFERENCE_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 const BEARER_REFERENCE_PATTERN = /^Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 const PLACEHOLDER_PATTERN = /YOUR_[A-Za-z0-9_]+/;
 
-const SECRET_VALUE_PATTERNS = [
+export interface CredentialFinding {
+  path: string;
+  label: string;
+}
+
+const SECRET_VALUE_PATTERNS: Array<[string, RegExp]> = [
   ['openai-style key', /sk-[A-Za-z0-9_-]{16,}/],
   ['GitHub token', /(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/],
   ['GitHub fine-grained token', /github_pat_[A-Za-z0-9_]{20,}/],
@@ -13,34 +18,34 @@ const SECRET_VALUE_PATTERNS = [
   ['private key', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
 ];
 
-const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isObject = (value: unknown): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-export function credentialReference(value) {
+export function credentialReference(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   return REFERENCE_PATTERN.exec(value)?.[1] ?? null;
 }
 
-export function bearerCredentialReference(value) {
+export function bearerCredentialReference(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   return BEARER_REFERENCE_PATTERN.exec(value)?.[1] ?? null;
 }
 
-export function credentialTemplate(reference) {
+export function credentialTemplate(reference: string): string {
   return `\${credential:${reference}}`;
 }
 
-export function bearerCredentialTemplate(reference) {
+export function bearerCredentialTemplate(reference: string): string {
   return `Bearer \${credential:${reference}}`;
 }
 
-export function containsTemplate(value) {
+export function containsTemplate(value: unknown): boolean {
   if (typeof value === 'string') return value.includes('${');
   if (Array.isArray(value)) return value.some(containsTemplate);
   if (isObject(value)) return Object.values(value).some(containsTemplate);
   return false;
 }
 
-function walk(value, path, visit) {
+function walk(value: unknown, path: string, visit: (text: string, path: string) => void): void {
   if (typeof value === 'string') {
     visit(value, path || 'value');
     return;
@@ -53,8 +58,8 @@ function walk(value, path, visit) {
   for (const [key, item] of Object.entries(value)) walk(item, path ? `${path}.${key}` : key, visit);
 }
 
-export function literalSecretsIn(value) {
-  const found = [];
+export function literalSecretsIn(value: unknown): CredentialFinding[] {
+  const found: CredentialFinding[] = [];
   walk(value, '', (text, path) => {
     for (const [label, pattern] of SECRET_VALUE_PATTERNS) {
       if (pattern.test(text)) {
@@ -66,15 +71,15 @@ export function literalSecretsIn(value) {
   return found;
 }
 
-export function unresolvedPlaceholdersIn(value) {
-  const found = [];
+export function unresolvedPlaceholdersIn(value: unknown): Array<{ path: string }> {
+  const found: Array<{ path: string }> = [];
   walk(value, '', (text, path) => {
     if (PLACEHOLDER_PATTERN.test(text)) found.push({ path });
   });
   return found;
 }
 
-export function isCredentialName(name) {
+export function isCredentialName(name: unknown): boolean {
   const folded = String(name).toLowerCase();
   if (/(?:token|secret|password|passwd|credential|bearer|authorization)/.test(folded)) return true;
   if (/(?:api[-_]?key|access[-_]?key|private[-_]?key|client[-_]?secret)/.test(folded)) return true;
@@ -82,7 +87,7 @@ export function isCredentialName(name) {
   return /(?:^|[-_.])key(?:$|[-_.])/.test(folded);
 }
 
-function safeDecode(value) {
+function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value);
   } catch {
@@ -90,14 +95,14 @@ function safeDecode(value) {
   }
 }
 
-function queryCredentialReason(text) {
+function queryCredentialReason(text: string): string | null {
   for (const match of text.matchAll(/[?&;#]([^=&;#\s]+)=/g)) {
     if (isCredentialName(safeDecode(match[1]))) return 'has a credential-like query parameter';
   }
   return null;
 }
 
-export function urlCredentialReason(value) {
+export function urlCredentialReason(value: unknown): string | null {
   if (typeof value !== 'string' || value === '') return null;
   if (/[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#\s]*@/.test(value)) return 'contains userinfo credentials';
   const fromText = queryCredentialReason(value);
@@ -122,17 +127,17 @@ const ENV_ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
 const ASSIGNMENT_PAIR = /(?:^|[\s,;])([A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)*)\s*[:=]\s*(\S+)/g;
 const HEADER_FLAG_NAMES = new Set(['header', 'headers', 'http-header']);
 
-function valueLooksCredentialLike(value) {
+function valueLooksCredentialLike(value: unknown): boolean {
   if (typeof value !== 'string' || value === '') return false;
   if (literalSecretsIn(value).length) return true;
   if (/^Bearer\s+\S+/i.test(value)) return true;
   return value.length >= 20 && /^[A-Za-z0-9+/_=-]+$/.test(value);
 }
 
-function headerSpecProblem(spec) {
+function headerSpecProblem(spec: unknown): string | null {
   if (typeof spec !== 'string' || spec.trim() === '') return null;
   const separator = spec.search(/[:=]/);
-  let name, value;
+  let name: string, value: string;
   if (separator >= 0) {
     name = spec.slice(0, separator).trim();
     value = spec.slice(separator + 1).trim();
@@ -146,7 +151,7 @@ function headerSpecProblem(spec) {
   return null;
 }
 
-function headerFlagMatch(value) {
+function headerFlagMatch(value: string): RegExpExecArray | null {
   const match = FLAG_PATTERN.exec(value);
   if (!match) return null;
   const name = match[1].toLowerCase();
@@ -154,14 +159,14 @@ function headerFlagMatch(value) {
   return header ? match : null;
 }
 
-function assignmentLooksLikeCredential(value) {
+function assignmentLooksLikeCredential(value: string): boolean {
   for (const match of value.matchAll(ASSIGNMENT_PAIR)) {
     if (match[2] !== '' && isCredentialName(match[1])) return true;
   }
   return false;
 }
 
-function credentialFlagIsLiteral(value) {
+function credentialFlagIsLiteral(value: string): boolean {
   const match = FLAG_PATTERN.exec(value);
   if (!match) return false;
   if (typeof match[2] === 'string') {
@@ -173,7 +178,7 @@ function credentialFlagIsLiteral(value) {
   return isCredentialName(match[1]) && typeof match[2] === 'string' && match[2] !== '';
 }
 
-function tokenLooksLikeCredential(value) {
+function tokenLooksLikeCredential(value: unknown): boolean {
   if (typeof value !== 'string' || value === '') return false;
   if (credentialFlagIsLiteral(value)) return true;
   const assigned = ENV_ASSIGNMENT.exec(value);
@@ -184,13 +189,13 @@ function tokenLooksLikeCredential(value) {
   return false;
 }
 
-export function transportCredentialProblem(entry) {
+export function transportCredentialProblem(entry: unknown): string | null {
   if (!isObject(entry)) return null;
   if (typeof entry.url === 'string') {
     const reason = urlCredentialReason(entry.url);
     if (reason) return `url ${reason}`;
   }
-  const tokens = [];
+  const tokens: Array<{ path: string; value: string }> = [];
   if (typeof entry.command === 'string') tokens.push({ path: 'command', value: entry.command });
   if (Array.isArray(entry.args)) {
     for (const [index, value] of entry.args.entries()) {
@@ -222,12 +227,12 @@ export function transportCredentialProblem(entry) {
   return null;
 }
 
-function isCredentialFlag(value) {
+function isCredentialFlag(value: string): boolean {
   const match = FLAG_PATTERN.exec(value);
   return Boolean(match && isCredentialName(match[1]));
 }
 
-export function literalValueReason(field, value, { authorization = false } = {}) {
+export function literalValueReason(field: string, value: unknown, { authorization = false }: { authorization?: boolean } = {}): string {
   const [secret] = literalSecretsIn(value);
   if (secret) {
     return `${field} contains a literal secret (${secret.label}); only \${VAR} references are synced`;

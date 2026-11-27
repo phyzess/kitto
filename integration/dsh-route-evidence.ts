@@ -7,10 +7,11 @@ import { kittoHome } from '../lib/kitto-home.ts';
 import { sameLocation } from '../lib/paths.ts';
 import { EVIDENCE_TTL, exactRoute, parseNativeModelResult } from '../lib/routing-evidence.ts';
 import { activeRoutingBoundary, routeId, routeKey } from '../lib/routing-policy.ts';
+import type { Json } from '../types/kitto.d.ts';
 
-export function createRouteObserver({ profile, enabled, clock = Date.now }) {
-  const agents = new WeakMap();
-  function session(exec) {
+export function createRouteObserver({ profile, enabled, clock = Date.now }: { profile: string; enabled: () => boolean; clock?: () => number }) {
+  const agents = new WeakMap<object, Json>();
+  function session(exec: Json | null | undefined): Json | null {
     const agent = exec?.agent;
     if (!agent || typeof agent !== 'object' || !routeId(agent.session?.id) || typeof exec.token !== 'symbol') return null;
     if (!enabled()) { agents.delete(agent); return null; }
@@ -21,7 +22,7 @@ export function createRouteObserver({ profile, enabled, clock = Date.now }) {
     return next;
   }
   return {
-    observe(exec, result) {
+    observe(exec: Json, result: Json) {
       if (exec?.name !== 'list_subagent_models' || !exactRoute(exec.arguments) || Object.keys(exec.arguments).length !== 2) return;
       const record = session(exec);
       if (!record) return;
@@ -33,7 +34,7 @@ export function createRouteObserver({ profile, enabled, clock = Date.now }) {
       if (record.rows.size >= 64) record.rows.delete(record.rows.keys().next().value);
       record.rows.set(key, { provider, model, reasoningEfforts, observedAt: new Date(clock()).toISOString() });
     },
-    export(exec) {
+    export(exec: Json) {
       const record = exec?.signal?.aborted ? null : session(exec);
       if (!record) return null;
       const now = clock();
@@ -43,11 +44,11 @@ export function createRouteObserver({ profile, enabled, clock = Date.now }) {
   };
 }
 
-export function registerRouteEvidence(ctx) {
-  ctx.inject(['profileContext', 'tools'], host => {
+export function registerRouteEvidence(ctx: Json): void {
+  ctx.inject(['profileContext', 'tools'], (host: Json) => {
     const { name, home, installAnchor } = host.profileContext;
     if (name !== 'web' || !isAbsolute(installAnchor ?? '') || !isAbsolute(home ?? '')) return;
-    let defineTool;
+    let defineTool: any;
     try {
       const require = createRequire(installAnchor);
       const manifest = require('./package.json');
@@ -67,8 +68,8 @@ export function registerRouteEvidence(ctx) {
       name: 'kitto_route_evidence',
       description: 'Export exact list_subagent_models results observed for this agent and session in the last five minutes. No account, credential, or Team fallback verification.',
       parameters: {},
-      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
-      execute: (_args, exec) => JSON.stringify(observer.export(exec)),
+      output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text', text: value }] },
+      execute: (_args: unknown, exec: Json) => JSON.stringify(observer.export(exec)),
     }));
   });
 }

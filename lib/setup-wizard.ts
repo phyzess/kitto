@@ -5,14 +5,28 @@ import { isDesktopProfile, normalizeDshProfile } from './dsh-profile.ts';
 import { setupPrompts } from './setup-prompts.ts';
 import { parseRoutingBoundary } from './routing-policy.ts';
 import { promisify } from 'node:util';
+import type { Readable, Writable } from 'node:stream';
+import type { HostName } from '../types/kitto.d.ts';
+import type { SetupPlan } from './environment-setup.ts';
 
-const agents = ['pi', 'codex', 'dsh'];
-const names = { pi: 'Pi', codex: 'Codex', dsh: 'DeepSeek Harness (DSH)' };
+export interface WizardEnvironment {
+  available: string[];
+  pnpmAvailable: boolean;
+  serviceActive: boolean;
+  canConfigureService: boolean;
+}
+
+interface WizardPlan extends SetupPlan {
+  routingBoundary?: string;
+}
+
+const agents: HostName[] = ['pi', 'codex', 'dsh'];
+const names: Record<string, string> = { pi: 'Pi', codex: 'Codex', dsh: 'DeepSeek Harness (DSH)' };
 const serviceUnit = 'dsh.service';
 const exec = promisify(execFile);
 
-async function detectEnvironment() {
-  async function works(command, args) {
+async function detectEnvironment(): Promise<WizardEnvironment> {
+  async function works(command: string, args: string[]): Promise<boolean> {
     try {
       await exec(command, args, { timeout: 3000 });
       return true;
@@ -33,12 +47,18 @@ async function detectEnvironment() {
   };
 }
 
-function expandHome(path) {
+function expandHome(path: string): string {
   if (path === '~') return homedir();
   return path.startsWith('~/') ? resolve(homedir(), path.slice(2)) : path;
 }
 
-async function configure({ input, output, environment, execute, probeServicePnpm }) {
+async function configure({ input, output, environment, execute, probeServicePnpm }: {
+  input: Readable;
+  output: Writable;
+  environment: WizardEnvironment;
+  execute: (plan: SetupPlan) => Promise<void>;
+  probeServicePnpm: (unit: string) => Promise<boolean>;
+}): Promise<true | undefined> {
   const { print, hosts, select, text, yesNo, close } = await setupPrompts(input, output);
   try {
     const { available, pnpmAvailable, serviceActive, canConfigureService } = environment;
@@ -55,9 +75,9 @@ async function configure({ input, output, environment, execute, probeServicePnpm
         (canConfigureService ? '可以配置服务账号。' : '需要 root 权限才能配置服务账号。'));
     }
 
-    let selected;
-    let unit;
-    let installAgents;
+    let selected: string[] | undefined;
+    let unit: string | undefined;
+    let installAgents: boolean | undefined;
     let dshProfile = 'web';
     let dshProfileAsked = false;
     while (true) {
@@ -103,9 +123,9 @@ async function configure({ input, output, environment, execute, probeServicePnpm
     }
 
     print('完整配置包含仓库的 AGENTS.md、skills 和所选宿主的 Kitto 集成。选择 Pi 时还会同步 Pi 包、扩展和 MCP 设置。');
-    let source;
-    let serviceInstallAgents;
-    let servicePnpmAvailable;
+    let source: string | false | undefined;
+    let serviceInstallAgents: boolean | undefined;
+    let servicePnpmAvailable: boolean | undefined;
     while (true) {
       const sourceChoice = await select('选择配置来源', [
         { value: '1', label: '默认 Kitto 配置', hint: '优先复用已有安装' },
@@ -159,8 +179,8 @@ async function configure({ input, output, environment, execute, probeServicePnpm
     const workspace = await text('工作区父目录（可选）。例如未来项目会放在 ~/workspaces/workspace-1 下，就填 ~/workspaces。留空使用全局配置。');
     if (workspace === undefined) return undefined;
 
-    const plan = {
-      agents: selected, source, installAgents, deps, workspace: workspace ? expandHome(workspace) : undefined,
+    const plan: WizardPlan = {
+      agents: selected as HostName[], source, installAgents, deps, workspace: workspace ? expandHome(workspace) : undefined,
       unit, dshProfile,
     };
     if (selected.includes('dsh') && !unit && !isDesktopProfile(dshProfile) && source !== false) {
@@ -221,12 +241,18 @@ async function configure({ input, output, environment, execute, probeServicePnpm
 
 export async function runWizard({
   input = process.stdin, output = process.stdout, detect = detectEnvironment, execute,
-  probeServicePnpm = async unit => {
+  probeServicePnpm = async (unit: string) => {
     const { servicePnpmAvailable } = await import('./scope-service.ts');
     return servicePnpmAvailable(unit);
   },
-} = {}) {
-  const runSetup = execute ?? (async plan => {
+}: {
+  input?: Readable;
+  output?: Writable;
+  detect?: () => Promise<WizardEnvironment>;
+  execute?: (plan: SetupPlan) => Promise<void>;
+  probeServicePnpm?: (unit: string) => Promise<boolean>;
+} = {}): Promise<void> {
+  const runSetup = execute ?? (async (plan: SetupPlan) => {
     const { runEnvironmentSetup } = await import('./environment-setup.ts');
     await runEnvironmentSetup(plan);
   });

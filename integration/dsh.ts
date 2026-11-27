@@ -4,11 +4,12 @@ import { registerArchiveReview } from './dsh-archive-review.ts';
 import { registerRouteEvidence } from './dsh-route-evidence.ts';
 import { registerDshRouting } from './dsh-routing.ts';
 import { registerDshTaskRouting } from './dsh-task-routing.ts';
+import type { Json } from '../types/kitto.d.ts';
 
 export const name = 'phyzess-kitto';
 export const inject = ['skills'];
 
-export function apply(ctx, config) {
+export function apply(ctx: Json, config?: Json): void {
   const path = fileURLToPath(new URL('./skills/kitto/SKILL.md', import.meta.url));
   const candidate = {
     name: 'kitto', description: 'Maintain personal agent configuration or locate the installed Kitto CLI for routing, missing commands, or version mismatches.',

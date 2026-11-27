@@ -1,27 +1,42 @@
-export const KINDS = Object.freeze(['skill', 'instructions', 'mcp', 'pi-package']);
-export const STATUSES = Object.freeze(['owned', 'pending', 'kept']);
+import type { State } from '../types/kitto.d.ts';
 
-function assertKey(label, value) {
+export type OwnershipKind = 'skill' | 'instructions' | 'mcp' | 'pi-package';
+export type OwnershipStatus = 'owned' | 'pending' | 'kept';
+
+export interface OwnershipEntry {
+  hash: string | null;
+  status: OwnershipStatus;
+  previous?: string;
+  spec?: unknown;
+}
+
+export type OwnershipScope = Record<string, OwnershipEntry>;
+export type OwnershipLedger = Partial<Record<OwnershipKind, Record<string, OwnershipScope>>>;
+
+export const KINDS: readonly OwnershipKind[] = Object.freeze(['skill', 'instructions', 'mcp', 'pi-package']);
+export const STATUSES: readonly OwnershipStatus[] = Object.freeze(['owned', 'pending', 'kept']);
+
+function assertKey(label: string, value: unknown) {
   if (typeof value !== 'string' || !value || value === '__proto__') {
     throw new Error(`Invalid ownership ${label}: ${JSON.stringify(value)}`);
   }
 }
 
-function assertKind(kind) {
-  if (!KINDS.includes(kind)) throw new Error(`Unknown ownership kind: ${JSON.stringify(kind)}`);
+function assertKind(kind: unknown): asserts kind is OwnershipKind {
+  if (!KINDS.includes(kind as OwnershipKind)) throw new Error(`Unknown ownership kind: ${JSON.stringify(kind)}`);
 }
 
-function assertHash(hash) {
+function assertHash(hash: unknown): asserts hash is string {
   if (typeof hash !== 'string' || !hash) throw new Error('An ownership hash must be a non-empty string.');
 }
 
-function address(kind, scope, name) {
+function address(kind: unknown, scope: unknown, name: unknown) {
   assertKind(kind);
   assertKey('scope', scope);
   assertKey('name', name);
 }
 
-function scopeOf(state, kind, scope, create) {
+function scopeOf(state: State, kind: OwnershipKind, scope: string, create: boolean): OwnershipScope | undefined {
   if (!create) return state.owned?.[kind]?.[scope];
   state.owned ||= {};
   state.owned[kind] ||= {};
@@ -29,18 +44,18 @@ function scopeOf(state, kind, scope, create) {
   return state.owned[kind][scope];
 }
 
-function entryOf(state, kind, scope, name) {
+function entryOf(state: State, kind: OwnershipKind, scope: string, name: string): OwnershipEntry | undefined {
   const scoped = scopeOf(state, kind, scope, false);
   return scoped && Object.hasOwn(scoped, name) ? scoped[name] : undefined;
 }
 
-export function get(state, kind, scope, name) {
+export function get(state: State, kind: OwnershipKind, scope: string, name: string): OwnershipEntry | undefined {
   address(kind, scope, name);
   const entry = entryOf(state, kind, scope, name);
   return entry && { ...entry };
 }
 
-export function list(state, kind, scope, status) {
+export function list(state: State, kind: OwnershipKind, scope: string, status?: OwnershipStatus): Array<OwnershipEntry & { name: string }> {
   assertKind(kind);
   assertKey('scope', scope);
   const scoped = scopeOf(state, kind, scope, false) ?? {};
@@ -49,28 +64,28 @@ export function list(state, kind, scope, status) {
     .map(([name, entry]) => ({ name, ...entry }));
 }
 
-export function scopes(state, kind) {
+export function scopes(state: State, kind: OwnershipKind): string[] {
   assertKind(kind);
   return Object.keys(state.owned?.[kind] ?? {});
 }
 
-export function record(state, kind, scope, name, hash, { spec = undefined } = {}) {
+export function record(state: State, kind: OwnershipKind, scope: string, name: string, hash: string, { spec = undefined }: { spec?: unknown } = {}): void {
   address(kind, scope, name);
   assertHash(hash);
   scopeOf(state, kind, scope, true)[name] = { hash, status: 'owned', ...(spec === undefined ? {} : { spec }) };
 }
 
-export function markPending(state, kind, scope, name, hash) {
+export function markPending(state: State, kind: OwnershipKind, scope: string, name: string, hash: string): void {
   address(kind, scope, name);
   assertHash(hash);
   const existing = entryOf(state, kind, scope, name);
-  const entry = { hash, status: 'pending' };
+  const entry: OwnershipEntry = { hash, status: 'pending' };
   if (existing?.status === 'owned') entry.previous = existing.hash;
   else if (existing?.status === 'pending' && existing.previous !== undefined) entry.previous = existing.previous;
   scopeOf(state, kind, scope, true)[name] = entry;
 }
 
-export function promote(state, kind, scope, name, hash) {
+export function promote(state: State, kind: OwnershipKind, scope: string, name: string, hash?: string): void {
   address(kind, scope, name);
   const existing = entryOf(state, kind, scope, name);
   const next = hash ?? (existing?.status === 'pending' ? existing.hash : undefined);
@@ -78,7 +93,7 @@ export function promote(state, kind, scope, name, hash) {
   scopeOf(state, kind, scope, true)[name] = { hash: next, status: 'owned' };
 }
 
-export function forgetPending(state, kind, scope, name) {
+export function forgetPending(state: State, kind: OwnershipKind, scope: string, name: string): boolean {
   address(kind, scope, name);
   const existing = entryOf(state, kind, scope, name);
   if (existing?.status !== 'pending') return false;
@@ -88,7 +103,7 @@ export function forgetPending(state, kind, scope, name) {
   return true;
 }
 
-export function markKept(state, kind, scope, name) {
+export function markKept(state: State, kind: OwnershipKind, scope: string, name: string): void {
   address(kind, scope, name);
   const existing = entryOf(state, kind, scope, name);
   if (existing && existing.status !== 'kept') {
@@ -97,17 +112,17 @@ export function markKept(state, kind, scope, name) {
   scopeOf(state, kind, scope, true)[name] = { hash: null, status: 'kept' };
 }
 
-export function release(state, kind, scope, name) {
+export function release(state: State, kind: OwnershipKind, scope: string, name: string): boolean {
   address(kind, scope, name);
   if (!entryOf(state, kind, scope, name)) return false;
   delete scopeOf(state, kind, scope, false)[name];
   return true;
 }
 
-export function replaceScope(state, kind, scope, { owned = {}, kept = [] } = {}) {
+export function replaceScope(state: State, kind: OwnershipKind, scope: string, { owned = {}, kept = [] }: { owned?: Record<string, string>; kept?: string[] } = {}): void {
   assertKind(kind);
   assertKey('scope', scope);
-  const next = {};
+  const next: OwnershipScope = {};
   for (const [name, hash] of Object.entries(owned)) {
     assertKey('name', name);
     assertHash(hash);
@@ -121,13 +136,13 @@ export function replaceScope(state, kind, scope, { owned = {}, kept = [] } = {})
   state.owned[kind][scope] = next;
 }
 
-export function recordedHash(state, kind, scope, name) {
+export function recordedHash(state: State, kind: OwnershipKind, scope: string, name: string): string | null | undefined {
   const entry = get(state, kind, scope, name);
   if (!entry || entry.status === 'kept') return undefined;
   return entry.status === 'pending' ? entry.previous ?? entry.hash : entry.hash;
 }
 
-export function isOwnedWith(state, kind, scope, name, liveHash, { includePending = false } = {}) {
+export function isOwnedWith(state: State, kind: OwnershipKind, scope: string, name: string, liveHash: unknown, { includePending = false }: { includePending?: boolean } = {}): boolean {
   const entry = get(state, kind, scope, name);
   if (!entry || typeof liveHash !== 'string') return false;
   if (entry.status === 'owned') return entry.hash === liveHash;

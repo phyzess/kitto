@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { routeId } from './routing-policy.ts';
+import type { Json } from '../types/kitto.d.ts';
 
-const SURFACES = {
+const SURFACES: Record<string, Set<string>> = {
   dsh: new Set(['teams', 'subagent']),
   pi: new Set(['current', 'subagent']),
   codex: new Set(['current', 'subagent']),
@@ -9,20 +10,20 @@ const SURFACES = {
 const DATA = new Set(['public', 'personal', 'internal', 'restricted']);
 const BILLING = new Set(['subscription', 'go-included', 'metered']);
 const EFFORTS = new Set(['default', 'none', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-const exact = route => routeId(route?.provider) && !route.provider.includes('/') && routeId(route.model);
-const sameRoute = (a, b) => exact(a) && exact(b) && a.provider === b.provider && a.model === b.model;
-const nonnegative = n => Number.isFinite(n) && n >= 0;
-const digest = fields => createHash('sha256').update(JSON.stringify(fields)).digest('hex');
-const pair = ({ provider, model }) => ({ provider, model });
+const exact = (route: Json | null | undefined): boolean => routeId(route?.provider) && !route.provider.includes('/') && routeId(route.model);
+const sameRoute = (a: Json | null | undefined, b: Json | null | undefined) => exact(a) && exact(b) && a.provider === b.provider && a.model === b.model;
+const nonnegative = (n: unknown): n is number => Number.isFinite(n) && (n as number) >= 0;
+const digest = (fields: unknown[]) => createHash('sha256').update(JSON.stringify(fields)).digest('hex');
+const pair = ({ provider, model }: Json) => ({ provider, model });
 
-function decision(role, host, planId, route, preferred) {
+function decision(role: Json, host: Json, planId: string, route: Json, preferred: Json | undefined): [string, string, Json?] {
   if (route.available !== true) return ['unavailable', 'host-route-unavailable'];
   if (host.surface !== 'current' && route.dispatchable !== true) return ['unavailable', 'host-cannot-select-route'];
   if (route.fallback !== 'none' && host.surface !== 'current') return ['unavailable', 'effective-fallback-unverified'];
   if (route.dataAllowed === false || (Array.isArray(route.allowedData) && !route.allowedData.includes(role.data))) {
     return ['unavailable', 'project-or-account-data-policy'];
   }
-  if (role.failed?.some(previous => sameRoute(previous, route) || (previous.kind === 'authorization' &&
+  if (role.failed?.some((previous: Json) => sameRoute(previous, route) || (previous.kind === 'authorization' &&
     previous.upstream === route.upstream && previous.account === route.account))) return ['unavailable', 'failed-route-or-account'];
   if (!routeId(route.upstream) || !routeId(route.account) || route.accountVerified !== true || !BILLING.has(route.billing)) {
     return ['decision-required', 'verify-account-and-billing'];
@@ -32,10 +33,10 @@ function decision(role, host, planId, route, preferred) {
   if (!EFFORTS.has(effort) || (effort !== 'default' && !route.efforts?.includes(effort))) return ['unavailable', 'unsupported-effort'];
   if (role.reviewGate === 'independent') {
     if (!routeId(route.canonicalModel) || !routeId(route.family) || !role.implementers?.length ||
-      role.implementers.some(item => !routeId(item?.canonicalModel) || !routeId(item.family))) {
+      role.implementers.some((item: Json) => !routeId(item?.canonicalModel) || !routeId(item.family))) {
       return ['unavailable', 'independence-unverified'];
     }
-    if (role.implementers.some(item => item.canonicalModel === route.canonicalModel || item.family === route.family)) {
+    if (role.implementers.some((item: Json) => item.canonicalModel === route.canonicalModel || item.family === route.family)) {
       return ['unavailable', 'not-independent'];
     }
   }
@@ -63,7 +64,7 @@ function decision(role, host, planId, route, preferred) {
     ...(estimate !== null && { estimateUsd: estimate, approvedUsd: approval.maxUsd, estimateOnly: true }), approvalKey: key }];
 }
 
-function validRole(role) {
+function validRole(role: Json): boolean {
   return routeId(role?.id) && routeId(role.workRevision) && DATA.has(role.data) && ['read', 'write'].includes(role.effects) &&
     Array.isArray(role.dependencies) && new Set(role.dependencies).size === role.dependencies.length &&
     role.dependencies.every(routeId) && (role.choice === undefined || role.choice === 'defer' || exact(role.choice)) &&
@@ -73,11 +74,11 @@ function validRole(role) {
     (role.reviewGate === undefined || role.reviewGate === 'independent');
 }
 
-export function planTaskRoutes(input, now = Date.now()) {
+export function planTaskRoutes(input: Json, now: number = Date.now()): Json {
   const { id, host, roles, presets = {} } = input ?? {};
   const observed = Date.parse(host?.observedAt);
   if (!routeId(id) || !Object.hasOwn(SURFACES, host?.kind) || !SURFACES[host.kind].has(host.surface) ||
-    !routeId(host.session) || !Array.isArray(host.routes) || !host.routes.every(route => exact(route) &&
+    !routeId(host.session) || !Array.isArray(host.routes) || !host.routes.every((route: Json) => exact(route) &&
       (route.efforts === undefined || Array.isArray(route.efforts))) || !Array.isArray(roles) || !roles.length ||
     !roles.every(validRole) || typeof presets !== 'object' || !presets || Array.isArray(presets)) {
     return { status: 'invalid', reason: 'invalid-plan-or-native-surface', rows: [] };
@@ -85,29 +86,29 @@ export function planTaskRoutes(input, now = Date.now()) {
   if (!Number.isFinite(observed) || observed > now || now - observed > 300_000) {
     return { status: 'unavailable', reason: 'native-evidence-stale', rows: [] };
   }
-  const byId = new Map(roles.map(role => [role.id, role]));
-  const visiting = new Set(), visited = new Set();
-  function acyclic(role) {
+  const byId = new Map<string, Json>(roles.map((role: Json): [string, Json] => [role.id, role]));
+  const visiting = new Set<string>(), visited = new Set<string>();
+  function acyclic(role: Json): boolean {
     if (visiting.has(role.id)) return false;
     if (visited.has(role.id)) return true;
     visiting.add(role.id);
-    if (!role.dependencies.every(dep => byId.has(dep) && acyclic(byId.get(dep)))) return false;
+    if (!role.dependencies.every((dep: string) => byId.has(dep) && acyclic(byId.get(dep)))) return false;
     visiting.delete(role.id);
     visited.add(role.id);
     return true;
   }
   if (byId.size !== roles.length || !roles.every(acyclic)) return { status: 'invalid', reason: 'invalid-task-graph', rows: [] };
-  const counts = new Map();
+  const counts = new Map<string, number>();
   for (const route of host.routes) {
     const key = JSON.stringify([route.provider, route.model]);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  const rows = roles.map(role => {
+  const rows: Json[] = roles.map((role: Json): Json => {
     if (role.choice === 'defer') return { id: role.id, status: 'deferred' };
     const expected = role.choice ?? (Object.hasOwn(presets, role.id) ? presets[role.id] : undefined) ?? (host.surface === 'current' ? host.current : undefined);
-    const options = host.routes.map(route => {
-      const [status, reason, selected] = counts.get(JSON.stringify([route.provider, route.model])) === 1
-        ? decision(role, host, id, route, expected) : ['unavailable', 'ambiguous-native-route'];
+    const options: Json[] = host.routes.map((route: Json) => {
+      const [status, reason, selected] = (counts.get(JSON.stringify([route.provider, route.model])) === 1
+        ? decision(role, host, id, route, expected) : ['unavailable', 'ambiguous-native-route']) as [string, string, Json?];
       return { ...pair(route), ...(BILLING.has(route.billing) && { billing: route.billing }),
         ...(routeId(route.upstream) && { upstream: route.upstream }),
         ...(route.billing === 'metered' && nonnegative(route.estimateUsd) && { estimateUsd: route.estimateUsd, estimateOnly: true }),
@@ -122,13 +123,13 @@ export function planTaskRoutes(input, now = Date.now()) {
     return { id: role.id, status: possible ? 'decision-required' : 'unavailable',
       reason: selected?.reason ?? (expected ? 'chosen-or-preset-route-unavailable' : 'select-route'), options: choices };
   });
-  const resultById = new Map(rows.map(row => [row.id, row]));
-  const dependencyBlocks = new Map();
-  function blocked(role) {
+  const resultById = new Map<string, Json>(rows.map((row): [string, Json] => [row.id, row]));
+  const dependencyBlocks = new Map<string, string[]>();
+  function blocked(role: Json): string[] {
     if (!dependencyBlocks.has(role.id)) {
-      dependencyBlocks.set(role.id, role.dependencies.filter(id => resultById.get(id).status !== 'ready' || blocked(byId.get(id)).length > 0));
+      dependencyBlocks.set(role.id, role.dependencies.filter((id: string) => resultById.get(id).status !== 'ready' || blocked(byId.get(id)).length > 0));
     }
-    return dependencyBlocks.get(role.id);
+    return dependencyBlocks.get(role.id)!;
   }
   for (const row of rows) {
     const dependencies = blocked(byId.get(row.id));
@@ -139,16 +140,16 @@ export function planTaskRoutes(input, now = Date.now()) {
     ready: rows.filter(row => row.status === 'ready' && !row.blockedBy).map(row => row.id) };
 }
 
-export function checkTaskRouteApproval(input, approval, now = Date.now()) {
+export function checkTaskRouteApproval(input: Json, approval: unknown, now: number = Date.now()): Json {
   const plan = planTaskRoutes(input, now);
-  if (!Array.isArray(approval) || !approval.length || !plan.ready || new Set(approval.map(row => row?.id)).size !== approval.length) {
+  if (!Array.isArray(approval) || !approval.length || !plan.ready || new Set(approval.map((row: Json) => row?.id)).size !== approval.length) {
     return { status: 'stop', reason: 'no-exact-launch-approval', plan };
   }
-  const chosen = new Set(approval.map(row => row?.id));
+  const chosen = new Set(approval.map((row: Json) => row?.id));
   for (const entry of approval) {
-    const row = plan.rows.find(row => row.id === entry?.id), task = input.roles.find(role => role.id === entry?.id);
+    const row = plan.rows.find((row: Json) => row.id === entry?.id), task = input.roles.find((role: Json) => role.id === entry?.id);
     if (!row || !plan.ready.includes(row.id) || row.route.approvalKey !== entry.approvalKey ||
-      !task.dependencies.every(id => chosen.has(id))) return { status: 'stop', reason: 'approval-changed-or-dependency-pending', plan };
+      !task.dependencies.every((id: string) => chosen.has(id))) return { status: 'stop', reason: 'approval-changed-or-dependency-pending', plan };
   }
-  return { status: 'approved', routes: plan.rows.filter(row => chosen.has(row.id)) };
+  return { status: 'approved', routes: plan.rows.filter((row: Json) => chosen.has(row.id)) };
 }

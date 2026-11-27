@@ -2,8 +2,9 @@ import { hosts } from '../host-pins.ts';
 import { run } from '../process.ts';
 import { meetsBaseline } from '../version-order.ts';
 import { adapterFor, selectedAdapters } from './index.ts';
+import type { HostName, HostReport, State } from '../../types/kitto.d.ts';
 
-function reportHost(report, requireBaseline) {
+function reportHost(report: HostReport, requireBaseline: boolean) {
   const { name, baseline } = report;
   if (report.status === 'unreadable') {
     console.warn(`kitto: ${name}: could not read its version (${report.detail}); continuing, but its native integration is unverified.`);
@@ -16,12 +17,12 @@ function reportHost(report, requireBaseline) {
   }
 }
 
-export const availableHost = name => adapterFor({}, name).available();
+export const availableHost = (name: HostName): boolean => adapterFor({} as State, name).available();
 
-export function checkSelectedHosts(agents, installAgents, options = {}) {
-  const reports = [];
+export function checkSelectedHosts(agents: HostName[], installAgents: boolean | undefined, options: { requireBaseline?: boolean } = {}): HostReport[] {
+  const reports: HostReport[] = [];
   for (const name of agents) {
-    const adapter = adapterFor({}, name);
+    const adapter = adapterFor({} as State, name);
     if (!adapter.available()) {
       if (!installAgents) throw new Error(`${name} is missing. Install it natively or add --install-agents (pins ${hosts[name].version}).`);
       const requiredNode = hosts[name].node;
@@ -38,9 +39,9 @@ export function checkSelectedHosts(agents, installAgents, options = {}) {
   return reports;
 }
 
-export function installMissingHosts(agents) {
+export function installMissingHosts(agents: HostName[]): void {
   for (const name of agents) {
-    const adapter = adapterFor({}, name);
+    const adapter = adapterFor({} as State, name);
     if (adapter.available()) continue;
     run('npm', ['install', '--global', `${hosts[name].package}@${hosts[name].version}`]);
     const report = adapter.inspect();
@@ -52,7 +53,7 @@ export function installMissingHosts(agents) {
   }
 }
 
-export function hostCliVersions(state) {
+export function hostCliVersions(state: State): void {
   console.log('Host CLIs (Kitto never upgrades them; use each native manager):');
   for (const adapter of selectedAdapters(state)) adapter.reportVersion();
 }

@@ -1,13 +1,34 @@
 import { authorizeGoRead, knownGoCanonical } from './model-routing.ts';
 import { maxPrice, timestamp } from './go-allowance.ts';
 import { routeId } from './routing-policy.ts';
+import type { State } from '../types/kitto.d.ts';
+
+type Json = Record<string, any>;
+
+export interface GoBinding {
+  account: string;
+  plan: string;
+  profile: string;
+  model: string;
+  canonicalModel: string;
+}
+
+interface MetadataRead {
+  status?: string;
+  reason?: string;
+  statusCode?: number;
+  value?: any;
+}
+
+type Stopped = { status: 'stop'; reason: string; statusCode?: number };
+type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
 const BASE = 'https://opencode.ai/inference/go/v1';
 const MAX_BYTES = 512 * 1024;
 const WINDOW_NAMES = ['rolling', 'weekly', 'monthly'];
-const stopped = (reason, statusCode) => ({ status: 'stop', reason, ...(statusCode && { statusCode }) });
+const stopped = (reason: string, statusCode?: number): Stopped => ({ status: 'stop', reason, ...(statusCode && { statusCode }) });
 
-async function readMetadata(fetcher, name, headers, signal) {
+async function readMetadata(fetcher: Fetcher, name: string, headers: Record<string, string>, signal: AbortSignal): Promise<MetadataRead> {
   const response = await fetcher(`${BASE}/${name}`, { method: 'GET', headers, signal, redirect: 'error', credentials: 'omit' });
   if (response.redirected || response.status >= 300 && response.status < 400) return stopped('metadata-redirect', response.status);
   if (response.status !== 200) return stopped('metadata-http-error', response.status);
@@ -26,36 +47,36 @@ async function readMetadata(fetcher, name, headers, signal) {
   catch { return stopped('metadata-invalid'); }
 }
 
-function catalogProjection(response, binding) {
+function catalogProjection(response: Json | null | undefined, binding: GoBinding & { plan: string }) {
   if (response?.object !== 'list' || !Array.isArray(response.data)) return null;
-  const seen = new Set();
+  const seen = new Set<string>();
   for (const item of response.data) {
     if (!routeId(item?.id) || seen.has(item.id)) return null;
     seen.add(item.id);
   }
-  const data = response.data.flatMap(item => {
+  const data = response.data.flatMap((item: Json) => {
     const verified = projectModel(item, binding.plan);
     return verified ? [verified] : [];
   });
-  return data.some(item => item.id === binding.model && item.canonical_id === binding.canonicalModel) ? { object: 'list', data } : null;
+  return data.some((item: Json) => item.id === binding.model && item.canonical_id === binding.canonicalModel) ? { object: 'list', data } : null;
 }
 
-function projectModel(item, plan) {
+function projectModel(item: Json, plan: string): Json | null {
   const canonical = knownGoCanonical(item.id), cap = item.go?.monthly_usage?.[plan];
   if (!canonical || item.type !== 'chat' || typeof item.canonical_id !== 'string' || item.canonical_id.toLowerCase() !== canonical
     || item.go?.training !== false || !Number.isFinite(cap) || cap <= 0) return null;
   const input = maxPrice(item.cost?.text?.input), output = maxPrice(item.cost?.text?.output);
   const multipliers = item.cost?.multipliers === undefined ? [] : item.cost.multipliers;
   if (!Number.isFinite(input) || !Number.isFinite(output) || input + output <= 0 || !Array.isArray(multipliers)
-    || !multipliers.every(row => Number.isFinite(row?.factor) && row.factor > 0)
-    || !Number.isFinite(multipliers.reduce((product, row) => product * Math.max(1, row.factor), 1))) return null;
+    || !multipliers.every((row: Json) => Number.isFinite(row?.factor) && row.factor > 0)
+    || !Number.isFinite(multipliers.reduce((product: number, row: Json) => product * Math.max(1, row.factor), 1))) return null;
   return { id: item.id, canonical_id: canonical, type: 'chat',
     go: { monthly_usage: { [plan]: cap }, training: false },
     cost: { text: { input: { price: input }, output: { price: output } }, multipliers: multipliers.map(({ factor }) => ({ factor })) } };
 }
 
-function usageProjection(response, now) {
-  const windows = [];
+function usageProjection(response: Json | null | undefined, now: number): Json | null {
+  const windows: Array<[string, Json]> = [];
   for (const name of WINDOW_NAMES) {
     const item = response?.usage?.[name];
     if (!['ok', 'rate-limited'].includes(item?.status) || !Number.isInteger(item.percent) || item.percent < 0 || item.percent > 100
@@ -66,21 +87,29 @@ function usageProjection(response, now) {
 }
 
 export async function collectGoMetadata({ state, request, optedIn, fetcher = globalThis.fetch,
-  readKey = () => process.env.KITTO_GO_METADATA_KEY, clock = Date.now, timeoutMs = 10_000 }) {
+  readKey = () => process.env.KITTO_GO_METADATA_KEY, clock = Date.now, timeoutMs = 10_000 }: {
+  state: State;
+  request: Json;
+  optedIn?: boolean;
+  fetcher?: Fetcher;
+  readKey?: () => string | undefined;
+  clock?: () => number;
+  timeoutMs?: number;
+}): Promise<Json> {
   if (optedIn !== true) return stopped('metadata-opt-in-required');
   const binding = authorizeGoRead(state, request, clock());
   if (!binding) return stopped('metadata-account-or-policy-unverified');
-  let key;
+  let key: string | undefined;
   try { key = readKey(); } catch { return stopped('metadata-key-unavailable'); }
   if (typeof key !== 'string' || !/^[a-zA-Z0-9_.~-]{1,1024}$/.test(key)) return stopped('metadata-key-unavailable');
   const controller = new AbortController();
-  let timer;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const deadline = new Promise(resolve => {
+    const deadline = new Promise<Stopped>(resolve => {
       timer = setTimeout(() => { controller.abort(); resolve(stopped('metadata-timeout')); }, Math.min(10_000, timeoutMs));
     });
     const collection = async () => {
-      const headers = { Accept: 'application/json' };
+      const headers: Record<string, string> = { Accept: 'application/json' };
       const models = await readMetadata(fetcher, 'models', headers, controller.signal);
       if (models.status === 'stop') return models;
       const catalog = catalogProjection(models.value, binding);

@@ -1,7 +1,8 @@
 import { hosts } from '../host-pins.ts';
 import { noteAction } from './action.ts';
+import type { HostAdapter } from '../../types/kitto.d.ts';
 
-export function createDshDesktopAdapter() {
+export function createDshDesktopAdapter(): HostAdapter {
   return {
     name: 'dsh',
     desktop: true,

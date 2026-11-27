@@ -1,6 +1,9 @@
-import type { DeployPlan, HostAction, HostAdapter, MigrationResult, OwnershipEntry, PiAdapter, State } from './kitto.js';
+import type { DeployPlan, HostAdapter, PiAdapter, State } from './kitto.d.ts';
 import * as ownership from '../lib/ownership.ts';
+import type { OwnershipEntry } from '../lib/ownership.ts';
+import type { HostAction } from '../lib/hosts/action.ts';
 import { downgradeState, migrateState } from '../lib/state-schema.ts';
+import type { MigrationResult, StateV1 } from '../lib/state-schema.ts';
 import { loadKittoState } from '../lib/state-io.ts';
 import { hostAction, noteAction } from '../lib/hosts/action.ts';
 import { adapterFor, planConnect, planDeploy, selectedAdapters } from '../lib/hosts/index.ts';
@@ -15,7 +18,7 @@ export const entry: OwnershipEntry | undefined = ownership.get(state, 'skill', '
 export const entries: OwnershipEntry[] = ownership.list(state, 'mcp', 'codex');
 export const recorded: string | undefined = ownership.recordedHash(state, 'mcp', 'codex', 'name');
 export const migrated: MigrationResult = migrateState(state);
-export const downgraded: State = downgradeState(state);
+export const downgraded: State | StateV1 = downgradeState(state);
 export const loaded: Promise<State> = loadKittoState('home');
 
 export const action: HostAction = hostAction('pi', 'kind', 'description', { phase: 'sync', apply: async () => {} });

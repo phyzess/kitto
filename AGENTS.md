@@ -43,7 +43,7 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 
 ## Types and lint
 
-- `npm run typecheck` runs `tsc` over `types/kitto.d.ts`. The per-module `include` of the former `.mjs` setup and `types/conformance.ts` are suspended until the modules carry inline type annotations. Comments are ratcheted, so do not add JSDoc, `@ts-check`, `@ts-nocheck` or `@ts-expect-error`.
+- `npm run typecheck` runs `tsc` with `noImplicitAny` over `bin/`, `lib/`, `integration/` and `types/` (including `types/conformance.ts`). Annotate every parameter; put module-owned types in the module that owns them and keep only cross-cutting shapes in `types/kitto.d.ts`. Use `import type`/`export type` and erasable syntax only (`erasableSyntaxOnly` and `verbatimModuleSyntax` are on). Comments are ratcheted, so do not add JSDoc, `@ts-check`, `@ts-nocheck` or `@ts-expect-error`.
 - `npm run lint:ox` runs oxlint (correctness rules). Fix the finding or turn the rule off in `.oxlintrc.json` with a reason in the PR.
 
 ## Verify before PR
