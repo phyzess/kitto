@@ -1,16 +1,23 @@
-const WINDOWS = { rolling: 0.2, weekly: 0.5, monthly: 1 };
+type Json = Record<string, any>;
+
+export type GoMeter =
+  | { status: 'missing' | 'stale' | 'invalid' }
+  | { status: 'exhausted'; windows: Array<{ name: string; resetsAt: string }> }
+  | { status: 'available'; remaining: number; limitingWindow: string; resetsAt: string };
+
+const WINDOWS: Record<string, number> = { rolling: 0.2, weekly: 0.5, monthly: 1 };
 const PLANS = ['go', 'go-plus', 'go-teams'];
 const SNAPSHOT_TTL = 5 * 60_000;
 const CATALOG_TTL = 24 * 60 * 60_000;
-const nonnegative = value => Number.isFinite(value) && value >= 0;
-export const timestamp = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value)
+const nonnegative = (value: unknown): value is number => Number.isFinite(value) && (value as number) >= 0;
+export const timestamp = (value: unknown): number => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value)
   ? Date.parse(value) : NaN;
-export const fresh = (value, now, ttl) => {
+export const fresh = (value: unknown, now: number, ttl: number) => {
   const time = timestamp(value);
   return Number.isFinite(time) && time <= now && now - time <= ttl;
 };
 
-export function goMeter(go, now) {
+export function goMeter(go: Json | null | undefined, now: number): GoMeter {
   if (!go?.usage) return { status: 'missing' };
   if (!fresh(go.observedAt, now, SNAPSHOT_TTL)) return { status: 'stale' };
   const windows = Object.entries(WINDOWS).map(([name, share]) => {
@@ -29,9 +36,9 @@ export function goMeter(go, now) {
   return { status: 'available', remaining: tightest.remaining, limitingWindow: tightest.name, resetsAt: tightest.resetsAt };
 }
 
-export function maxPrice(side) {
+export function maxPrice(side: Json | null | undefined): number {
   if (side?.overrides !== undefined && !Array.isArray(side.overrides)) return NaN;
-  const prices = [];
+  const prices: unknown[] = [];
   for (const entry of [side, ...(side?.overrides ?? [])]) {
     const cache = entry?.cache;
     prices.push(entry?.price);
@@ -39,30 +46,30 @@ export function maxPrice(side) {
     if (cache?.write !== undefined) prices.push(...(cache.write && typeof cache.write === 'object' && !Array.isArray(cache.write)
       ? Object.values(cache.write) : [cache.write]));
   }
-  return prices.every(nonnegative) ? Math.max(...prices) : NaN;
+  return prices.every(nonnegative) ? Math.max(...(prices as number[])) : NaN;
 }
 
-export function goModel(go, model, now) {
+export function goModel(go: Json | null | undefined, model: string, now: number): { item: Json; cap: number } | null {
   if (!PLANS.includes(go?.plan) || !fresh(go.catalogObservedAt, now, CATALOG_TTL) || !Array.isArray(go.catalog?.data)) return null;
-  const matches = go.catalog.data.filter(item => item?.id === model);
+  const matches = go.catalog.data.filter((item: Json) => item?.id === model);
   if (matches.length !== 1 || matches[0].type !== 'chat' || matches[0].go?.training !== false) return null;
   const item = matches[0], cap = item.go.monthly_usage?.[go.plan];
   if (!Number.isFinite(cap) || cap <= 0) return null;
   return { item, cap };
 }
 
-export function estimateGoFraction({ item, cap }, tokens) {
+export function estimateGoFraction({ item, cap }: { item: Json; cap: number }, tokens: { input?: number; output?: number } | null | undefined): number | null {
   if (!Number.isSafeInteger(tokens?.input) || tokens.input <= 0 || !Number.isSafeInteger(tokens?.output) || tokens.output <= 0) return null;
   const input = maxPrice(item.cost?.text?.input), output = maxPrice(item.cost?.text?.output);
   const multipliers = item.cost?.multipliers;
   if (!nonnegative(input) || !nonnegative(output) || input + output === 0
-      || (multipliers !== undefined && (!Array.isArray(multipliers) || !multipliers.every(item => Number.isFinite(item?.factor) && item.factor > 0)))) return null;
-  const factor = (multipliers ?? []).reduce((product, item) => product * Math.max(1, item.factor), 1);
+      || (multipliers !== undefined && (!Array.isArray(multipliers) || !multipliers.every((item: Json) => Number.isFinite(item?.factor) && item.factor > 0)))) return null;
+  const factor = (multipliers ?? []).reduce((product: number, item: Json) => product * Math.max(1, item.factor), 1);
   const fraction = (input * tokens.input + output * tokens.output) * factor / (1_000_000 * cap);
   return Number.isFinite(fraction) && fraction > 0 ? fraction : null;
 }
 
-export function normalizeGoCharge(usage, { cap }, plan) {
+export function normalizeGoCharge(usage: Json | null | undefined, { cap }: { cap: number }, plan: string): { fraction: number; source: string } | null {
   if (!PLANS.includes(plan) || !Number.isFinite(cap) || cap <= 0) return null;
   const cost = usage?.opencode;
   const billing = cost?.billing_source;

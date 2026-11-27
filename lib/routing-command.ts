@@ -4,25 +4,26 @@ import { isAbsolute, join } from 'node:path';
 import { sameLocation } from './paths.ts';
 import { kittoHome } from './kitto-home.ts';
 import { createRoutingStore } from './routing-state.ts';
+import type { Json } from '../types/kitto.d.ts';
 
 const help = 'Usage: kitto route plan|check --input FILE\n       kitto route go-metadata --input FILE --allow-network\n       kitto route permit|record-quota|release-pool --input FILE --operator\n       kitto route migrate --home DIRECTORY\nSupply sanitized JSON without prompts or credentials. Only go-metadata can access the network.';
 const operatorCommands = ['permit', 'record-quota', 'release-pool'];
 
-function matchesMetadataHome(savedHome, explicitHome) {
-  const absolute = path => typeof path === 'string' && isAbsolute(path) && !/[\x00-\x1f\x7f]/.test(path);
+function matchesMetadataHome(savedHome: unknown, explicitHome: string | undefined): boolean {
+  const absolute = (path: unknown): path is string => typeof path === 'string' && isAbsolute(path) && !/[\x00-\x1f\x7f]/.test(path);
   if (!absolute(savedHome)) return false;
   const effective = explicitHome?.trim() ? explicitHome : join(homedir(), '.dsh');
   return absolute(effective) && sameLocation(effective, savedHome);
 }
 
-export async function routeCommand(args) {
+export async function routeCommand(args: string[]): Promise<void> {
   if (!args.length || args.length === 1 && ['-h', '--help'].includes(args[0])) {
     console.log(help);
     return;
   }
   const [operation, flag, path] = args;
   const local = kittoHome();
-  const getState = () => readFile(join(local, 'state.json'), 'utf8').then(JSON.parse).catch(() => null);
+  const getState = () => readFile(join(local, 'state.json'), 'utf8').then(JSON.parse).catch((): null => null);
   if (operation === 'migrate' && flag === '--home' && path && args.length === 3) {
     const { migrateRouting } = await import('./routing-migration.ts');
     const state = await getState();
@@ -32,7 +33,7 @@ export async function routeCommand(args) {
   const optedIn = operation === 'go-metadata' && args.length === 4 && args[3] === '--allow-network';
   const operator = operatorCommands.includes(operation) && args.length === 4 && args[3] === '--operator';
   if ((!optedIn && !operator && (args.length !== 3 || !['plan', 'check'].includes(operation))) || flag !== '--input' || !path) throw new Error(help);
-  let request;
+  let request: Json;
   try {
     if (operator) {
       const stats = await lstat(path);
@@ -43,7 +44,7 @@ export async function routeCommand(args) {
   }
   catch { throw new Error('Cannot read routing input as JSON.'); }
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Routing input must be a JSON object.');
-  let output;
+  let output: Json;
   if (operation === 'plan' || operation === 'check') {
     const input = { ...request };
     if (operation !== 'check') delete input.approval;

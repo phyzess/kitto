@@ -1,12 +1,31 @@
 import { activeRoutingBoundary, routeId, routeKey } from './routing-policy.ts';
 import { estimateGoFraction, fresh, goMeter, goModel, normalizeGoCharge } from './go-allowance.ts';
 import { applyCapabilityEvidence } from './routing-evidence.ts';
+import type { Json, State } from '../types/kitto.d.ts';
+import type { GoBinding } from './go-metadata.ts';
+import type { GoMeter } from './go-allowance.ts';
+
+interface RouteInfo {
+  canonicalModel: string;
+  family?: string;
+  tier: number;
+  premium: boolean;
+  goModel?: { item: Json; cap: number };
+}
+
+interface Candidate {
+  key: string;
+  route: Json;
+  info: RouteInfo;
+  effort: string | null;
+  estimate: number | null | undefined;
+}
 
 const DATA = ['public', 'personal', 'internal', 'restricted'];
-const ROLES = { batch: 0, verify: 0, implement: 1, architect: 1, review: 1 };
+const ROLES: Record<string, number> = { batch: 0, verify: 0, implement: 1, architect: 1, review: 1 };
 const EFFORTS = ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const HOST_TTL = 5 * 60_000;
-const MODELS = new Map(Object.entries({
+const MODELS = new Map<string, [string, number, boolean]>(Object.entries<[string, number, boolean]>({
   'openai-codex/gpt-6.2-sol': ['openai/gpt-6.2-sol', 1, false],
   'openai-codex/gpt-6.2-astra': ['openai/gpt-6.2-astra', 2, true],
   'opencode-go/deepseek-v4.1-flash': ['deepseek/deepseek-v4.1-flash-1017', 0, false],
@@ -17,37 +36,37 @@ const MODELS = new Map(Object.entries({
   'opencode-go/grok-4.7': ['xai/grok-4.7', 2, true],
   'opencode-go/deepseek-v4-pro': ['deepseek/deepseek-v4-pro', 2, true],
 }));
-export const knownGoCanonical = model => MODELS.get(`opencode-go/${model}`)?.[0];
+export const knownGoCanonical = (model: string) => MODELS.get(`opencode-go/${model}`)?.[0];
 
 const FAMILIES = new Set(['openai', 'anthropic', 'deepseek', 'zhipuai', 'tencent', 'moonshotai', 'xai', 'google', 'alibaba', 'minimax', 'xiaomi']);
 const UPSTREAMS = ['openai-codex', 'opencode-go', 'anthropic', 'openrouter'];
 const BLOCKED_PROVIDERS = ['deepseek-official', 'xai', 'opencode', 'opencode-zen'];
-const validRoute = value => routeId(value?.provider) && !value.provider.includes('/') && routeId(value.model);
-const keyOf = value => validRoute(value) ? routeKey(value) : null;
+const validRoute = (value: Json | null | undefined) => routeId(value?.provider) && !value.provider.includes('/') && routeId(value.model);
+const keyOf = (value: Json | null | undefined): string | null => validRoute(value) ? routeKey(value) : null;
 
-function identity(canonicalModel) {
+function identity(canonicalModel: unknown): { canonicalModel: string; family: string } | null {
   if (!routeId(canonicalModel) || !/^[^/]+\/[^/]+$/.test(canonicalModel)) return null;
   const canonical = canonicalModel.toLowerCase(), family = canonical.split('/')[0];
   return FAMILIES.has(family) ? { canonicalModel: canonical, family } : null;
 }
 
-function auditReview(implementers, reviewer) {
+function auditReview(implementers: unknown, reviewer: Json | null | undefined): { independent: boolean; reason: string } {
   const actual = identity(reviewer?.canonicalModel);
   if (!actual || !Array.isArray(implementers) || !implementers.length) return { independent: false, reason: 'identity-unverified' };
-  const others = implementers.map(item => identity(item?.canonicalModel));
+  const others = (implementers as Json[]).map(item => identity(item?.canonicalModel));
   if (others.some(item => !item)) return { independent: false, reason: 'identity-unverified' };
-  if (others.some(item => item.canonicalModel === actual.canonicalModel)) return { independent: false, reason: 'same-model' };
-  if (others.some(item => item.family === actual.family)) return { independent: false, reason: 'same-family' };
+  if (others.some(item => item!.canonicalModel === actual.canonicalModel)) return { independent: false, reason: 'same-model' };
+  if (others.some(item => item!.family === actual.family)) return { independent: false, reason: 'same-family' };
   return { independent: true, reason: 'different-model-and-family' };
 }
 
-function verifiedUpstream(route) {
+function verifiedUpstream(route: Json | null | undefined): boolean {
   if (!validRoute(route) || !UPSTREAMS.includes(route.upstream)) return false;
   const provider = route.provider.toLowerCase();
   return !BLOCKED_PROVIDERS.includes(provider) && (!UPSTREAMS.includes(provider) || route.upstream === provider);
 }
 
-function routeInfo(route, go, now) {
+function routeInfo(route: Json, go: Json | null | undefined, now: number): RouteInfo | null {
   if (!verifiedUpstream(route)) return null;
   if (route.upstream === 'opencode-go') {
     const model = goModel(go, route.model, now);
@@ -71,26 +90,26 @@ function routeInfo(route, go, now) {
   return { ...actual, tier, premium: route.premium || tier === 2 || externalIdentity?.[2] === true };
 }
 
-function authorized(task, route, info, pool) {
-  return task.authorized.some(entry => keyOf(entry) === keyOf(route) && entry.upstream === route.upstream
+function authorized(task: Json, route: Json, info: Pick<RouteInfo, 'canonicalModel' | 'premium'>, pool?: string): boolean {
+  return task.authorized.some((entry: Json) => keyOf(entry) === keyOf(route) && entry.upstream === route.upstream
     && entry.account === route.account && entry.accountType === route.accountType && entry.billing === route.billing
     && identity(entry.canonicalModel)?.canonicalModel === info.canonicalModel && entry.data === task.data
     && (!info.premium || entry.premium === true) && (pool === undefined || entry.pool === pool));
 }
 
-function effortFor(route, requested, surface) {
-  if (!Array.isArray(route.reasoningEfforts) || !route.reasoningEfforts.every(effort => EFFORTS.includes(effort) && effort !== 'default')) return undefined;
+function effortFor(route: Json, requested: string[], surface: string): string | null | undefined {
+  if (!Array.isArray(route.reasoningEfforts) || !route.reasoningEfforts.every((effort: string) => EFFORTS.includes(effort) && effort !== 'default')) return undefined;
   const selected = requested.find(effort => effort === 'default' || route.reasoningEfforts.includes(effort));
   return selected === 'default' && surface === 'subagent' ? null : selected;
 }
 
-function nextAction(type, role) {
+function nextAction(type: string | null, role: string): string {
   if (type === 'go-pool-quota') return 'Wait for the limiting Go window and refresh usage, or approve an independent non-Go subscription route.';
   if (role === 'review') return 'Keep review pending and request an independent external reviewer.';
   return 'Refresh capability and account evidence; request explicit authorization or stop.';
 }
 
-export function authorizeGoRead(state, request, now) {
+export function authorizeGoRead(state: State, request: Json | null | undefined, now: number): (GoBinding & { profile: string }) | null {
   const { task, go, goRead } = request ?? {};
   const host = applyCapabilityEvidence(request?.host, now);
   if (host?.kind !== 'dsh' || host.installation !== 'full-local' || !['subagent', 'teams'].includes(host.surface)
@@ -102,7 +121,7 @@ export function authorizeGoRead(state, request, now) {
     || !['personal', 'service-account'].includes(goRead.credentialKind)
     || (go.plan === 'go-teams' && goRead.credentialKind !== 'personal')) return null;
   const key = keyOf(goRead);
-  const matches = host.routes.filter(route => keyOf(route) === key);
+  const matches = host.routes.filter((route: Json) => keyOf(route) === key);
   const route = matches[0];
   if (!key || matches.length !== 1 || !verifiedUpstream(route) || route.upstream !== 'opencode-go' || route.available !== true
     || route.accountVerified !== true || route.account !== go.account || route.billing !== 'go-included'
@@ -115,7 +134,7 @@ export function authorizeGoRead(state, request, now) {
   return { account: go.account, plan: go.plan, model: route.model, canonicalModel, profile: host.profile };
 }
 
-function resolveGoEvidence(go, profile) {
+function resolveGoEvidence(go: Json | null | undefined, profile: string | undefined): Json | null | undefined {
   if (!go || !Object.hasOwn(go, 'metadata')) return go;
   const { metadata, plan, account, extraUsage, lastRequest } = go;
   if (metadata?.status !== 'collected' || metadata.source !== 'opencode-go-metadata' || metadata.account !== account
@@ -124,11 +143,17 @@ function resolveGoEvidence(go, profile) {
     observedAt: metadata.observedAt, catalog: metadata.catalog, usage: metadata.usage };
 }
 
-export function adviseRoute({ state, request, now = Date.now(), poolStatus, controlled = false }) {
+export function adviseRoute({ state, request, now = Date.now(), poolStatus, controlled = false }: {
+  state: State;
+  request: Json;
+  now?: number;
+  poolStatus?: (pool: string, observedAt?: string) => string;
+  controlled?: boolean;
+}): Json {
   const { task } = request ?? {};
   const host = applyCapabilityEvidence(request?.host, now);
   const go = resolveGoEvidence(request?.go, host?.profile);
-  const stop = (reason, detail = {}) => ({ advisory: true, status: 'stop', reason, ...detail });
+  const stop = (reason: string, detail: Json = {}) => ({ advisory: true, status: 'stop', reason, ...detail });
   if (host?.kind !== 'dsh' || host.installation !== 'full-local' || !['subagent', 'teams'].includes(host.surface)) {
     return stop('unsupported-surface');
   }
@@ -140,7 +165,7 @@ export function adviseRoute({ state, request, now = Date.now(), poolStatus, cont
   }
   if (!Object.hasOwn(ROLES, task?.role) || !DATA.includes(task.data) || !Array.isArray(task.authorized)
       || !['read', 'write'].includes(task.effects) || !Array.isArray(task.effort) || !task.effort.length
-      || !task.effort.every(effort => EFFORTS.includes(effort))
+      || !task.effort.every((effort: string) => EFFORTS.includes(effort))
       || (task.minTier !== undefined && ![0, 1, 2].includes(task.minTier))) return stop('invalid-task-authorization');
   const budget = task.budget;
   const checkBudget = controlled || budget !== undefined;
@@ -152,19 +177,19 @@ export function adviseRoute({ state, request, now = Date.now(), poolStatus, cont
   if (task.role === 'review' && auditReview(task.implementers, { canonicalModel: 'openai/reference' }).reason === 'identity-unverified') {
     return stop('implementation-identity-unverified', { next: nextAction(null, 'review') });
   }
-  const pool = goMeter(go, now);
-  const observedRoutes = new Map();
+  const pool: GoMeter = goMeter(go, now);
+  const observedRoutes = new Map<string, Json[]>();
   for (const route of host.routes) {
     const key = keyOf(route);
     if (key) observedRoutes.set(key, [...(observedRoutes.get(key) ?? []), route]);
   }
   const sharedPools = controlled || poolStatus !== undefined;
 
-  const rejected = [], candidates = [];
+  const rejected: Json[] = [], candidates: Candidate[] = [];
   for (const route of host.routes) {
     const key = keyOf(route);
     if (!key) continue;
-    const reject = reason => rejected.push({ provider: route.provider, model: route.model, reason });
+    const reject = (reason: string) => rejected.push({ provider: route.provider, model: route.model, reason });
     if (observedRoutes.get(key)?.length !== 1) { reject('ambiguous-host-route'); continue; }
     if (route.available !== true) { reject('unavailable-or-not-allowed'); continue; }
     if (policy.mode === 'custom' && !policy.routes.includes(key)) { reject('device-route-not-approved'); continue; }
@@ -178,7 +203,7 @@ export function adviseRoute({ state, request, now = Date.now(), poolStatus, cont
     }
     const needsPool = route.upstream === 'opencode-go' && (sharedPools || route.pool !== undefined || request.go?.pool !== undefined);
     if (needsPool) {
-      const pool = route.pool;
+      const pool: string = route.pool;
       if (!routeId(pool) || pool !== request.go?.pool) {
         reject('go-pool-unverified'); continue;
       }
@@ -195,7 +220,7 @@ export function adviseRoute({ state, request, now = Date.now(), poolStatus, cont
     }
     const effort = effortFor(route, task.effort, host.surface);
     if (effort === undefined) { reject('effort-unavailable'); continue; }
-    let estimate;
+    let estimate: number | null | undefined;
     if (info.goModel) {
       if (go.extraUsage !== 'off' || go.account !== route.account) { reject('go-account-or-overage-unverified'); continue; }
       if (pool.status !== 'available') { reject(`go-meter-${pool.status}`); continue; }
@@ -206,7 +231,7 @@ export function adviseRoute({ state, request, now = Date.now(), poolStatus, cont
     }
     candidates.push({ key, route, info, effort, estimate });
   }
-  const rank = item => item.info.premium ? 1 : 0;
+  const rank = (item: Candidate) => item.info.premium ? 1 : 0;
   candidates.sort((a, b) => rank(a) - rank(b) || a.info.tier - b.info.tier
     || (a.estimate ?? 0) - (b.estimate ?? 0) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const recent = go?.lastRequest;
