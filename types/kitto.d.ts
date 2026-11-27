@@ -52,6 +52,7 @@ export interface State {
   runtimeHash?: string;
   deployed?: SourceRevision;
   keepExistingSkills?: boolean;
+  toolNode?: { path: string; version: string; source: 'mise' | 'execPath' };
   routingInstallKind?: 'local' | 'service';
   routingBoundary?: RoutingBoundary;
   [key: string]: unknown;

@@ -11,6 +11,7 @@ import { planCodexMcp, sourceServers as codexMcpSource } from './codex-mcp.ts';
 import { printMcpParity } from './parity.ts';
 import { desktopProfileNotice, isDesktopProfile, probeDesktopProfile, reportDesktopProbe, validateDshProfile } from './dsh-profile.ts';
 import { versionReport } from './versions.ts';
+import type { ToolNodePlan } from './tool-node.ts';
 import { applyLauncherRemoval, applyToolNode, describeToolNode, launcherPath, planLauncherRemoval, planToolNode } from './tool-node.ts';
 
 import { hosts, pnpmVersion } from './host-pins.ts';
@@ -73,6 +74,7 @@ interface ConfigurationPlan {
   groups: SkillGroup[];
   instructions: InstructionPlan[];
   mcp: McpOperation[] | undefined;
+  toolNode: ToolNodePlan;
 }
 
 interface BootstrapMarker {
