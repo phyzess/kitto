@@ -67,6 +67,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check:test-wiring
       - run: npm run lint:versions
+      - run: npm run lint:invariants
       - run: npm test
       - name: Install validated native hosts
         run: node scripts/ci-install-native.mjs
