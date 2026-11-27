@@ -17,10 +17,19 @@ export const fresh = (value: unknown, now: number, ttl: number) => {
   return Number.isFinite(time) && time <= now && now - time <= ttl;
 };
 
+interface GoWindow {
+  name: string;
+  percent: number;
+  resetsAt: string;
+  expired: boolean;
+  exhausted: boolean;
+  remaining: number;
+}
+
 export function goMeter(go: Json | null | undefined, now: number): GoMeter {
   if (!go?.usage) return { status: 'missing' };
   if (!fresh(go.observedAt, now, SNAPSHOT_TTL)) return { status: 'stale' };
-  const windows = Object.entries(WINDOWS).map(([name, share]) => {
+  const windows = Object.entries(WINDOWS).map(([name, share]): GoWindow | null => {
     const item = go.usage[name];
     if (
       !item ||
@@ -40,11 +49,12 @@ export function goMeter(go: Json | null | undefined, now: number): GoMeter {
       remaining: (Math.max(0, 99 - item.percent) * share) / 100,
     };
   });
-  const exhausted = windows.filter((window) => window?.exhausted && !window.expired);
+  const valid = windows.filter((window): window is GoWindow => window !== null);
+  const exhausted = valid.filter((window) => window.exhausted && !window.expired);
   if (exhausted.length) return { status: 'exhausted', windows: exhausted.map(({ name, resetsAt }) => ({ name, resetsAt })) };
-  if (windows.some((window) => window === null)) return { status: 'invalid' };
-  if (windows.some((window) => window.expired)) return { status: 'stale' };
-  const tightest = windows.reduce((a, b) => (a.remaining <= b.remaining ? a : b));
+  if (valid.length !== windows.length) return { status: 'invalid' };
+  if (valid.some((window) => window.expired)) return { status: 'stale' };
+  const tightest = valid.reduce((a, b) => (a.remaining <= b.remaining ? a : b));
   return { status: 'available', remaining: tightest.remaining, limitingWindow: tightest.name, resetsAt: tightest.resetsAt };
 }
 
@@ -64,7 +74,7 @@ export function maxPrice(side: Json | null | undefined): number {
 }
 
 export function goModel(go: Json | null | undefined, model: string, now: number): { item: Json; cap: number } | null {
-  if (!PLANS.includes(go?.plan) || !fresh(go.catalogObservedAt, now, CATALOG_TTL) || !Array.isArray(go.catalog?.data)) return null;
+  if (!go || !PLANS.includes(go.plan) || !fresh(go.catalogObservedAt, now, CATALOG_TTL) || !Array.isArray(go.catalog?.data)) return null;
   const matches = go.catalog.data.filter((item: Json) => item?.id === model);
   if (matches.length !== 1 || matches[0].type !== 'chat' || matches[0].go?.training !== false) return null;
   const item = matches[0],
@@ -77,7 +87,17 @@ export function estimateGoFraction(
   { item, cap }: { item: Json; cap: number },
   tokens: { input?: number; output?: number } | null | undefined,
 ): number | null {
-  if (!Number.isSafeInteger(tokens?.input) || tokens.input <= 0 || !Number.isSafeInteger(tokens?.output) || tokens.output <= 0) return null;
+  const inputTokens = tokens?.input,
+    outputTokens = tokens?.output;
+  if (
+    typeof inputTokens !== 'number' ||
+    !Number.isSafeInteger(inputTokens) ||
+    inputTokens <= 0 ||
+    typeof outputTokens !== 'number' ||
+    !Number.isSafeInteger(outputTokens) ||
+    outputTokens <= 0
+  )
+    return null;
   const input = maxPrice(item.cost?.text?.input),
     output = maxPrice(item.cost?.text?.output);
   const multipliers = item.cost?.multipliers;
@@ -90,7 +110,7 @@ export function estimateGoFraction(
   )
     return null;
   const factor = (multipliers ?? []).reduce((product: number, item: Json) => product * Math.max(1, item.factor), 1);
-  const fraction = ((input * tokens.input + output * tokens.output) * factor) / (1_000_000 * cap);
+  const fraction = ((input * inputTokens + output * outputTokens) * factor) / (1_000_000 * cap);
   return Number.isFinite(fraction) && fraction > 0 ? fraction : null;
 }
 

@@ -55,7 +55,8 @@ const FAMILIES = new Set([
 ]);
 const UPSTREAMS = ['openai-codex', 'opencode-go', 'anthropic', 'openrouter'];
 const BLOCKED_PROVIDERS = ['deepseek-official', 'xai', 'opencode', 'opencode-zen'];
-const validRoute = (value: Json | null | undefined) => routeId(value?.provider) && !value.provider.includes('/') && routeId(value.model);
+const validRoute = (value: Json | null | undefined): value is Json =>
+  value !== null && value !== undefined && routeId(value.provider) && !value.provider.includes('/') && routeId(value.model);
 const keyOf = (value: Json | null | undefined): string | null => (validRoute(value) ? routeKey(value) : null);
 
 function identity(canonicalModel: unknown): { canonicalModel: string; family: string } | null {
@@ -183,7 +184,7 @@ export function authorizeGoRead(state: State, request: Json | null | undefined, 
     !['company', 'personal'].includes(route.accountType) ||
     ((policy.mode === 'company' || ['internal', 'restricted'].includes(task.data)) &&
       (route.accountType !== 'company' || task.data === 'personal')) ||
-    (policy.mode === 'custom' && !policy.routes.includes(key))
+    (policy.mode === 'custom' && !policy.routes?.includes(key))
   )
     return null;
   const builtIn = MODELS.get(`opencode-go/${route.model}`);
@@ -292,7 +293,7 @@ export function adviseRoute({
       reject('unavailable-or-not-allowed');
       continue;
     }
-    if (policy.mode === 'custom' && !policy.routes.includes(key)) {
+    if (policy.mode === 'custom' && !policy.routes?.includes(key)) {
       reject('device-route-not-approved');
       continue;
     }
@@ -350,7 +351,7 @@ export function adviseRoute({
     }
     let estimate: number | null | undefined;
     if (info.goModel) {
-      if (go.extraUsage !== 'off' || go.account !== route.account) {
+      if (go?.extraUsage !== 'off' || go.account !== route.account) {
         reject('go-account-or-overage-unverified');
         continue;
       }
