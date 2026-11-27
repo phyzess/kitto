@@ -9,9 +9,12 @@ import { probeDesktopProfile } from '../lib/dsh-profile.mjs';
 import { composeInstructions } from '../lib/host-config.mjs';
 import { compareVersions } from '../lib/hosts.mjs';
 import { hosts, meetsBaseline, parseOptions, pnpmVersion, replaceDirectory, treeHash } from '../lib/kitto.mjs';
+import { list } from '../lib/ownership.mjs';
+import { downgradeState } from '../lib/state-schema.mjs';
 import { newerStable, updateNotice } from '../lib/update-notice.mjs';
 import { waitForPublish } from '../scripts/release.mjs';
 
+const skillNames = (state, group, status) => list(state, 'skill', group, status).map(entry => entry.name).sort();
 const re = value => value.replace(/[.+]/g, '\\$&');
 const root = fileURLToPath(new URL('../', import.meta.url));
 const cliTimeout = 180_000;
@@ -480,15 +483,17 @@ test('guided setup keeps divergent unowned skills through later Pi syncs', t => 
   assert.match(setup.stdout, /skill keep: example \(shared\)/);
   assert.equal(readFileSync(join(local, 'SKILL.md'), 'utf8'), 'local shared skill');
   assert.equal(readJson(state).keepExistingSkills, true);
-  assert.deepEqual(readJson(state).keptSkills, { shared: ['example'], pi: ['host-example'] });
-  assert.deepEqual(Object.keys(readJson(state).skills), ['managed']);
+  assert.equal(readJson(state).schema, 2);
+  assert.deepEqual(skillNames(readJson(state), 'shared', 'kept'), ['example']);
+  assert.deepEqual(skillNames(readJson(state), 'pi', 'kept'), ['host-example']);
+  assert.deepEqual(skillNames(readJson(state), 'shared', 'owned'), ['managed']);
 
   rmSync(source);
   good(f.maintain('sync', '--apply'));
-  assert.deepEqual(readJson(state).keptSkills.shared, ['example']);
+  assert.deepEqual(skillNames(readJson(state), 'shared', 'kept'), ['example']);
   writeFileSync(source, 'local shared skill');
   good(f.maintain('sync', '--apply'));
-  assert.deepEqual(Object.keys(readJson(state).skills), ['managed']);
+  assert.deepEqual(skillNames(readJson(state), 'shared', 'owned'), ['managed']);
   writeFileSync(source, 'new source body');
   good(f.maintain('sync', '--apply'));
   assert.equal(readFileSync(join(local, 'SKILL.md'), 'utf8'), 'local shared skill');
@@ -1062,7 +1067,7 @@ test('failed upgrade retries preserve the working checkpoint, and external setup
   good(f.cli('setup', '--recover'));
   assert.equal(readJson(statePath).version, '0.1.0-test.1');
   assert.equal(readJson(statePath).ready, true);
-  assert.deepEqual(readJson(statePath).skills, JSON.parse(state).skills);
+  assert.deepEqual(list(readJson(statePath), 'skill', 'shared', 'owned'), list(JSON.parse(state), 'skill', 'shared', 'owned'));
   assert.equal(readFileSync(join(f.env.PI_AGENTS_DIR, 'skills/example/SKILL.md'), 'utf8').includes('Example body'), true);
   good(f.maintain('status'));
 });
@@ -1909,4 +1914,83 @@ test('release verification gives up with the expected integrity', () => {
   assert.throws(() => waitForPublish('@phyzess/kitto@0.3.2', 'sha512-abc', () => { calls += 1; },
     { attempts: 3, delayMs: 1, sleep: () => {} }), /after 3 attempts.*sha512-abc/);
   assert.equal(calls, 3);
+});
+
+function installAsSchemaOne(f, packages = []) {
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const statePath = join(f.env.KITTO_HOME, 'state.json');
+  assert.equal(readJson(statePath).schema, 2, 'new installs write schema 2');
+  const original = JSON.stringify(downgradeState(readJson(statePath)), null, 2) + '\n';
+  writeFileSync(statePath, original);
+  rmSync(join(f.env.KITTO_HOME, 'state.v1.json'), { force: true });
+  const local = join(f.source, 'config/pi/local');
+  mkdirSync(local, { recursive: true });
+  writeFileSync(join(local, 'managed-packages.json'), JSON.stringify(packages));
+  return { statePath, original, managed: join(local, 'managed-packages.json'), backup: join(f.env.KITTO_HOME, 'state.v1.json') };
+}
+
+test('a schema 1 state migrates on the first apply: one backup, imported Pi packages, file removed', t => {
+  const f = fixture(t);
+  const v1 = installAsSchemaOne(f, ['npm:shared-one']);
+  const machine = join(f.env.PI_CODING_AGENT_DIR, 'settings.json');
+  const settings = readJson(machine);
+  writeFileSync(machine, JSON.stringify({ ...settings, packages: [...settings.packages, 'npm:shared-one', 'npm:personal'] }));
+
+  const machineBefore = readFileSync(machine, 'utf8');
+  good(f.maintain('sync'));
+  good(f.maintain('status'));
+  good(f.cli('setup', '--dry-run'));
+  assert.equal(readFileSync(machine, 'utf8'), machineBefore);
+  assert.equal(readFileSync(v1.statePath, 'utf8'), v1.original, 'previews migrate in memory only');
+  assert.equal(existsSync(v1.backup), false);
+  assert.equal(existsSync(v1.managed), true);
+
+  good(f.maintain('sync', '--apply'));
+  const migrated = readJson(v1.statePath);
+  assert.equal(migrated.schema, 2);
+  assert.equal(readFileSync(v1.backup, 'utf8'), v1.original);
+  assert.deepEqual(skillNames(migrated, 'shared', 'owned'), Object.keys(JSON.parse(v1.original).skills).sort());
+  assert.deepEqual(list(migrated, 'pi-package', 'pi'), [], 'the removed shared package is no longer owned after the pull');
+  assert.equal(existsSync(v1.managed), false, 'the imported managed-packages.json is removed after a successful apply');
+  const kept = readJson(machine).packages;
+  assert.equal(kept.includes('npm:shared-one'), false, 'the imported ownership kept the dropped shared package removed');
+  assert.equal(kept.includes('npm:personal'), true, 'a machine-only package survives');
+
+  good(f.maintain('sync', '--apply'));
+  assert.equal(readFileSync(v1.backup, 'utf8'), v1.original, 'the first backup is never rewritten');
+});
+
+test('state-rollback previews, restores schema 1 and the Pi package file, and refuses unrepresentable ledgers', t => {
+  const f = fixture(t);
+  writeFileSync(join(f.source, 'config/pi/settings.json'), JSON.stringify({ packages: ['npm:shared-one'] }));
+  good(f.cli('setup', '--agents', 'pi', '--source', f.source));
+  const statePath = join(f.env.KITTO_HOME, 'state.json'), before = readFileSync(statePath, 'utf8');
+  const managed = join(f.source, 'config/pi/local/managed-packages.json');
+  assert.equal(existsSync(managed), false);
+  assert.deepEqual(list(readJson(statePath), 'pi-package', 'pi').map(entry => entry.name), ['npm:shared-one']);
+
+  const preview = f.maintain('state-rollback');
+  good(preview);
+  assert.match(preview.stdout, /Preview only/);
+  assert.equal(readFileSync(statePath, 'utf8'), before);
+
+  const broken = readJson(statePath);
+  broken.owned.skill.shared.pending = { hash: 'h', status: 'pending' };
+  writeFileSync(statePath, JSON.stringify(broken, null, 2) + '\n');
+  const refusedState = readFileSync(statePath, 'utf8');
+  for (const args of [[], ['--apply']]) {
+    const refused = f.maintain('state-rollback', ...args);
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stderr, /pending skill shared\/pending/);
+    assert.equal(readFileSync(statePath, 'utf8'), refusedState);
+  }
+  writeFileSync(statePath, before);
+
+  good(f.maintain('state-rollback', '--apply'));
+  const rolledBack = readJson(statePath);
+  assert.equal(rolledBack.schema, 1);
+  assert.equal(rolledBack.owned, undefined);
+  assert.deepEqual(Object.keys(rolledBack.skills), ['example']);
+  assert.deepEqual(readJson(managed), ['npm:shared-one']);
+  good(f.maintain('state-rollback', '--apply'));
 });

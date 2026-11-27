@@ -7,6 +7,7 @@ import {
   CURRENT_SCHEMA, downgradeState, importedPiPackages, loadState, migrateState, rollbackState, saveState,
 } from '../lib/state-schema.mjs';
 import { get, list } from '../lib/ownership.mjs';
+import { activeRoutingBoundary, setRoutingBoundary } from '../lib/routing-policy.mjs';
 
 const block = '<!-- kitto:begin -->\nrules\n<!-- kitto:end -->\n';
 
@@ -95,7 +96,10 @@ test('downgrade refuses ownership that schema 1 cannot express', () => {
   const base = migrateState({ schema: 1 }).state;
   const dsh = structuredClone(base);
   dsh.owned = { mcp: { dsh: { row: { hash: 'h', status: 'owned' } } } };
-  assert.throws(() => downgradeState(dsh), /mcp scope dsh/);
+  assert.deepEqual(downgradeState(dsh), downgradeState(base), 'schema 1 never recorded DSH rows, so nothing is lost');
+  const foreign = structuredClone(base);
+  foreign.owned = { mcp: { pi: { row: { hash: 'h', status: 'owned' } } } };
+  assert.throws(() => downgradeState(foreign), /mcp scope pi/);
   const pending = structuredClone(base);
   pending.owned = { skill: { shared: { a: { hash: 'h', status: 'pending' } } } };
   assert.throws(() => downgradeState(pending), /pending skill/);
@@ -185,4 +189,13 @@ test('saveState persists v2 atomically and rollbackState restores v1', async t =
   const rolled = await rollbackState(path);
   assert.equal(rolled.wrote, true);
   assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), v1());
+});
+
+test('routing accepts schema 1 and schema 2 states but nothing else', () => {
+  const state = { schema: 1, routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web' };
+  setRoutingBoundary(state, 'personal');
+  assert.equal(state.routingBoundary.schema, 1);
+  assert.ok(activeRoutingBoundary(state, 'web'));
+  assert.ok(activeRoutingBoundary({ ...state, schema: CURRENT_SCHEMA }, 'web'));
+  assert.equal(activeRoutingBoundary({ ...state, schema: 3 }, 'web'), null);
 });
