@@ -1,4 +1,5 @@
-const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+const versionPattern =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const numeric = /^\d+$/;
 
 interface ParsedVersion {
@@ -13,7 +14,7 @@ function parseVersion(value: unknown): ParsedVersion | null {
   if (!match || match[0] !== value) return null;
   const [, major, minor, patch, suffix, build] = match;
   const prerelease = suffix?.split('.') ?? [];
-  if (prerelease.some(part => numeric.test(part) && part.length > 1 && part[0] === '0')) return null;
+  if (prerelease.some((part) => numeric.test(part) && part.length > 1 && part[0] === '0')) return null;
   return { core: [major, minor, patch], prerelease, build };
 }
 
@@ -27,11 +28,12 @@ export function readVersion(output: string | null | undefined): string | null {
   return parseVersion(candidate) ? candidate : null;
 }
 
-const compareText = (a: string | number, b: string | number) => a === b ? 0 : a < b ? -1 : 1;
+const compareText = (a: string | number, b: string | number) => (a === b ? 0 : a < b ? -1 : 1);
 const compareNumeric = (a: string, b: string) => compareText(a.length, b.length) || compareText(a, b);
 
 export function compareVersions(a: unknown, b: unknown): number | null {
-  const left = parseVersion(a), right = parseVersion(b);
+  const left = parseVersion(a),
+    right = parseVersion(b);
   if (!left || !right) return null;
   for (let i = 0; i < 3; i++) {
     const order = compareNumeric(left.core[i], right.core[i]);
@@ -42,8 +44,10 @@ export function compareVersions(a: unknown, b: unknown): number | null {
     return left.prerelease.length ? -1 : 1;
   }
   for (let i = 0; i < Math.min(left.prerelease.length, right.prerelease.length); i++) {
-    const x = left.prerelease[i], y = right.prerelease[i];
-    const xNumeric = numeric.test(x), yNumeric = numeric.test(y);
+    const x = left.prerelease[i],
+      y = right.prerelease[i];
+    const xNumeric = numeric.test(x),
+      yNumeric = numeric.test(y);
     if (xNumeric !== yNumeric) return xNumeric ? -1 : 1;
     const order = xNumeric ? compareNumeric(x, y) : compareText(x, y);
     if (order) return order;
@@ -52,7 +56,7 @@ export function compareVersions(a: unknown, b: unknown): number | null {
 }
 
 export function meetsBaseline(actual: unknown, baseline: unknown): boolean {
-  const normalize = (value: unknown) => typeof value === 'string' ? value.trim().replace(/^v/, '') : value;
+  const normalize = (value: unknown) => (typeof value === 'string' ? value.trim().replace(/^v/, '') : value);
   const order = compareVersions(normalize(actual), normalize(baseline));
   return order !== null && order >= 0;
 }

@@ -61,14 +61,18 @@ function within(root: string, path: string): boolean {
   return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-async function stat(path: string)  {
-  try { return await lstat(path, { bigint: true }); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; return null; }
+async function stat(path: string) {
+  try {
+    return await lstat(path, { bigint: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return null;
+  }
 }
 
 async function nodeIdentity(path: string): Promise<string> {
   const node = await stat(path);
-  requireFact(node?.isDirectory() && await realpath(path) === path, 'Directory identity is unknown.');
+  requireFact(node?.isDirectory() && (await realpath(path)) === path, 'Directory identity is unknown.');
   return `${node.dev}:${node.ino}`;
 }
 
@@ -76,38 +80,60 @@ async function privatePath(path: string, directory: boolean, create = false): Pr
   if (create) await mkdir(path, { recursive: true, mode: 0o700 });
   const node = await stat(path);
   if (!node) return false;
-  requireFact((directory ? node.isDirectory() : node.isFile()) && node.uid === BigInt(uid!) &&
-    (node.mode & 0o077n) === 0n && await realpath(path) === path, 'Worktree state must be private and must not use path aliases.');
+  requireFact(
+    (directory ? node.isDirectory() : node.isFile()) &&
+      node.uid === BigInt(uid!) &&
+      (node.mode & 0o077n) === 0n &&
+      (await realpath(path)) === path,
+    'Worktree state must be private and must not use path aliases.',
+  );
   return true;
 }
 
 async function underLock<T>(root: string, run: () => Promise<T>): Promise<T> {
   await privatePath(root, true, true);
   const lock = join(root, 'lock');
-  try { await mkdir(lock, { mode: 0o700 }); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Worktree state is locked; wait for its writer or inspect a stale lock manually.');
+  try {
+    await mkdir(lock, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+      throw new Error('Worktree state is locked; wait for its writer or inspect a stale lock manually.');
     throw error;
   }
-  try { return await run(); }
-  finally { await rmdir(lock); }
+  try {
+    return await run();
+  } finally {
+    await rmdir(lock);
+  }
 }
 
 async function load(file: string, key: string): Promise<LedgerRow | null> {
-  if (!await privatePath(file, false)) return null;
+  if (!(await privatePath(file, false))) return null;
   const row = JSON.parse(await readFile(file, 'utf8'));
-  requireFact(row?.version === 1 && row.key === key && typeof row.revision === 'string' &&
-    ['creating', 'ready', 'removing', 'removed'].includes(row.phase) && Array.isArray(row.sessions) &&
-    row.sessions.every((session: unknown) => stringMatches(session, id)) && new Set(row.sessions).size === row.sessions.length &&
-    (row.phase === 'creating' || (typeof row.identity === 'string' && hex.test(row.identity))), 'Invalid worktree ledger; refusing to proceed.');
+  requireFact(
+    row?.version === 1 &&
+      row.key === key &&
+      typeof row.revision === 'string' &&
+      ['creating', 'ready', 'removing', 'removed'].includes(row.phase) &&
+      Array.isArray(row.sessions) &&
+      row.sessions.every((session: unknown) => stringMatches(session, id)) &&
+      new Set(row.sessions).size === row.sessions.length &&
+      (row.phase === 'creating' || (typeof row.identity === 'string' && hex.test(row.identity))),
+    'Invalid worktree ledger; refusing to proceed.',
+  );
   return row;
 }
 
 async function save(file: string, row: LedgerRow): Promise<void> {
   const temporary = join(dirname(file), `${randomUUID()}.tmp`);
   await writeFile(temporary, JSON.stringify(row) + '\n', { flag: 'wx', mode: 0o600 });
-  try { await rename(temporary, file); }
-  finally { await unlink(temporary).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; }); }
+  try {
+    await rename(temporary, file);
+  } finally {
+    await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+  }
 }
 
 function options(command: string, args: string[]): LifecycleArgs {
@@ -119,26 +145,47 @@ function options(command: string, args: string[]): LifecycleArgs {
     result[key] = ['quiescent', 'release'].includes(key) ? true : args[++i];
     requireFact(result[key] && (result[key] === true || !result[key].startsWith('--')), lifecycleUsage);
   }
-  requireFact(result.repo && stringMatches(result.task, id) && stringMatches(result.session, id) &&
-    (!result.confirm || stringMatches(result.confirm, hex)), lifecycleUsage);
+  requireFact(
+    result.repo &&
+      stringMatches(result.task, id) &&
+      stringMatches(result.session, id) &&
+      (!result.confirm || stringMatches(result.confirm, hex)),
+    lifecycleUsage,
+  );
   if (command === 'start') requireFact(!result.quiescent && !result.release && !result.delivered, lifecycleUsage);
-  else requireFact(result.quiescent && (result.release ? !result.delivered : stringMatches(result.delivered, sha)) &&
-    (command === 'apply' ? result.confirm : !result.confirm), lifecycleUsage);
+  else
+    requireFact(
+      result.quiescent &&
+        (result.release ? !result.delivered : stringMatches(result.delivered, sha)) &&
+        (command === 'apply' ? result.confirm : !result.confirm),
+      lifecycleUsage,
+    );
   return result as LifecycleArgs;
 }
 
 async function repository(args: LifecycleArgs, root: string): Promise<RepoContext> {
   const repo = await realpath(resolve(args.repo));
   const registry = await readScopeRegistry();
-  const scope: [string, string] | null = registry.workspaces.includes(repo) ? ['workspace', repo] :
-    (registry.workspaceParents ?? []).includes(dirname(repo)) ? ['workspace-parent', dirname(repo)] : null;
+  const scope: [string, string] | null = registry.workspaces.includes(repo)
+    ? ['workspace', repo]
+    : (registry.workspaceParents ?? []).includes(dirname(repo))
+      ? ['workspace-parent', dirname(repo)]
+      : null;
   requireFact(scope, 'The primary checkout needs an explicit workspace or direct workspace-parent scope.');
   const common = await commonDir(repo);
   const entries = registrations(repo);
   const primary = entries[0];
-  requireFact(primary?.worktree === repo && !primary.bare && !primary.detached && !primary.prunable &&
-    !primary.locked && typeof primary.branch === 'string' && stringMatches(primary.HEAD, sha) &&
-    entries.filter(entry => entry.worktree === repo).length === 1, 'Choose the canonical primary checkout with an attached local branch.');
+  requireFact(
+    primary?.worktree === repo &&
+      !primary.bare &&
+      !primary.detached &&
+      !primary.prunable &&
+      !primary.locked &&
+      typeof primary.branch === 'string' &&
+      stringMatches(primary.HEAD, sha) &&
+      entries.filter((entry) => entry.worktree === repo).length === 1,
+    'Choose the canonical primary checkout with an attached local branch.',
+  );
   await checkoutGitDir(repo, common, true, false);
   requireFact(!within(repo, root) && !within(common, root), 'Worktree state must be outside the source checkout and Git directory.');
   const repoId = digest([hostname(), repo, await nodeIdentity(repo), common, await nodeIdentity(common)]);
@@ -150,12 +197,12 @@ async function repository(args: LifecycleArgs, root: string): Promise<RepoContex
 }
 
 function ownRegistration(ctx: RepoContext): WorktreeRegistration[] {
-  return ctx.entries.filter(entry => entry.worktree === ctx.path || entry.branch === `refs/heads/${ctx.branch}`);
+  return ctx.entries.filter((entry) => entry.worktree === ctx.path || entry.branch === `refs/heads/${ctx.branch}`);
 }
 
 async function emptyDestination(ctx: RepoContext): Promise<boolean> {
   const refs = output(ctx.repo, 'for-each-ref', '--format=%(refname)', `refs/heads/${ctx.branch}`);
-  return !ownRegistration(ctx).length && !await stat(ctx.path) && !refs;
+  return !ownRegistration(ctx).length && !(await stat(ctx.path)) && !refs;
 }
 
 const ownershipMarker = 'kitto-owner';
@@ -163,8 +210,16 @@ const ownershipMarker = 'kitto-owner';
 async function binding(ctx: RepoContext, create = false): Promise<{ identity: string; entry: WorktreeRegistration; gitDir: string }> {
   const entries = ownRegistration(ctx);
   const [entry] = entries;
-  requireFact(entries.length === 1 && entry.worktree === ctx.path && entry.branch === `refs/heads/${ctx.branch}` &&
-    !entry.bare && !entry.detached && !entry.prunable && stringMatches(entry.HEAD, sha), 'Managed checkout registration is missing or has changed.');
+  requireFact(
+    entries.length === 1 &&
+      entry.worktree === ctx.path &&
+      entry.branch === `refs/heads/${ctx.branch}` &&
+      !entry.bare &&
+      !entry.detached &&
+      !entry.prunable &&
+      stringMatches(entry.HEAD, sha),
+    'Managed checkout registration is missing or has changed.',
+  );
   const gitDir = await checkoutGitDir(ctx.path, ctx.common, false, false);
   const nodes = [ctx.path, await nodeIdentity(ctx.path), gitDir, await nodeIdentity(gitDir)];
   const marker = join(gitDir, ownershipMarker);
@@ -175,14 +230,44 @@ async function binding(ctx: RepoContext, create = false): Promise<{ identity: st
   return { identity: digest([...nodes, owner]), entry, gitDir };
 }
 
-function currentRow(ctx: RepoContext, old: LedgerRow | null | undefined, phase: LedgerRow['phase'], fields: Partial<LedgerRow> = {}): LedgerRow {
-  return { version: 1, key: ctx.key, revision: randomUUID(), identity: old?.identity ?? null,
-    phase, sessions: old?.sessions ?? [], ...fields };
+function currentRow(
+  ctx: RepoContext,
+  old: LedgerRow | null | undefined,
+  phase: LedgerRow['phase'],
+  fields: Partial<LedgerRow> = {},
+): LedgerRow {
+  return {
+    version: 1,
+    key: ctx.key,
+    revision: randomUUID(),
+    identity: old?.identity ?? null,
+    phase,
+    sessions: old?.sessions ?? [],
+    ...fields,
+  };
 }
 
-function plan(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | null | undefined, action: string, facts: Json, blockers: string[] = []): Preview {
-  const info = { action, task: args.task, session: args.session, repo: ctx.repo, path: ctx.path,
-    branch: ctx.branch, baseBranch: ctx.primary.branch, baseHead: ctx.primary.HEAD, scope: ctx.scope, ...facts, blockers };
+function plan(
+  ctx: RepoContext,
+  args: LifecycleArgs,
+  row: LedgerRow | null | undefined,
+  action: string,
+  facts: Json,
+  blockers: string[] = [],
+): Preview {
+  const info = {
+    action,
+    task: args.task,
+    session: args.session,
+    repo: ctx.repo,
+    path: ctx.path,
+    branch: ctx.branch,
+    baseBranch: ctx.primary.branch,
+    baseHead: ctx.primary.HEAD,
+    scope: ctx.scope,
+    ...facts,
+    blockers,
+  };
   return { ...info, confirm: blockers.length ? null : digest([1, ctx.key, row?.revision ?? null, info]) };
 }
 
@@ -197,7 +282,7 @@ function noCheckoutFilters(path: string): boolean {
 async function handoffHints(ctx: RepoContext) {
   const result = { otherClaimed: 0, otherUnclaimed: 0, otherInterrupted: 0, incomplete: false };
   try {
-    if (!await privatePath(ctx.bucket, true)) return result;
+    if (!(await privatePath(ctx.bucket, true))) return result;
     for (const name of await readdir(ctx.bucket)) {
       if (!/^[0-9a-f]{64}\.json$/.test(name)) continue;
       const key = name.slice(0, -5);
@@ -241,8 +326,10 @@ async function start(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | nul
     const { identity, entry } = await binding(ctx, true);
     requireFact(entry.HEAD === ctx.primary.HEAD && !entry.locked, 'Created checkout differs from the approved plan.');
     requireFact(noCheckoutFilters(ctx.path), 'Configured or unknown filters in the new checkout; creation intent retained.');
-    requireFact(cleanExit(git(ctx.path, 'read-tree', entry.HEAD)) && cleanExit(git(ctx.path, 'checkout-index', '--all')),
-      'Git could not populate the new checkout safely. Creation intent retained; inspect artifacts manually.');
+    requireFact(
+      cleanExit(git(ctx.path, 'read-tree', entry.HEAD)) && cleanExit(git(ctx.path, 'checkout-index', '--all')),
+      'Git could not populate the new checkout safely. Creation intent retained; inspect artifacts manually.',
+    );
     await save(ctx.file, currentRow(ctx, row, 'ready', { identity, sessions }));
   } else {
     await save(ctx.file, currentRow(ctx, row, 'ready', { sessions }));
@@ -255,9 +342,12 @@ const conversionAttrs = new Set(['filter', 'working-tree-encoding', 'text', 'eol
 function verifyConversionPolicy(path: string, names: Iterable<string>) {
   requireFact(noCheckoutFilters(path), 'Configured or unknown checkout filters.');
   const autocrlf = git(path, 'config', '--type=bool', '--get', 'core.autocrlf');
-  requireFact(cleanExit(autocrlf, 1) || (cleanExit(autocrlf) && autocrlf.stdout.toString() === 'false\n'),
-    'Configured or unknown line-ending conversion.');
-  let batch: string[] = [], bytes = 0;
+  requireFact(
+    cleanExit(autocrlf, 1) || (cleanExit(autocrlf) && autocrlf.stdout.toString() === 'false\n'),
+    'Configured or unknown line-ending conversion.',
+  );
+  let batch: string[] = [],
+    bytes = 0;
   function checkBatch() {
     const fields = output(path, 'check-attr', '--all', '-z', '--', ...batch).split('\0');
     requireFact(fields.pop() === '' && fields.length % 3 === 0, 'Invalid Git attribute output.');
@@ -303,7 +393,9 @@ async function rawBlobId(path: string, node: Json, algorithm: string): Promise<s
         blob.update(chunk);
       }
       requireFact(size === node.size && sameObservation(node, await file.stat({ bigint: true })), 'Checkout file changed during reading.');
-    } finally { await file.close(); }
+    } finally {
+      await file.close();
+    }
   }
   requireFact(sameObservation(node, await stat(path)), 'Checkout entry changed during reading.');
   return blob.digest('hex');
@@ -321,7 +413,8 @@ async function checkoutSnapshot(ctx: RepoContext, head: string): Promise<string>
   }
   const algorithm = output(ctx.path, 'rev-parse', '--show-object-format');
   requireFact(['sha1', 'sha256'].includes(algorithm), 'Unknown Git object format.');
-  const indexed = new Map<string, { mode: string; oid: string }>(), directories = new Set<string>();
+  const indexed = new Map<string, { mode: string; oid: string }>(),
+    directories = new Set<string>();
   for (const record of output(ctx.path, 'ls-files', '--stage', '-z').split('\0').filter(Boolean)) {
     const match = /^(100644|100755|120000) ([0-9a-f]+) 0\t([\s\S]+)$/.exec(record);
     requireFact(match && match[2].length === (algorithm === 'sha1' ? 40 : 64), 'Unsupported index entry.');
@@ -349,7 +442,8 @@ async function checkoutSnapshot(ctx: RepoContext, head: string): Promise<string>
   }
   async function walk(path: string, parent: string): Promise<void> {
     for (const name of (await readdir(path)).sort()) {
-      const child = join(path, name), rel = parent ? `${parent}/${name}` : name;
+      const child = join(path, name),
+        rel = parent ? `${parent}/${name}` : name;
       const node = await stat(child);
       requireFact(node && node.dev === root.dev, 'Unknown checkout entry or filesystem boundary.');
       record(rel, node);
@@ -361,8 +455,10 @@ async function checkoutSnapshot(ctx: RepoContext, head: string): Promise<string>
       } else {
         const entry = indexed.get(rel);
         const executable = (node.mode & 0o100n) !== 0n;
-        requireFact(entry && (entry.mode === '120000' ? node.isSymbolicLink() : node.isFile() && executable === (entry.mode === '100755')),
-          'Untracked, changed, or unsupported filesystem entry.');
+        requireFact(
+          entry && (entry.mode === '120000' ? node.isSymbolicLink() : node.isFile() && executable === (entry.mode === '100755')),
+          'Untracked, changed, or unsupported filesystem entry.',
+        );
         const oid = await rawBlobId(child, node, algorithm);
         requireFact(oid === entry.oid, 'Checkout content differs from its committed blob.');
         hash.update(oid);
@@ -390,7 +486,7 @@ async function finish(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | nu
     if (args.delivered !== ctx.primary.HEAD) blockers.push('delivery-head-mismatch');
     if (within(ctx.path, await realpath(process.cwd()))) blockers.push('caller-in-target');
     const entries = ownRegistration(ctx);
-    if (row.phase === 'removing' && !entries.length && !await stat(ctx.path)) {
+    if (row.phase === 'removing' && !entries.length && !(await stat(ctx.path))) {
       const head = output(ctx.repo, 'rev-parse', '--verify', `refs/heads/${ctx.branch}`);
       requireFact(head === row.removalHead, 'Interrupted removal no longer matches the retained branch.');
       preview = plan(ctx, args, row, 'record-removed', { delivered: args.delivered, head, sessions: row.sessions }, blockers);
@@ -405,16 +501,20 @@ async function finish(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | nu
       for (const lock of ['index.lock', 'HEAD.lock', 'config.worktree.lock']) {
         if (await stat(join(gitDir, lock))) blockers.push('git-write-in-progress');
       }
-      if (await stat(join(ctx.common, 'info/grafts')) || output(ctx.repo, 'for-each-ref', '--format=%(refname)', 'refs/replace/')) {
+      if ((await stat(join(ctx.common, 'info/grafts'))) || output(ctx.repo, 'for-each-ref', '--format=%(refname)', 'refs/replace/')) {
         blockers.push('modified-ancestry');
       }
       let snapshot: string | null = null;
       if (!blockers.length) {
-        try { snapshot = await checkoutSnapshot(ctx, entry.HEAD); }
-        catch { blockers.push('filesystem-unverified'); }
+        try {
+          snapshot = await checkoutSnapshot(ctx, entry.HEAD);
+        } catch {
+          blockers.push('filesystem-unverified');
+        }
       }
-      preview = plan(ctx, args, row, 'remove', { delivered: args.delivered, head: entry.HEAD,
-        sessions: row.sessions, snapshot }, [...new Set(blockers)]);
+      preview = plan(ctx, args, row, 'remove', { delivered: args.delivered, head: entry.HEAD, sessions: row.sessions, snapshot }, [
+        ...new Set(blockers),
+      ]);
     }
   }
   if (!args.confirm) return preview;
@@ -427,9 +527,12 @@ async function finish(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | nu
       const result = git(ctx.repo, 'worktree', 'remove', '--', ctx.path);
       requireFact(cleanExit(result), 'Git declined or could not verify removal. Inspect the interrupted operation before retrying.');
       ctx.entries = registrations(ctx.repo);
-      requireFact(!ownRegistration(ctx).length && !await stat(ctx.path) &&
-        output(ctx.repo, 'rev-parse', '--verify', `refs/heads/${ctx.branch}`) === preview.head,
-      'Git removal could not be verified; removal intent retained.');
+      requireFact(
+        !ownRegistration(ctx).length &&
+          !(await stat(ctx.path)) &&
+          output(ctx.repo, 'rev-parse', '--verify', `refs/heads/${ctx.branch}`) === preview.head,
+        'Git removal could not be verified; removal intent retained.',
+      );
     }
     await save(ctx.file, currentRow(ctx, row, 'removed', { sessions: [] }));
   }
@@ -443,20 +546,32 @@ function stateRoot() {
   return resolve(state, 'kitto-worktrees');
 }
 
-export async function matchesArchiveClaim({ repo, task, session }: { repo: unknown; task: unknown; session: unknown }, header: Json | null | undefined): Promise<boolean> {
-  if (typeof repo !== 'string' || !isAbsolute(repo) || !stringMatches(task, id) ||
-      !stringMatches(session, id) || header?.id !== session || typeof header.cwd !== 'string' ||
-      !isAbsolute(header.cwd)) return false;
+export async function matchesArchiveClaim(
+  { repo, task, session }: { repo: unknown; task: unknown; session: unknown },
+  header: Json | null | undefined,
+): Promise<boolean> {
+  if (
+    typeof repo !== 'string' ||
+    !isAbsolute(repo) ||
+    !stringMatches(task, id) ||
+    !stringMatches(session, id) ||
+    header?.id !== session ||
+    typeof header.cwd !== 'string' ||
+    !isAbsolute(header.cwd)
+  )
+    return false;
   try {
     const root = stateRoot();
-    if (!await privatePath(root, true)) return false;
+    if (!(await privatePath(root, true))) return false;
     const ctx = await repository({ repo, task: task as string }, root);
-    if (header.cwd !== ctx.path || !await privatePath(ctx.bucket, true)) return false;
+    if (header.cwd !== ctx.path || !(await privatePath(ctx.bucket, true))) return false;
     const row = await load(ctx.file, ctx.key);
     if (row?.phase !== 'ready' || !row.sessions.includes(session)) return false;
     const { identity } = await binding(ctx);
     return row.identity === identity && (await load(ctx.file, ctx.key))?.revision === row.revision;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 export async function lifecycleCommand(command: string, argv: string[]): Promise<void> {

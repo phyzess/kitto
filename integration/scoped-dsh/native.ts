@@ -68,12 +68,11 @@ async function installationFor(entry: string): Promise<DshInstallation> {
     if (await executable(canonical)) {
       for (let dir = dirname(canonical); ; dir = dirname(dir)) {
         const bin = declaredBin(dir, await manifestAt(dir));
-        if (bin && await realpath(bin) === canonical) return { dir, entry: canonical };
+        if (bin && (await realpath(bin)) === canonical) return { dir, entry: canonical };
         if (dir === dirname(dir)) break;
       }
     }
-  } catch {
-  }
+  } catch {}
   throw unidentified('its executable does not match the bin in an @deepseek-ai/dsh package');
 }
 
@@ -86,11 +85,10 @@ async function runtimeInstallation(): Promise<DshInstallation | undefined> {
       const bin = declaredBin(dir, await manifestAt(dir));
       if (bin) {
         const entry = await realpath(bin);
-        if (within(dir, entry) && await executable(entry)) return { dir, entry };
+        if (within(dir, entry) && (await executable(entry))) return { dir, entry };
       }
     }
-  } catch {
-  }
+  } catch {}
   throw unidentified('DSH_INSTALL_DIR is not a verified @deepseek-ai/dsh package');
 }
 
@@ -107,7 +105,10 @@ export async function dshExecutable() {
   let entry: string = launcher.path;
   if (mise && mise.info.dev === launcher.info.dev && mise.info.ino === launcher.info.ino) {
     const result = spawnSync(mise.path, ['which', 'dsh'], {
-      encoding: 'utf8', timeout: 8000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8',
+      timeout: 8000,
+      maxBuffer: 65536,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     entry = result.stdout?.trim();
     if (result.error || result.status !== 0 || !entry || !isAbsolute(entry) || /[\r\n\0]/.test(entry)) {
@@ -122,14 +123,13 @@ async function importFromInstallation({ dir }: DshInstallation, name: string): P
     const require = createRequire(join(dir, 'package.json'));
     const resolved = await realpath(require.resolve(name));
     for (let parent = dir; ; parent = dirname(parent)) {
-      const dependency = await realpath(join(parent, 'node_modules', name)).catch(error => {
+      const dependency = await realpath(join(parent, 'node_modules', name)).catch((error) => {
         if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code as string)) throw error;
       });
       if (dependency && within(dependency, resolved)) return await import(pathToFileURL(resolved).href);
       if (parent === dirname(parent)) break;
     }
-  } catch {
-  }
+  } catch {}
   throw new Error(`Cannot load ${name} from the selected DSH installation.`);
 }
 
@@ -150,7 +150,7 @@ export async function importFromRunningDsh(name: string): Promise<any> {
 }
 
 export async function loadDshModule(name: string, executable?: string): Promise<any> {
-  return importFromDsh(executable ?? await dshExecutable(), name);
+  return importFromDsh(executable ?? (await dshExecutable()), name);
 }
 
 export async function loadDshYaml(executable?: string) {

@@ -9,43 +9,97 @@ import { createRouteObserver } from '../integration/dsh-route-evidence.ts';
 import { setRoutingBoundary } from '../lib/routing-policy.ts';
 import { createRoutingStore } from '../lib/routing-state.ts';
 
-const route = { provider: 'openai-codex', model: 'gpt-6.2-sol', canonicalModel: 'openai/gpt-6.2-sol', upstream: 'openai-codex',
-  account: 'fixture-account', accountType: 'personal', accountVerified: true, billing: 'subscription', available: true, reasoningEfforts: ['low'] };
+const route = {
+  provider: 'openai-codex',
+  model: 'gpt-6.2-sol',
+  canonicalModel: 'openai/gpt-6.2-sol',
+  upstream: 'openai-codex',
+  account: 'fixture-account',
+  accountType: 'personal',
+  accountVerified: true,
+  billing: 'subscription',
+  available: true,
+  reasoningEfforts: ['low'],
+};
 function fixture(t, boundary = 'personal') {
   const root = mkdtempSync(join(tmpdir(), 'kitto-dsh-route-'));
   t.onTestFinished(() => rmSync(root, { recursive: true, force: true }));
-  const home = join(root, 'native'), project = join(root, 'project');
-  mkdirSync(home); mkdirSync(project);
+  const home = join(root, 'native'),
+    project = join(root, 'project');
+  mkdirSync(home);
+  mkdirSync(project);
   let now = Date.now();
-  const clock = () => now, store = createRoutingStore(root);
+  const clock = () => now,
+    store = createRoutingStore(root);
   const state = { schema: 1, routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web', dshHome: home };
   setRoutingBoundary(state, boundary);
   const request = {
-    host: { kind: 'dsh', installation: 'full-local', profile: 'web', surface: 'subagent', session: 'test-session', version: ROUTING_HOST_VERSION,
-      observedAt: new Date(now).toISOString(), effectiveFallbacks: [], spawnVerified: true, routes: [route] },
-    task: { id: 'verify-fixture', role: 'verify', effects: 'read', data: 'public', effort: ['low'],
-      budget: { maxAdditionalCashUsd: 0, maxMonthlyGoFraction: 0 }, authorized: [{ ...route, data: 'public' }] },
+    host: {
+      kind: 'dsh',
+      installation: 'full-local',
+      profile: 'web',
+      surface: 'subagent',
+      session: 'test-session',
+      version: ROUTING_HOST_VERSION,
+      observedAt: new Date(now).toISOString(),
+      effectiveFallbacks: [],
+      spawnVerified: true,
+      routes: [route],
+    },
+    task: {
+      id: 'verify-fixture',
+      role: 'verify',
+      effects: 'read',
+      data: 'public',
+      effort: ['low'],
+      budget: { maxAdditionalCashUsd: 0, maxMonthlyGoFraction: 0 },
+      authorized: [{ ...route, data: 'public' }],
+    },
     dispatch: { source: 'operator-verified', project, cwd: project, callerCwd: project },
   };
   const agent = { id: 'test-session', session: { id: 'test-session', header: { cwd: project } } };
   const signal = new AbortController().signal;
   const observer = createRouteObserver({ profile: 'web', enabled: () => true, clock });
   const gate = createDispatchGate({ home, store, getState: () => state, getCwd: () => project, observer, clock });
-  const observe = (item = route) => observer.observe({ name: 'list_subagent_models', arguments: { provider: item.provider, model: item.model }, agent,
-    token: Symbol(), signal }, { isError: false, value: `${item.provider}/${item.model} — Fixture\nReasoning efforts:\nlow — Low` });
+  const observe = (item = route) =>
+    observer.observe(
+      { name: 'list_subagent_models', arguments: { provider: item.provider, model: item.model }, agent, token: Symbol(), signal },
+      { isError: false, value: `${item.provider}/${item.model} — Fixture\nReasoning efforts:\nlow — Low` },
+    );
   const issue = () => issueRoutePermit({ state, home, request, store, now });
   const exec = (permit, args = {}) => {
     const native = { ...permit.native, ...args };
-    Object.defineProperty(native, 'prompt', { enumerable: true, get() { throw new Error('Kitto must not read the prompt'); } });
+    Object.defineProperty(native, 'prompt', {
+      enumerable: true,
+      get() {
+        throw new Error('Kitto must not read the prompt');
+      },
+    });
     return { name: 'subagent', agent, token: Symbol(), signal, arguments: native };
   };
-  return { root, home, project, request, gate, store, issue, exec, observe, state, advance: ms => { now += ms; } };
+  return {
+    root,
+    home,
+    project,
+    request,
+    gate,
+    store,
+    issue,
+    exec,
+    observe,
+    state,
+    advance: (ms) => {
+      now += ms;
+    },
+  };
 }
 const allow = async () => ({ kind: 'allow' });
 
-test('live evidence and host ask precede the one-shot native dispatch', async t => {
+test('live evidence and host ask precede the one-shot native dispatch', async (t) => {
   const f = fixture(t);
-  const permit = f.issue(), first = f.exec(permit), second = f.exec(permit);
+  const permit = f.issue(),
+    first = f.exec(permit),
+    second = f.exec(permit);
   assert.equal((await f.gate.preExecute(first, allow)).kind, 'deny');
   f.observe();
   assert.equal((await f.gate.preExecute(f.exec(permit, { reasoning_effort: 'high' }), allow)).kind, 'deny');
@@ -54,12 +108,22 @@ test('live evidence and host ask precede the one-shot native dispatch', async t 
   assert.equal((await f.gate.preExecute(first, async () => ({ kind: 'deny', reason: 'native veto' }))).reason, 'native veto');
   assert.equal(f.gate.guard(first).kind, 'deny');
   const decisions = await Promise.all([f.gate.preExecute(first, allow), f.gate.preExecute(second, allow)]);
-  assert.deepEqual(decisions.map(item => item.kind), ['ask', 'ask']);
+  assert.deepEqual(
+    decisions.map((item) => item.kind),
+    ['ask', 'ask'],
+  );
   assert.equal(f.gate.guard(first), undefined);
   assert.equal(f.gate.guard(second).kind, 'deny');
   let called = 0;
-  await f.gate.dispatch(first, async () => { called++; });
-  await assert.rejects(f.gate.dispatch(first, async () => { called++; }), /fresh operator permit/);
+  await f.gate.dispatch(first, async () => {
+    called++;
+  });
+  await assert.rejects(
+    f.gate.dispatch(first, async () => {
+      called++;
+    }),
+    /fresh operator permit/,
+  );
   assert.equal(called, 1);
   f.gate.result(first, { isError: false, value: { kind: 'activation', name: permit.attempt } });
   assert.equal(f.store.peek(permit.attempt).status, 'activated');
@@ -67,13 +131,19 @@ test('live evidence and host ask precede the one-shot native dispatch', async t 
   assert.equal(f.gate.guard(f.exec(permit)).kind, 'deny');
 });
 
-test('expired and interrupted attempts stay spent; failed dispatch never authorizes a retry', async t => {
+test('expired and interrupted attempts stay spent; failed dispatch never authorizes a retry', async (t) => {
   const f = fixture(t);
   f.observe();
-  const permit = f.issue(), exec = f.exec(permit);
+  const permit = f.issue(),
+    exec = f.exec(permit);
   assert.equal((await f.gate.preExecute(exec, allow)).kind, 'ask');
   f.gate.guard(exec);
-  await assert.rejects(f.gate.dispatch(exec, async () => { throw new Error('interrupted'); }), /interrupted/);
+  await assert.rejects(
+    f.gate.dispatch(exec, async () => {
+      throw new Error('interrupted');
+    }),
+    /interrupted/,
+  );
   f.gate.result(exec, { isError: true });
   assert.equal(f.store.peek(permit.attempt).status, 'consumed');
   assert.equal(f.gate.guard(exec).kind, 'deny');
@@ -83,7 +153,7 @@ test('expired and interrupted attempts stay spent; failed dispatch never authori
   assert.equal(f.gate.guard(second).kind, 'deny');
 });
 
-test('only explicitly verified native spawn and approved account/data/budget qualify', t => {
+test('only explicitly verified native spawn and approved account/data/budget qualify', (t) => {
   const f = fixture(t, 'company');
   assert.throws(f.issue, /preflight stopped/);
   const company = { ...route, accountType: 'company' };
@@ -100,8 +170,10 @@ test('only explicitly verified native spawn and approved account/data/budget qua
   assert.throws(f.issue, /Unverified dispatch/);
 });
 
-test('pinned Cordis pipeline dispatches a permitted registered tool once and retains native veto',
-  { skip: !process.env.KITTO_TEST_DSH_INSTALL }, async t => {
+test(
+  'pinned Cordis pipeline dispatches a permitted registered tool once and retains native veto',
+  { skip: !process.env.KITTO_TEST_DSH_INSTALL },
+  async (t) => {
     const installAnchor = join(process.env.KITTO_TEST_DSH_INSTALL, 'package.json');
     const require = createRequire(installAnchor);
     assert.equal(require('./package.json').version, ROUTING_HOST_VERSION);
@@ -112,30 +184,49 @@ test('pinned Cordis pipeline dispatches a permitted registered tool once and ret
     const f = fixture(t);
     const prior = process.env.KITTO_HOME;
     process.env.KITTO_HOME = f.root;
-    t.onTestFinished(() => { if (prior === undefined) delete process.env.KITTO_HOME; else process.env.KITTO_HOME = prior; });
+    t.onTestFinished(() => {
+      if (prior === undefined) delete process.env.KITTO_HOME;
+      else process.env.KITTO_HOME = prior;
+    });
     writeFileSync(join(f.root, 'state.json'), JSON.stringify(f.state));
     const ctx = new Context();
     ctx.provide('systemPrompt', { tools() {}, section() {}, context() {}, getSectionOrder: () => 0, getContextOrder: () => 0 });
     ctx.provide('profileContext', { name: 'web', home: f.home, installAnchor });
     ctx.provide('workingDirectory', { get: () => f.project });
     const spawn = { name: 'spawn', inheritsParentContext: false, capabilities: { agentOptions: true } };
-    const starts = [], preflights = [];
-    let allowed = [{ provider: route.provider, model: route.model }], approved = false, asks = 0;
+    const starts = [],
+      preflights = [];
+    let allowed = [{ provider: route.provider, model: route.model }],
+      approved = false,
+      asks = 0;
     ctx.provide('sessionProjections', { register: async () => ({ stateOf: () => allowed }) });
     ctx.provide('subagents', {
-      getProvider: name => name === 'spawn' ? spawn : undefined, resolveMaxDepth: () => undefined,
-      startActivation: async input => { starts.push(input); return { name: input.name }; },
+      getProvider: (name) => (name === 'spawn' ? spawn : undefined),
+      resolveMaxDepth: () => undefined,
+      startActivation: async (input) => {
+        starts.push(input);
+        return { name: input.name };
+      },
     });
     ctx.provide('llm', {
       listProviders: () => [{ id: route.provider, name: 'Offline provider' }],
       resolveModelInfo: async () => ({ id: route.model, name: 'Offline model', reasoning: { efforts: [{ id: 'low', name: 'Low' }] } }),
-      resolveCallConfig: async options => { preflights.push(options); },
+      resolveCallConfig: async (options) => {
+        preflights.push(options);
+      },
     });
-    ctx.provide('approval', { request: async () => { asks++; return approved ? 'allowed-once' : 'rejected'; } });
+    ctx.provide('approval', {
+      request: async () => {
+        asks++;
+        return approved ? 'allowed-once' : 'rejected';
+      },
+    });
     await ctx.plugin(ToolsService);
     await ctx.plugin(registerDshRouting);
     await ctx.plugin(native, { provider: 'spawn', modelSelection: true, modelDiscovery: true, maxDepth: 'provider-managed' });
-    const pipeline = new ToolExecutionPipeline(ctx), permit = f.issue(), { agent, signal } = f.exec(permit);
+    const pipeline = new ToolExecutionPipeline(ctx),
+      permit = f.issue(),
+      { agent, signal } = f.exec(permit);
     agent.session.requestHeader = () => undefined;
     agent.options = { provider: route.provider, model: route.model };
     async function run(name, args) {
@@ -161,35 +252,75 @@ test('pinned Cordis pipeline dispatches a permitted registered tool once and ret
     assert.equal((await run('subagent', { ...vetoed.native, prompt: 'Offline native allowlist veto' })).isError, true);
     assert.equal(starts.length, 1);
     assert.equal(f.store.peek(vetoed.attempt).status, 'consumed');
-  });
+  },
+);
 
-test('a verified shared Go hold rejects issued permits and aliases without blocking a non-Go route', async t => {
+test('a verified shared Go hold rejects issued permits and aliases without blocking a non-Go route', async (t) => {
   const f = fixture(t);
-  const flash = { ...route, provider: 'opencode-go', model: 'deepseek-v4.1-flash', canonicalModel: 'deepseek/deepseek-v4.1-flash-1017',
-    upstream: 'opencode-go', billing: 'go-included', pool: 'paid-go-pool' };
-  const now = Date.parse(f.request.host.observedAt), stamp = f.request.host.observedAt;
-  const setRoute = item => {
+  const flash = {
+    ...route,
+    provider: 'opencode-go',
+    model: 'deepseek-v4.1-flash',
+    canonicalModel: 'deepseek/deepseek-v4.1-flash-1017',
+    upstream: 'opencode-go',
+    billing: 'go-included',
+    pool: 'paid-go-pool',
+  };
+  const now = Date.parse(f.request.host.observedAt),
+    stamp = f.request.host.observedAt;
+  const setRoute = (item) => {
     f.request.host.routes = [item];
     f.request.task.authorized = [{ ...item, data: 'public' }];
   };
   setRoute(flash);
   f.request.task.tokens = { input: 10_000, output: 500 };
-  f.request.go = { account: flash.account, pool: flash.pool, plan: 'go', extraUsage: 'off', observedAt: stamp, catalogObservedAt: stamp,
-    usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map(window => [window,
-      { status: 'ok', percent: 10, resetsAt: new Date(now + 3600_000).toISOString() }])),
-    catalog: { data: [{ id: flash.model, canonical_id: flash.canonicalModel, type: 'chat', go: { training: false, monthly_usage: { go: 10 } },
-      cost: { text: { input: { price: 0.15 }, output: { price: 0.5 } } } }] } };
+  f.request.go = {
+    account: flash.account,
+    pool: flash.pool,
+    plan: 'go',
+    extraUsage: 'off',
+    observedAt: stamp,
+    catalogObservedAt: stamp,
+    usage: Object.fromEntries(
+      ['rolling', 'weekly', 'monthly'].map((window) => [
+        window,
+        { status: 'ok', percent: 10, resetsAt: new Date(now + 3600_000).toISOString() },
+      ]),
+    ),
+    catalog: {
+      data: [
+        {
+          id: flash.model,
+          canonical_id: flash.canonicalModel,
+          type: 'chat',
+          go: { training: false, monthly_usage: { go: 10 } },
+          cost: { text: { input: { price: 0.15 }, output: { price: 0.5 } } },
+        },
+      ],
+    },
+  };
   assert.throws(f.issue, /preflight stopped/);
   f.request.task.budget.maxMonthlyGoFraction = 0.01;
-  const activated = f.issue(), pending = f.issue();
+  const activated = f.issue(),
+    pending = f.issue();
   f.observe(flash);
   const exec = f.exec(activated);
   assert.equal((await f.gate.preExecute(exec, allow)).kind, 'ask');
   f.gate.guard(exec);
   await f.gate.dispatch(exec, async () => {});
   f.gate.result(exec, { isError: false, value: { kind: 'activation', name: activated.attempt } });
-  f.store.recordQuota({ attempt: activated.attempt, route: flash, pool: flash.pool, code: 'QUOTA',
-    observedAt: stamp, source: 'operator-verified-native-failure', quotaScope: 'paid-go-pool' }, now);
+  f.store.recordQuota(
+    {
+      attempt: activated.attempt,
+      route: flash,
+      pool: flash.pool,
+      code: 'QUOTA',
+      observedAt: stamp,
+      source: 'operator-verified-native-failure',
+      quotaScope: 'paid-go-pool',
+    },
+    now,
+  );
   assert.equal((await f.gate.preExecute(f.exec(pending), allow)).kind, 'deny');
   setRoute({ ...flash, provider: 'alternate-provider' });
   assert.throws(f.issue, /preflight stopped/);

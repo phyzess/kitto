@@ -9,19 +9,35 @@ import { fileURLToPath } from 'node:url';
 import { codexMcpNames } from '../lib/parity.ts';
 import { get, list } from '../lib/ownership.ts';
 
-const root = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT) : fileURLToPath(new URL('../dist/', import.meta.url));
+const root = process.env.KITTO_TEST_PACKAGE_ROOT
+  ? resolve(process.env.KITTO_TEST_PACKAGE_ROOT)
+  : fileURLToPath(new URL('../dist/', import.meta.url));
 const nativeBin = process.env.KITTO_NATIVE_BIN;
-test('native Pi/Codex/DSH installation, version change, recovery, detach and reinstall', { skip: !nativeBin, timeout: 240_000 }, t => {
+test('native Pi/Codex/DSH installation, version change, recovery, detach and reinstall', { skip: !nativeBin, timeout: 240_000 }, (t) => {
   const temp = mkdtempSync(join(tmpdir(), "kitto native's "));
   t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
-  const home = join(temp, 'home'), source = join(temp, 'config'), previous = join(temp, 'previous');
-  for (const dir of [home, previous, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
-  const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'),
-    PI_CODING_AGENT_DIR: join(home, 'pi'), PI_AGENTS_DIR: join(home, '.agents'), CODEX_HOME: join(home, 'codex'),
-    DSH_HOME: join(home, 'dsh'), DSH_AGENTS_HOME: join(home, '.agents'), KITTO_UPDATE_CHECK: '0',
-    PATH: `${resolve(nativeBin)}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
-  const run = (command, args) => execFileSync(command, args, { env, cwd: home, encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  const json = path => JSON.parse(readFileSync(path, 'utf8'));
+  const home = join(temp, 'home'),
+    source = join(temp, 'config'),
+    previous = join(temp, 'previous');
+  for (const dir of [home, previous, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')])
+    mkdirSync(dir, { recursive: true });
+  const env = {
+    ...process.env,
+    HOME: home,
+    KITTO_HOME: join(home, 'kitto'),
+    PI_CODING_AGENT_DIR: join(home, 'pi'),
+    PI_AGENTS_DIR: join(home, '.agents'),
+    CODEX_HOME: join(home, 'codex'),
+    DSH_HOME: join(home, 'dsh'),
+    DSH_AGENTS_HOME: join(home, '.agents'),
+    KITTO_UPDATE_CHECK: '0',
+    PATH: `${resolve(nativeBin)}:${process.env.PATH}`,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  const run = (command, args) =>
+    execFileSync(command, args, { env, cwd: home, encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
   const state = () => json(join(env.KITTO_HOME, 'state.json'));
   const cli = (directory, ...args) => run(process.execPath, [join(directory, 'bin/kitto.mjs'), 'setup', ...args]);
   const maintain = (...args) => run(process.execPath, [join(env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args]);
@@ -33,33 +49,48 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
     '.gitignore': 'config/pi/local/\n',
     'config/pi/settings.json': '{"packages":[],"quietStartup":true}',
     'config/instructions/common.md': '# Shared native fixture rules\n',
-    'config/pi/mcp.json': JSON.stringify({ mcpServers: kittoMcp }), 'config/pi/AGENTS.md': 'Personal configuration fixture.',
-    'config/pi/i-have-adhd-always': '', 'config/env.example': '# no credentials\n',
+    'config/pi/mcp.json': JSON.stringify({ mcpServers: kittoMcp }),
+    'config/pi/AGENTS.md': 'Personal configuration fixture.',
+    'config/pi/i-have-adhd-always': '',
+    'config/env.example': '# no credentials\n',
     'skills/example/SKILL.md': '---\nname: example\ndescription: A personal example task.\n---\nPreserve this personal skill.\n',
   };
   for (const [name, text] of Object.entries(files)) writeFileSync(join(source, name), text);
-  for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'], ['config', 'user.name', 'Kitto test'], ['add', '.'], ['commit', '-m', 'fixture']]) run('git', ['-C', source, ...args]);
+  for (const args of [
+    ['init', '-b', 'main'],
+    ['config', 'user.email', 'test@example.invalid'],
+    ['config', 'user.name', 'Kitto test'],
+    ['add', '.'],
+    ['commit', '-m', 'fixture'],
+  ])
+    run('git', ['-C', source, ...args]);
   const sourceHead = run('git', ['-C', source, 'rev-parse', 'HEAD']);
   for (const name of ['package.json', 'bin', 'lib', 'integration', 'CHANGELOG.md']) {
-    cpSync(join(root, name), join(previous, name), { recursive: true, filter: path => !path.includes('__pycache__') });
+    cpSync(join(root, name), join(previous, name), { recursive: true, filter: (path) => !path.includes('__pycache__') });
   }
   for (const name of ['package.json', 'integration/plugin.json']) {
-    const data = json(join(previous, name)); data.version = '0.0.0-native.1';
+    const data = json(join(previous, name));
+    data.version = '0.0.0-native.1';
     writeFileSync(join(previous, name), JSON.stringify(data));
   }
-  const pluginVersion = () => JSON.parse(run('codex', ['plugin', 'list', '--json'])).installed.find(x => x.pluginId === 'kitto@phyzess-kitto')?.version;
+  const pluginVersion = () =>
+    JSON.parse(run('codex', ['plugin', 'list', '--json'])).installed.find((x) => x.pluginId === 'kitto@phyzess-kitto')?.version;
   const profile = 'headless';
   const dshProfile = () => json(join(env.DSH_HOME, 'profiles', profile, 'package.json'));
   const piPackages = () => json(join(env.PI_CODING_AGENT_DIR, 'settings.json')).packages || [];
-  const ownedPi = () => piPackages().filter(entry => {
-    const value = typeof entry === 'string' ? entry : entry.source;
-    return resolve(env.PI_CODING_AGENT_DIR, value) === join(env.KITTO_HOME, 'runtime');
-  });
+  const ownedPi = () =>
+    piPackages().filter((entry) => {
+      const value = typeof entry === 'string' ? entry : entry.source;
+      return resolve(env.PI_CODING_AGENT_DIR, value) === join(env.KITTO_HOME, 'runtime');
+    });
   const codexConfig = join(env.CODEX_HOME, 'config.toml');
   const codexConfigHash = () => createHash('sha256').update(readFileSync(codexConfig, 'utf8')).digest('hex');
   const codexServers = () => JSON.parse(run('codex', ['mcp', 'list', '--json']));
-  const codexNames = () => codexServers().map(server => server.name).sort();
-  const codexServer = name => codexServers().find(server => server.name === name);
+  const codexNames = () =>
+    codexServers()
+      .map((server) => server.name)
+      .sort();
+  const codexServer = (name) => codexServers().find((server) => server.name === name);
   mkdirSync(env.CODEX_HOME, { recursive: true });
   run('codex', ['mcp', 'add', 'shared-fixture', '--', 'user-shared-mcp']);
   assert.deepEqual(codexNames(), ['shared-fixture']);
@@ -75,10 +106,15 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.equal(codexConfigHash(), configHashAfterSetup);
   assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
-  writeFileSync(join(source, 'config/pi/mcp.json'), JSON.stringify({ mcpServers: {
-    ...kittoMcp,
-    'kitto-fixture': { command: 'kitto-fixture-mcp', args: ['serve', '--updated'] },
-  } }));
+  writeFileSync(
+    join(source, 'config/pi/mcp.json'),
+    JSON.stringify({
+      mcpServers: {
+        ...kittoMcp,
+        'kitto-fixture': { command: 'kitto-fixture-mcp', args: ['serve', '--updated'] },
+      },
+    }),
+  );
   maintain('sync', '--apply');
   assert.deepEqual(codexServer('kitto-fixture').transport.args, ['serve', '--updated']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
@@ -93,7 +129,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.equal(state().dshProfile, profile);
   assert(!existsSync(join(env.DSH_HOME, 'profiles/web')));
   assert.equal(ownedPi().length, 1);
-  assert.equal(dshProfile().dsh.profile.bundles.filter(x => x === '@phyzess/kitto').length, 1);
+  assert.equal(dshProfile().dsh.profile.bundles.filter((x) => x === '@phyzess/kitto').length, 1);
   assert.equal(readFileSync(patch, 'utf8'), patchBefore);
   assert.match(run('dsh', [profile, '--dump-config']), /phyzess-kitto/);
   cli(root, '--recover');
@@ -107,14 +143,15 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.match(preview, /mcp remove: kitto-fixture \(codex\)/);
   assert.equal(codexConfigHash(), configHashBeforeRemove);
   assert.equal(pluginVersion(), nativeVersion);
-  maintain('remove', '--apply'); maintain('remove', '--apply');
+  maintain('remove', '--apply');
+  maintain('remove', '--apply');
   assert.equal(state().detached, true);
   assert.deepEqual(codexNames(), ['shared-fixture']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
   assert.deepEqual(list(state(), 'mcp', 'codex'), []);
   assert.equal(ownedPi().length, 0);
   assert.equal(pluginVersion(), undefined);
-  assert(!JSON.parse(run('codex', ['plugin', 'marketplace', 'list', '--json'])).marketplaces.some(x => x.name === 'phyzess-kitto'));
+  assert(!JSON.parse(run('codex', ['plugin', 'marketplace', 'list', '--json'])).marketplaces.some((x) => x.name === 'phyzess-kitto'));
   assert(!dshProfile().dependencies?.['@phyzess/kitto']);
   assert(!dshProfile().dsh.profile.bundles.includes('@phyzess/kitto'));
   assert.doesNotMatch(run('dsh', [profile, '--dump-config']), /phyzess-kitto/);
@@ -132,17 +169,30 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert(dshProfile().dsh.profile.bundles.includes('@phyzess/kitto'));
 });
 
-test('native hosts load and remove reference-only MCP credentials', { skip: !nativeBin, timeout: 240_000 }, t => {
+test('native hosts load and remove reference-only MCP credentials', { skip: !nativeBin, timeout: 240_000 }, (t) => {
   const temp = mkdtempSync(join(tmpdir(), "kitto native creds's "));
   t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
-  const home = join(temp, 'home'), source = join(temp, 'config');
-  for (const dir of [home, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
-  const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'),
-    PI_CODING_AGENT_DIR: join(home, 'pi'), PI_AGENTS_DIR: join(home, '.agents'), CODEX_HOME: join(home, 'codex'),
-    DSH_HOME: join(home, 'dsh'), DSH_AGENTS_HOME: join(home, '.agents'), KITTO_UPDATE_CHECK: '0',
+  const home = join(temp, 'home'),
+    source = join(temp, 'config');
+  for (const dir of [home, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')])
+    mkdirSync(dir, { recursive: true });
+  const env = {
+    ...process.env,
+    HOME: home,
+    KITTO_HOME: join(home, 'kitto'),
+    PI_CODING_AGENT_DIR: join(home, 'pi'),
+    PI_AGENTS_DIR: join(home, '.agents'),
+    CODEX_HOME: join(home, 'codex'),
+    DSH_HOME: join(home, 'dsh'),
+    DSH_AGENTS_HOME: join(home, '.agents'),
+    KITTO_UPDATE_CHECK: '0',
     KITTO_TEST_TOKEN: 'native-fixture-token',
-    PATH: `${resolve(nativeBin)}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
-  const run = (command, args) => execFileSync(command, args, { env, cwd: home, encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    PATH: `${resolve(nativeBin)}:${process.env.PATH}`,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  const run = (command, args) =>
+    execFileSync(command, args, { env, cwd: home, encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   const cli = (...args) => run(process.execPath, [join(root, 'bin/kitto.mjs'), 'setup', ...args]);
   const maintain = (...args) => run(process.execPath, [join(env.KITTO_HOME, 'runtime/bin/maintain.mjs'), ...args]);
   const codexServers = () => JSON.parse(run('codex', ['mcp', 'list', '--json']));
@@ -150,25 +200,38 @@ test('native hosts load and remove reference-only MCP credentials', { skip: !nat
     '.gitignore': 'config/pi/local/\n',
     'config/pi/settings.json': '{"packages":[],"quietStartup":true}',
     'config/instructions/common.md': '# Shared native fixture rules\n',
-    'config/pi/mcp.json': JSON.stringify({ mcpServers: {
-      'plain-fixture': { command: 'kitto-plain-mcp', args: ['serve'] },
-      'dsh-env-fixture': { command: 'kitto-env-mcp', env: { FIXTURE_TOKEN: '${KITTO_TEST_TOKEN}' } },
-      'dsh-cred-fixture': { type: 'http', url: 'http://127.0.0.1:9/mcp',
-        headers: { Authorization: 'Bearer ${KITTO_TEST_TOKEN}' } },
-    } }),
+    'config/pi/mcp.json': JSON.stringify({
+      mcpServers: {
+        'plain-fixture': { command: 'kitto-plain-mcp', args: ['serve'] },
+        'dsh-env-fixture': { command: 'kitto-env-mcp', env: { FIXTURE_TOKEN: '${KITTO_TEST_TOKEN}' } },
+        'dsh-cred-fixture': { type: 'http', url: 'http://127.0.0.1:9/mcp', headers: { Authorization: 'Bearer ${KITTO_TEST_TOKEN}' } },
+      },
+    }),
     'config/pi/AGENTS.md': 'Native credential fixture.',
-    'config/pi/i-have-adhd-always': '', 'config/env.example': '# no credentials\n',
+    'config/pi/i-have-adhd-always': '',
+    'config/env.example': '# no credentials\n',
     'skills/example/SKILL.md': '---\nname: example\ndescription: Native credential fixture.\n---\nPreserve this.\n',
   };
   for (const [name, text] of Object.entries(files)) writeFileSync(join(source, name), text);
-  for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'],
-    ['config', 'user.name', 'Kitto test'], ['add', '.'], ['commit', '-m', 'fixture']]) run('git', ['-C', source, ...args]);
+  for (const args of [
+    ['init', '-b', 'main'],
+    ['config', 'user.email', 'test@example.invalid'],
+    ['config', 'user.name', 'Kitto test'],
+    ['add', '.'],
+    ['commit', '-m', 'fixture'],
+  ])
+    run('git', ['-C', source, ...args]);
 
   cli('--agents', 'codex,dsh', '--source', source);
 
   const codexCred = JSON.parse(run('codex', ['mcp', 'get', 'dsh-cred-fixture', '--json']));
   assert.equal(codexCred.transport.bearer_token_env_var, 'KITTO_TEST_TOKEN');
-  assert.deepEqual(codexServers().map(server => server.name).sort(), ['dsh-cred-fixture', 'plain-fixture']);
+  assert.deepEqual(
+    codexServers()
+      .map((server) => server.name)
+      .sort(),
+    ['dsh-cred-fixture', 'plain-fixture'],
+  );
   const codexConfig = readFileSync(join(env.CODEX_HOME, 'config.toml'), 'utf8');
   assert.match(codexConfig, /bearer_token_env_var = "KITTO_TEST_TOKEN"/);
   assert.doesNotMatch(codexConfig, /native-fixture-token/);
@@ -192,7 +255,7 @@ test('native hosts load and remove reference-only MCP credentials', { skip: !nat
   assert.doesNotMatch(readFileSync(join(env.DSH_HOME, 'cordis.patch.yml'), 'utf8'), /kitto-mcp-/);
 });
 
-test('native Codex lists enabled TOML declarations in an isolated parity probe', { skip: !nativeBin }, async t => {
+test('native Codex lists enabled TOML declarations in an isolated parity probe', { skip: !nativeBin }, async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'kitto-native-codex-parity-'));
   t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const config = join(home, 'config.toml');

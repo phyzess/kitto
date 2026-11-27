@@ -10,9 +10,17 @@ async function wizard(answers, environment, { terminal = false, probeServicePnpm
   let text = '';
   const plans = [];
   output.setEncoding('utf8');
-  output.on('data', chunk => { text += chunk; });
+  output.on('data', (chunk) => {
+    text += chunk;
+  });
   const pending = runWizard({
-    input, output, detect: async () => environment, execute: async plan => { plans.push(plan); }, probeServicePnpm,
+    input,
+    output,
+    detect: async () => environment,
+    execute: async (plan) => {
+      plans.push(plan);
+    },
+    probeServicePnpm,
   });
   input.end(answers);
   await pending;
@@ -25,38 +33,69 @@ test('wizard defaults to detected hosts and previews the default source', async 
   assert.match(result.text, /未来项目/);
   assert.match(result.text, /安装计划[\s\S]*默认 Kitto 配置/);
   assert.match(result.text, /未执行安装/);
-  assert.deepEqual(result.plans, [{
-    agents: ['pi', 'codex'], source: undefined, installAgents: false, deps: false,
-    workspace: undefined, unit: undefined, dshProfile: 'web', dryRun: true,
-  }]);
+  assert.deepEqual(result.plans, [
+    {
+      agents: ['pi', 'codex'],
+      source: undefined,
+      installAgents: false,
+      deps: false,
+      workspace: undefined,
+      unit: undefined,
+      dshProfile: 'web',
+      dryRun: true,
+    },
+  ]);
 });
 
 test('wizard offers active DSH service without requiring a local CLI or workspace', async () => {
   const result = await wizard('1，3\n\noperations\n3\n\n2\n', {
-    available: ['pi'], serviceActive: true, canConfigureService: true,
+    available: ['pi'],
+    serviceActive: true,
+    canConfigureService: true,
   });
   assert.match(result.text, /正在运行的系统服务 dsh.service/);
-  assert.deepEqual(result.plans, [{
-    agents: ['pi', 'dsh'], source: false, installAgents: false, deps: false,
-    workspace: undefined, unit: 'dsh.service', dshProfile: 'operations', dryRun: false,
-  }]);
+  assert.deepEqual(result.plans, [
+    {
+      agents: ['pi', 'dsh'],
+      source: false,
+      installAgents: false,
+      deps: false,
+      workspace: undefined,
+      unit: 'dsh.service',
+      dshProfile: 'operations',
+      dryRun: false,
+    },
+  ]);
 });
 
 test('wizard retries agent selection after declining installation and records explicit paths', async () => {
   const result = await wizard('4\n2\nn\n1,2\ny\n2\n./my config\ny\n./my workspace\n1\n', {
-    available: ['pi'], serviceActive: false,
+    available: ['pi'],
+    serviceActive: false,
   });
   assert.match(result.text, /输入无效/);
   assert.match(result.text, /补装 Codex/);
-  assert.deepEqual(result.plans, [{
-    agents: ['pi', 'codex'], source: './my config', installAgents: true, deps: true,
-    workspace: './my workspace', unit: undefined, dshProfile: 'web', dryRun: true,
-  }]);
+  assert.deepEqual(result.plans, [
+    {
+      agents: ['pi', 'codex'],
+      source: './my config',
+      installAgents: true,
+      deps: true,
+      workspace: './my workspace',
+      unit: undefined,
+      dshProfile: 'web',
+      dryRun: true,
+    },
+  ]);
 });
 
 test('wizard cancels cleanly on Ctrl+C, EOF, and an explicit cancel selection', async () => {
   const environment = { available: ['codex'], serviceActive: false };
-  for (const [answers, terminal] of [['\x03', true], ['\n3\n', false], ['\n3\n\n0\n', false]]) {
+  for (const [answers, terminal] of [
+    ['\x03', true],
+    ['\n3\n', false],
+    ['\n3\n\n0\n', false],
+  ]) {
     const result = await wizard(answers, environment, { terminal });
     assert.match(result.text, /已取消安装/);
     assert.deepEqual(result.plans, []);
@@ -103,23 +142,35 @@ test('wizard confirms personal, company, custom, or skipped routing only for ful
 
 test('wizard accepts the app-managed DSH desktop profile without asking for pnpm', async () => {
   const result = await wizard('\ndesktop\n1\n\n\n1\n0\n', {
-    available: ['dsh'], serviceActive: false, pnpmAvailable: false,
+    available: ['dsh'],
+    serviceActive: false,
+    pnpmAvailable: false,
   });
   assert.match(result.text, /DSH Desktop 由 App 管理/);
   assert.doesNotMatch(result.text, /允许补装 pnpm/);
   assert.match(result.text, /配置档 desktop（由 App 管理，仅全局规则\/skills）/);
-  assert.deepEqual(result.plans, [{
-    agents: ['dsh'], source: undefined, installAgents: false, deps: false,
-    workspace: undefined, unit: undefined, dshProfile: 'desktop', dryRun: true,
-  }]);
+  assert.deepEqual(result.plans, [
+    {
+      agents: ['dsh'],
+      source: undefined,
+      installAgents: false,
+      deps: false,
+      workspace: undefined,
+      unit: undefined,
+      dshProfile: 'desktop',
+      dryRun: true,
+    },
+  ]);
 });
 
 test('wizard asks for separate permission to install pnpm in the DSH service account', async () => {
   const environment = { available: ['pi'], serviceActive: true, canConfigureService: true, pnpmAvailable: true };
-  const options = { probeServicePnpm: async unit => {
-    assert.equal(unit, 'dsh.service');
-    return false;
-  } };
+  const options = {
+    probeServicePnpm: async (unit) => {
+      assert.equal(unit, 'dsh.service');
+      return false;
+    },
+  };
   const allowed = await wizard('pi,dsh\n\n\n1\ny\nn\n\n1\n0\n', environment, options);
   assert.match(allowed.text, /允许在服务账号中补装 pnpm/);
   assert.equal(allowed.plans[0].installAgents, false);
@@ -134,7 +185,9 @@ test('terminal wizard accepts arrows, Space, blank optional text, and Enter to p
   const input = new PassThrough();
   const output = new PassThrough();
   input.isTTY = output.isTTY = true;
-  input.setRawMode = enabled => { input.isRaw = enabled; };
+  input.setRawMode = (enabled) => {
+    input.isRaw = enabled;
+  };
   output.columns = 100;
   output.rows = 36;
   const down = '\x1b[B';
@@ -145,15 +198,14 @@ test('terminal wizard accepts arrows, Space, blank optional text, and Enter to p
     ['下一步', '\r'],
     ['预览完成', '\r'],
   ];
-  output.on('data', chunk => {
+  output.on('data', (chunk) => {
     if (steps.length && chunk.toString().includes(steps[0][0])) {
       const [, keys] = steps.shift();
       setImmediate(() => input.write(keys));
     }
   });
   const plans = [];
-  await runWizard({ input, output, detect: async () => ({ available: ['pi', 'codex'] }),
-    execute: async plan => plans.push(plan) });
+  await runWizard({ input, output, detect: async () => ({ available: ['pi', 'codex'] }), execute: async (plan) => plans.push(plan) });
   assert.deepEqual(steps, []);
   assert.equal(plans.length, 1);
   assert.deepEqual(plans[0].agents, ['pi']);
@@ -165,20 +217,32 @@ test('terminal wizard accepts arrows, Space, blank optional text, and Enter to p
 
 test('wizard accepts a DSH desktop profile without a local dsh CLI or install prompt', async () => {
   const result = await wizard('dsh\ndesktop\n1\n\n\n1\n0\n', {
-    available: [], serviceActive: false, pnpmAvailable: false,
+    available: [],
+    serviceActive: false,
+    pnpmAvailable: false,
   });
   assert.match(result.text, /DSH Desktop 不要求本机 dsh CLI/);
   assert.match(result.text, /补装缺少的宿主和必需工具  否/);
   assert.doesNotMatch(result.text, /补装 DeepSeek/);
-  assert.deepEqual(result.plans, [{
-    agents: ['dsh'], source: undefined, installAgents: false, deps: false,
-    workspace: undefined, unit: undefined, dshProfile: 'desktop', dryRun: true,
-  }]);
+  assert.deepEqual(result.plans, [
+    {
+      agents: ['dsh'],
+      source: undefined,
+      installAgents: false,
+      deps: false,
+      workspace: undefined,
+      unit: undefined,
+      dshProfile: 'desktop',
+      dryRun: true,
+    },
+  ]);
 });
 
 test('wizard rejects shared-rules-only mode for the DSH desktop profile', async () => {
   const result = await wizard('\ndesktop\n3\n1\n\n\n1\n0\n', {
-    available: ['dsh'], serviceActive: false, pnpmAvailable: false,
+    available: ['dsh'],
+    serviceActive: false,
+    pnpmAvailable: false,
   });
   assert.match(result.text, /不能选择「仅配置共享规则与 skills」/);
   assert.doesNotMatch(result.text, /配置来源  仅配置共享规则与 skills/);

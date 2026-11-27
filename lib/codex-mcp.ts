@@ -4,18 +4,14 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  bearerCredentialReference, literalSecretsIn, transportCredentialProblem, unresolvedPlaceholdersIn,
-} from './mcp-credentials.ts';
+import { bearerCredentialReference, literalSecretsIn, transportCredentialProblem, unresolvedPlaceholdersIn } from './mcp-credentials.ts';
 import { forgetPending as forgetPendingEntry, get, list as ledgerList, markPending, promote, recordedHash, release } from './ownership.ts';
 import { platformOverlay } from './platform.ts';
 import type { State } from '../types/kitto.d.ts';
 
 type Json = Record<string, any>;
 
-export type Transport =
-  | { type: 'stdio'; command: string; args: string[] }
-  | { type: 'http'; url: string; bearerTokenEnvVar?: string };
+export type Transport = { type: 'stdio'; command: string; args: string[] } | { type: 'http'; url: string; bearerTokenEnvVar?: string };
 
 export interface SourceServer {
   name: string;
@@ -81,18 +77,24 @@ const acceptedName = /^[A-Za-z0-9_:@/.-]+$/;
 
 const isObject = (value: unknown): value is Json => value !== null && typeof value === 'object' && !Array.isArray(value);
 const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
-const confirmedOf = (state: State): Record<string, string> => Object.fromEntries(ledgerList(state, 'mcp', 'codex').flatMap((entry): Array<[string, string]> => {
-  const hash = entry.status === 'owned' ? entry.hash : entry.status === 'pending' ? entry.previous : undefined;
-  return hash === undefined ? [] : [[entry.name, hash]];
-}));
-const pendingOf = (state: State): Record<string, string> => Object.fromEntries(ledgerList(state, 'mcp', 'codex', 'pending').map(entry => [entry.name, entry.hash]));
+const confirmedOf = (state: State): Record<string, string> =>
+  Object.fromEntries(
+    ledgerList(state, 'mcp', 'codex').flatMap((entry): Array<[string, string]> => {
+      const hash = entry.status === 'owned' ? entry.hash : entry.status === 'pending' ? entry.previous : undefined;
+      return hash === undefined ? [] : [[entry.name, hash]];
+    }),
+  );
+const pendingOf = (state: State): Record<string, string> =>
+  Object.fromEntries(ledgerList(state, 'mcp', 'codex', 'pending').map((entry) => [entry.name, entry.hash]));
 const confirmedHash = (state: State, name: string) => {
   const entry = get(state, 'mcp', 'codex', name);
   return entry?.status === 'owned' ? entry.hash : entry?.status === 'pending' ? entry.previous : undefined;
 };
-const empty = (value: unknown) => value === undefined || value === null
-  || (isObject(value) && Object.keys(value).length === 0)
-  || (Array.isArray(value) && value.length === 0);
+const empty = (value: unknown) =>
+  value === undefined ||
+  value === null ||
+  (isObject(value) && Object.keys(value).length === 0) ||
+  (Array.isArray(value) && value.length === 0);
 
 function deepMerge(base: unknown, over: unknown): any {
   if (!isObject(base) || !isObject(over)) return over;
@@ -106,7 +108,10 @@ function deepMerge(base: unknown, over: unknown): any {
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${(value as unknown[]).map(canonicalJson).join(',')}]`;
   if (isObject(value)) {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
   }
   return JSON.stringify(value);
 }
@@ -130,11 +135,23 @@ export function sourceTransport(entry: unknown): { skip?: string; transport?: Tr
   if (placeholder) return { skip: `still contains an unresolved YOUR_* placeholder at ${placeholder.path}` };
   const transportProblem = transportCredentialProblem(entry);
   if (transportProblem) return { skip: `${transportProblem}; only reference credentials are synced` };
-  for (const field of ['oauth', 'scopes', 'tools', 'toolFilter', 'enabledTools', 'disabledTools',
-    'enabled_tools', 'disabled_tools', 'startup_timeout_sec', 'tool_timeout_sec', 'timeout']) {
+  for (const field of [
+    'oauth',
+    'scopes',
+    'tools',
+    'toolFilter',
+    'enabledTools',
+    'disabledTools',
+    'enabled_tools',
+    'disabled_tools',
+    'startup_timeout_sec',
+    'tool_timeout_sec',
+    'timeout',
+  ]) {
     if (!empty(entry[field])) return { skip: `${field} is not synced in v1` };
   }
-  const command = entry.command, url = entry.url;
+  const command = entry.command,
+    url = entry.url;
   const hasCommand = typeof command === 'string' && command !== '';
   const hasUrl = typeof url === 'string' && url !== '';
   if (hasCommand && hasUrl) return { skip: 'defines both command and url' };
@@ -151,8 +168,7 @@ export function sourceTransport(entry: unknown): { skip?: string; transport?: Tr
       const names = Object.keys(entry.headers);
       const [header] = names;
       const value = header === undefined ? undefined : entry.headers[header];
-      const reference = names.length === 1 && header!.toLowerCase() === 'authorization'
-        ? bearerCredentialReference(value) : null;
+      const reference = names.length === 1 && header!.toLowerCase() === 'authorization' ? bearerCredentialReference(value) : null;
       if (!reference) {
         return { skip: 'headers are not synced in v1: only Authorization: Bearer ${VAR} is supported' };
       }
@@ -190,7 +206,11 @@ async function optionalJson(path: string): Promise<any> {
   }
 }
 
-export async function sourceServers(source: string, platform: string = process.platform, { includePrivate = false }: { includePrivate?: boolean } = {}): Promise<SourceServer[]> {
+export async function sourceServers(
+  source: string,
+  platform: string = process.platform,
+  { includePrivate = false }: { includePrivate?: boolean } = {},
+): Promise<SourceServer[]> {
   const basePath = join(source, 'config/pi/mcp.json');
   const base = await optionalJson(basePath);
   if (base === null) {
@@ -240,8 +260,7 @@ export function liveTransport(entry: unknown): Transport | null {
     if (!Array.isArray(args) || args.some((value: unknown) => typeof value !== 'string')) return null;
     return { type: 'stdio', command: transport.command, args };
   }
-  if ((transport.type === 'streamable_http' || transport.type === 'http')
-      && typeof transport.url === 'string' && transport.url !== '') {
+  if ((transport.type === 'streamable_http' || transport.type === 'http') && typeof transport.url === 'string' && transport.url !== '') {
     const bearer = transport.bearer_token_env_var;
     return {
       type: 'http',
@@ -277,21 +296,36 @@ export function liveExtras(entry: unknown): string[] {
 export function formatOperation(operation: McpOperation): string {
   const reason = operation.reason ? `: ${operation.reason}` : '';
   switch (operation.action) {
-    case 'add': return `mcp add: ${operation.name} (codex)`;
-    case 'update': return `mcp update: ${operation.name} (codex)`;
-    case 'same': return `mcp same: ${operation.name} (codex)`;
-    case 'skip': return `mcp skip: ${operation.name} (codex)${reason}`;
-    case 'conflict': return `mcp conflict: ${operation.name} (codex)${reason}; preserved`;
-    case 'remove': return `mcp remove: ${operation.name} (codex)`;
-    case 'adopt': return `mcp adopt: ${operation.name} (codex)`;
-    case 'forget': return `mcp forget: ${operation.name} (codex)`;
-    case 'forgetPending': return `mcp forget pending: ${operation.name} (codex)`;
-    default: return `mcp ${operation.action}: ${operation.name} (codex)`;
+    case 'add':
+      return `mcp add: ${operation.name} (codex)`;
+    case 'update':
+      return `mcp update: ${operation.name} (codex)`;
+    case 'same':
+      return `mcp same: ${operation.name} (codex)`;
+    case 'skip':
+      return `mcp skip: ${operation.name} (codex)${reason}`;
+    case 'conflict':
+      return `mcp conflict: ${operation.name} (codex)${reason}; preserved`;
+    case 'remove':
+      return `mcp remove: ${operation.name} (codex)`;
+    case 'adopt':
+      return `mcp adopt: ${operation.name} (codex)`;
+    case 'forget':
+      return `mcp forget: ${operation.name} (codex)`;
+    case 'forgetPending':
+      return `mcp forget pending: ${operation.name} (codex)`;
+    default:
+      return `mcp ${operation.action}: ${operation.name} (codex)`;
   }
 }
 
 export function buildMcpPlan({
-  servers = [], owned = {}, pending = {}, live = [], details = new Map(), liveVerified = false,
+  servers = [],
+  owned = {},
+  pending = {},
+  live = [],
+  details = new Map(),
+  liveVerified = false,
 }: PlanContext): McpOperation[] {
   const sources = new Map(servers.map((server: SourceServer) => [server.name, server]));
   const current = new Map(live.map((entry: LiveEntry): [string, LiveEntry] => [entry.name, entry]));
@@ -313,13 +347,16 @@ export function buildMcpPlan({
     const liveHash = transport ? transportHash(transport) : null;
     const extras = liveExtras(detail);
     if (transport && extras.length === 0 && hasOwn(pending, server.name) && pending[server.name] === liveHash) {
-      operations.push({ name: server.name, action: 'adopt', hash: liveHash,
-        reason: hasOwn(owned, server.name) ? 'finish an interrupted update' : 'finish an interrupted add' });
+      operations.push({
+        name: server.name,
+        action: 'adopt',
+        hash: liveHash,
+        reason: hasOwn(owned, server.name) ? 'finish an interrupted update' : 'finish an interrupted add',
+      });
       continue;
     }
     if (!hasOwn(owned, server.name)) {
-      operations.push({ name: server.name, action: 'conflict',
-        reason: 'same-name MCP server is not owned by Kitto' });
+      operations.push({ name: server.name, action: 'conflict', reason: 'same-name MCP server is not owned by Kitto' });
       continue;
     }
     if (!transport) {
@@ -327,13 +364,11 @@ export function buildMcpPlan({
       continue;
     }
     if (liveHash !== owned[server.name]) {
-      operations.push({ name: server.name, action: 'conflict',
-        reason: 'live server differs from the recorded ownership fingerprint' });
+      operations.push({ name: server.name, action: 'conflict', reason: 'live server differs from the recorded ownership fingerprint' });
       continue;
     }
     if (extras.length) {
-      operations.push({ name: server.name, action: 'conflict',
-        reason: `live server has additional settings (${extras.join(', ')})` });
+      operations.push({ name: server.name, action: 'conflict', reason: `live server has additional settings (${extras.join(', ')})` });
       continue;
     }
     if (liveHash === server.hash) {
@@ -354,14 +389,16 @@ export function buildMcpPlan({
     }
     const fingerprints = [owned[name], pending[name]].filter((value: string) => value);
     if (!fingerprints.includes(transportHash(transport))) {
-      operations.push({ name, action: 'conflict',
-        reason: 'source removed the server, but the live server changed outside Kitto' });
+      operations.push({ name, action: 'conflict', reason: 'source removed the server, but the live server changed outside Kitto' });
       continue;
     }
     const extras = liveExtras(detail);
     if (extras.length) {
-      operations.push({ name, action: 'conflict',
-        reason: `source removed the server, but the live server has additional settings (${extras.join(', ')})` });
+      operations.push({
+        name,
+        action: 'conflict',
+        reason: `source removed the server, but the live server has additional settings (${extras.join(', ')})`,
+      });
       continue;
     }
     operations.push({ name, action: 'remove', hash: transportHash(transport) });
@@ -421,14 +458,12 @@ export function buildRemovalPlan({ owned = {}, pending = {}, live = [], details 
     const liveHash = transportHash(transport);
     const fingerprints = [owned[name], pending[name]].filter((value: string) => value);
     if (!fingerprints.includes(liveHash)) {
-      operations.push({ name, action: 'conflict',
-        reason: 'live server differs from the recorded ownership fingerprint' });
+      operations.push({ name, action: 'conflict', reason: 'live server differs from the recorded ownership fingerprint' });
       continue;
     }
     const extras = liveExtras(detail);
     if (extras.length) {
-      operations.push({ name, action: 'conflict',
-        reason: `live server has additional settings (${extras.join(', ')})` });
+      operations.push({ name, action: 'conflict', reason: `live server has additional settings (${extras.join(', ')})` });
       continue;
     }
     operations.push({ name, action: 'remove', hash: liveHash });
@@ -453,7 +488,11 @@ function parseResponse(text: string, label: string): any {
   }
 }
 
-export function listCodexMcp({ run = defaultCodexRun, env = process.env, home }: { run?: CodexRun; env?: NodeJS.ProcessEnv; home?: string } = {}): LiveEntry[] {
+export function listCodexMcp({
+  run = defaultCodexRun,
+  env = process.env,
+  home,
+}: { run?: CodexRun; env?: NodeJS.ProcessEnv; home?: string } = {}): LiveEntry[] {
   const target = home ?? env?.CODEX_HOME;
   if (target && !existsSync(target)) return [];
   const parsed = parseResponse(run(['mcp', 'list', '--json'], { env }), 'codex mcp list --json');
@@ -461,7 +500,10 @@ export function listCodexMcp({ run = defaultCodexRun, env = process.env, home }:
   return parsed;
 }
 
-export function getCodexMcp(name: string, { run = defaultCodexRun, env = process.env }: { run?: CodexRun; env?: NodeJS.ProcessEnv } = {}): Json {
+export function getCodexMcp(
+  name: string,
+  { run = defaultCodexRun, env = process.env }: { run?: CodexRun; env?: NodeJS.ProcessEnv } = {},
+): Json {
   const parsed = parseResponse(run(['mcp', 'get', name, '--json'], { env }), `codex mcp get ${name} --json`);
   if (!isObject(parsed)) throw new Error(`codex mcp get ${name} --json did not return an object.`);
   return parsed;
@@ -471,7 +513,19 @@ function codexEnvironment(state: State): NodeJS.ProcessEnv {
   return { ...process.env, CODEX_HOME: state.codexHome };
 }
 
-function liveDetails({ owned, pending = {}, live, run, env }: { owned: Record<string, string>; pending?: Record<string, string>; live: LiveEntry[]; run?: CodexRun; env?: NodeJS.ProcessEnv }): Map<string, Json> {
+function liveDetails({
+  owned,
+  pending = {},
+  live,
+  run,
+  env,
+}: {
+  owned: Record<string, string>;
+  pending?: Record<string, string>;
+  live: LiveEntry[];
+  run?: CodexRun;
+  env?: NodeJS.ProcessEnv;
+}): Map<string, Json> {
   const tracked = new Set([...Object.keys(owned), ...Object.keys(pending)]);
   const details = new Map<string, Json>();
   for (const entry of live) {
@@ -510,35 +564,62 @@ async function withLive<T>({ run, env, home, list, readOnly }: CodexMcpOptions, 
   return callback({ live, env, verified: liveVerifiedFor(home, env), home });
 }
 
-async function collectPlan(state: State, { run, env, home, platform, readSource, list, readOnly = false }: CodexMcpOptions): Promise<PlanContext> {
+async function collectPlan(
+  state: State,
+  { run, env, home, platform, readSource, list, readOnly = false }: CodexMcpOptions,
+): Promise<PlanContext> {
   const owned = confirmedOf(state);
   const pending = pendingOf(state);
   const servers = await readSource!(state.source, platform, { includePrivate: state.includePrivate === true });
   return withLive({ run, env, home, list, readOnly }, ({ live, env: liveEnv, verified }) => ({
-    servers, owned, pending, live, liveVerified: verified,
+    servers,
+    owned,
+    pending,
+    live,
+    liveVerified: verified,
     details: liveDetails({ owned, pending, live, run, env: liveEnv }),
   }));
 }
 
 function addArguments(name: string, transport: Transport): string[] {
   if (transport.type === 'stdio') return ['mcp', 'add', name, '--', transport.command, ...transport.args];
-  return ['mcp', 'add', name, '--url', transport.url,
-    ...(transport.bearerTokenEnvVar ? ['--bearer-token-env-var', transport.bearerTokenEnvVar] : [])];
+  return [
+    'mcp',
+    'add',
+    name,
+    '--url',
+    transport.url,
+    ...(transport.bearerTokenEnvVar ? ['--bearer-token-env-var', transport.bearerTokenEnvVar] : []),
+  ];
 }
 
-export async function planCodexMcp(state: State, {
-  run = defaultCodexRun, env = codexEnvironment(state), home = state.codexHome,
-  platform = process.platform, log = console.log, readSource = sourceServers, list, readOnly = true,
-}: CodexMcpOptions = {}): Promise<McpOperation[]> {
+export async function planCodexMcp(
+  state: State,
+  {
+    run = defaultCodexRun,
+    env = codexEnvironment(state),
+    home = state.codexHome,
+    platform = process.platform,
+    log = console.log,
+    readSource = sourceServers,
+    list,
+    readOnly = true,
+  }: CodexMcpOptions = {},
+): Promise<McpOperation[]> {
   const context = await collectPlan(state, { run, env, home, platform, readSource, list, readOnly });
   const operations = buildMcpPlan(context);
   for (const operation of operations) log(formatOperation(operation));
   return operations;
 }
 
-function verifyLive(name: string, recorded: string | null | undefined, run: CodexRun, env: NodeJS.ProcessEnv): { entry: LiveEntry | null | undefined; problem?: string; transport?: Transport } {
+function verifyLive(
+  name: string,
+  recorded: string | null | undefined,
+  run: CodexRun,
+  env: NodeJS.ProcessEnv,
+): { entry: LiveEntry | null | undefined; problem?: string; transport?: Transport } {
   const live = listCodexMcp({ run, env });
-  const entry = live.find(item => item.name === name);
+  const entry = live.find((item) => item.name === name);
   if (!entry) return { entry: null, problem: 'live server disappeared' };
   const detail = getCodexMcp(name, { run, env });
   const transport = liveTransport(detail);
@@ -561,11 +642,20 @@ async function promotePending(state: State, name: string, hash: string) {
 
 const forgetPending = (state: State, name: string) => forgetPendingEntry(state, 'mcp', 'codex', name);
 
-export async function applyCodexMcp(state: State, {
-  run = defaultCodexRun, env = codexEnvironment(state), home = state.codexHome,
-  platform = process.platform, save = async () => {}, log = () => {},
-  warn = console.warn, readSource = sourceServers, list,
-}: CodexMcpOptions = {}): Promise<McpOperation[]> {
+export async function applyCodexMcp(
+  state: State,
+  {
+    run = defaultCodexRun,
+    env = codexEnvironment(state),
+    home = state.codexHome,
+    platform = process.platform,
+    save = async () => {},
+    log = () => {},
+    warn = console.warn,
+    readSource = sourceServers,
+    list,
+  }: CodexMcpOptions = {},
+): Promise<McpOperation[]> {
   const context = await collectPlan(state, { run, env, home, platform, readSource, list });
   const operations = buildMcpPlan(context);
   for (const operation of operations) {
@@ -576,7 +666,7 @@ export async function applyCodexMcp(state: State, {
     if (operation.action === 'add' || operation.action === 'update') {
       if (operation.action === 'add') {
         const live = list ? await list() : listCodexMcp({ run, env, home });
-        if (live.some(item => item.name === operation.name)) {
+        if (live.some((item) => item.name === operation.name)) {
           warn(`mcp conflict: ${operation.name} (codex): live server appeared during sync; preserved`);
           continue;
         }
@@ -595,20 +685,22 @@ export async function applyCodexMcp(state: State, {
         let detail = null;
         try {
           const live = list ? await list() : listCodexMcp({ run, env, home });
-          if (live.some(item => item.name === operation.name)) {
+          if (live.some((item) => item.name === operation.name)) {
             detail = getCodexMcp(operation.name, { run, env });
           }
-        } catch {  }
+        } catch {}
         const transport = detail ? liveTransport(detail) : null;
         if (!transport || transportHash(transport) !== operation.hash || liveExtras(detail).length) throw error;
-        warn(`mcp warning: ${operation.name} (codex): native ${operation.action} failed after writing the server (${(error as Error).message}); adopted. Run \`codex mcp login ${operation.name}\` if it needs authentication.`);
+        warn(
+          `mcp warning: ${operation.name} (codex): native ${operation.action} failed after writing the server (${(error as Error).message}); adopted. Run \`codex mcp login ${operation.name}\` if it needs authentication.`,
+        );
         await promotePending(state, operation.name, operation.hash);
         await save();
         log(`mcp adopt: ${operation.name} (codex)`);
         continue;
       }
       const live = list ? await list() : listCodexMcp({ run, env, home });
-      const entry = live.find(item => item.name === operation.name);
+      const entry = live.find((item) => item.name === operation.name);
       const transport = entry ? liveTransport(entry) : null;
       if (!transport || transportHash(transport) !== operation.hash) {
         throw new Error(`codex mcp add ${operation.name} did not persist the requested transport.`);
@@ -645,7 +737,7 @@ export async function applyCodexMcp(state: State, {
       }
       run(['mcp', 'remove', operation.name], { env });
       const live = list ? await list() : listCodexMcp({ run, env, home });
-      if (live.some(item => item.name === operation.name)) {
+      if (live.some((item) => item.name === operation.name)) {
         throw new Error(`codex mcp remove ${operation.name} did not remove the server.`);
       }
       release(state, 'mcp', 'codex', operation.name);
@@ -662,7 +754,7 @@ export async function applyCodexMcp(state: State, {
     let changed = false;
     const live = list ? await list() : listCodexMcp({ run, env, home });
     for (const [name, hash] of stillPending) {
-      const entry = live.find(item => item.name === name);
+      const entry = live.find((item) => item.name === name);
       let stale = !entry;
       if (entry) {
         try {
@@ -683,10 +775,19 @@ export async function applyCodexMcp(state: State, {
   return operations;
 }
 
-export async function removeCodexMcp(state: State, {
-  apply = false, run = defaultCodexRun, env = codexEnvironment(state), home = state.codexHome,
-  save = async () => {}, log = console.log, warn = console.warn, list,
-}: CodexMcpOptions = {}): Promise<RemovalPlan> {
+export async function removeCodexMcp(
+  state: State,
+  {
+    apply = false,
+    run = defaultCodexRun,
+    env = codexEnvironment(state),
+    home = state.codexHome,
+    save = async () => {},
+    log = console.log,
+    warn = console.warn,
+    list,
+  }: CodexMcpOptions = {},
+): Promise<RemovalPlan> {
   const owned = confirmedOf(state);
   const pending = pendingOf(state);
   if (!Object.keys(owned).length && !Object.keys(pending).length) {
@@ -712,7 +813,7 @@ export async function removeCodexMcp(state: State, {
       }
       run(['mcp', 'remove', operation.name], { env: liveEnv });
       const liveAfter = list ? await list() : listCodexMcp({ run, env: liveEnv, home });
-      if (liveAfter.some(item => item.name === operation.name)) {
+      if (liveAfter.some((item) => item.name === operation.name)) {
         throw new Error(`codex mcp remove ${operation.name} did not remove the server.`);
       }
       release(state, 'mcp', 'codex', operation.name);

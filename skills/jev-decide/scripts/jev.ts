@@ -33,8 +33,10 @@ function parseArgs(argv) {
       i += 1;
       return next;
     };
-    if (arg === '--help' || arg === '-h') { console.log(USAGE); process.exit(0); }
-    else if (arg === '--state') opts.state = value();
+    if (arg === '--help' || arg === '-h') {
+      console.log(USAGE);
+      process.exit(0);
+    } else if (arg === '--state') opts.state = value();
     else if (arg === '--questions') opts.questions = value();
     else if (arg === '--model') opts.model = value();
     else fail(2, `unknown argument ${arg}\n\n${USAGE}`);
@@ -80,8 +82,11 @@ async function readStore(filename) {
   const file = await open(filename, flags);
   try {
     const stat = await file.stat();
-    if (!stat.isFile() || stat.size > STORE_LIMIT ||
-        (process.platform !== 'win32' && ((stat.mode & 0o077) !== 0 || stat.uid !== process.geteuid()))) {
+    if (
+      !stat.isFile() ||
+      stat.size > STORE_LIMIT ||
+      (process.platform !== 'win32' && ((stat.mode & 0o077) !== 0 || stat.uid !== process.geteuid()))
+    ) {
       throw new Error('Unsafe credential file');
     }
     const bytes = Buffer.alloc(STORE_LIMIT + 1);
@@ -144,9 +149,13 @@ if (opts.state === '@-' && opts.questions === '@-') {
 const state = await source(opts.state);
 const questionsText = await source(opts.questions);
 let questions;
-try { questions = JSON.parse(questionsText); }
-catch { fail(2, '--questions must be valid JSON'); }
-if (!questions || typeof questions !== 'object' || Array.isArray(questions)) fail(2, '--questions must be a JSON object keyed by question id');
+try {
+  questions = JSON.parse(questionsText);
+} catch {
+  fail(2, '--questions must be valid JSON');
+}
+if (!questions || typeof questions !== 'object' || Array.isArray(questions))
+  fail(2, '--questions must be a JSON object keyed by question id');
 
 const endpoint = process.env.JEV_ENDPOINT || 'https://opencode.ai/inference/go/systemone/v1/systemone';
 const authorization = `Bearer ${await resolveKey()}`;

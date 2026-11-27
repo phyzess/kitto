@@ -32,9 +32,21 @@ if (!verifyOnly) {
 }
 
 const pnpmPackage = `@pnpm/exe.${platform}`;
-if (!verifyOnly) execFileSync('npm', ['install', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund',
-  `${pnpmPackage}@${pnpmVersion}`, ...Object.values(hosts).map(host => `${host.package}@${host.version}`),
-], { stdio: 'inherit' });
+if (!verifyOnly)
+  execFileSync(
+    'npm',
+    [
+      'install',
+      '--prefix',
+      prefix,
+      '--ignore-scripts',
+      '--no-audit',
+      '--no-fund',
+      `${pnpmPackage}@${pnpmVersion}`,
+      ...Object.values(hosts).map((host) => `${host.package}@${host.version}`),
+    ],
+    { stdio: 'inherit' },
+  );
 
 const modules = join(prefix, 'node_modules');
 const bin = join(modules, '.bin');
@@ -52,9 +64,11 @@ if (!info.isFile() || !(info.mode & 0o111) || realpathSync(native) !== native) {
 const fd = openSync(native, 'r');
 try {
   const header = Buffer.alloc(20);
-  if (readSync(fd, header, 0, header.length, 0) !== header.length ||
-      header.subarray(0, 8).toString('hex') !== signature ||
-      (platform === 'linux-x64' && header.readUInt16LE(18) !== 62)) {
+  if (
+    readSync(fd, header, 0, header.length, 0) !== header.length ||
+    header.subarray(0, 8).toString('hex') !== signature ||
+    (platform === 'linux-x64' && header.readUInt16LE(18) !== 62)
+  ) {
     throw new Error(`Expected a native pnpm executable for ${platform}.`);
   }
 } finally {
@@ -64,7 +78,10 @@ try {
 if (realpathSync(bin) !== bin) throw new Error('Unexpected native host .bin directory.');
 if (!verifyOnly) symlinkSync(relative(bin, native), join(bin, 'pnpm'));
 for (const [name, expected] of Object.entries({
-  pnpm: pnpmVersion, pi: hosts.pi.version, codex: `codex-cli ${hosts.codex.version}`, dsh: hosts.dsh.version,
+  pnpm: pnpmVersion,
+  pi: hosts.pi.version,
+  codex: `codex-cli ${hosts.codex.version}`,
+  dsh: hosts.dsh.version,
 })) {
   const entry = join(bin, name);
   const resolved = realpathSync(entry);

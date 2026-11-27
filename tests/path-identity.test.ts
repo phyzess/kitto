@@ -19,7 +19,7 @@ function aliasedRoot(t) {
   return { base, real, link };
 }
 
-test('sameLocation compares identity through symlinks and tolerates missing paths', t => {
+test('sameLocation compares identity through symlinks and tolerates missing paths', (t) => {
   const { real, link } = aliasedRoot(t);
   assert.equal(sameLocation(real, link), true);
   assert.equal(sameLocation(join(real, 'nested'), join(real, 'nested')), true);
@@ -27,7 +27,7 @@ test('sameLocation compares identity through symlinks and tolerates missing path
   assert.equal(sameLocation(real, undefined), false);
 });
 
-test('an installation whose runtime directory is a symlink is still recognised as installed', t => {
+test('an installation whose runtime directory is a symlink is still recognised as installed', (t) => {
   const { base } = aliasedRoot(t);
   const home = join(base, 'install');
   const target = join(home, 'runtime-target');

@@ -29,13 +29,17 @@ export function waitForPublish(spec, integrity, read, { attempts = verifyAttempt
       sleep(delayMs);
     }
   }
-  throw new Error(`${spec} was published but npm still does not serve it after ${attempts} attempts. `
-    + `The tarball integrity is ${integrity}; rerun from this commit to verify or resume.`);
+  throw new Error(
+    `${spec} was published but npm still does not serve it after ${attempts} attempts. ` +
+      `The tarball integrity is ${integrity}; rerun from this commit to verify or resume.`,
+  );
 }
 
 function run(command, args, cwd = root, capture = false) {
   const result = spawnSync(command, args, {
-    cwd, encoding: 'utf8', stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+    cwd,
+    encoding: 'utf8',
+    stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} ${args[0]} failed (${result.signal ?? result.status}).`);
@@ -48,7 +52,8 @@ function git(...args) {
 
 function npmView(spec, field, cwd) {
   const result = spawnSync('npm', ['view', spec, field, '--json', '--tag=latest', '--prefer-online', '--offline=false', ...registryArgs], {
-    cwd, encoding: 'utf8',
+    cwd,
+    encoding: 'utf8',
   });
   if (result.error) throw result.error;
   let data;
@@ -105,8 +110,10 @@ function release(version, publish) {
     if (built.name !== packageName || built.version !== version || builtPlugin.version !== version) {
       throw new Error(`Expected dist/package.json and dist/integration/plugin.json to carry ${spec}.`);
     }
-    const [packed] = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '--dry-run=false', '--pack-destination', temp], dist, true));
-    if (packed.files.some(file => file.path.endsWith('.map')) || !packed.files.some(file => file.path === 'bin/kitto.mjs')) {
+    const [packed] = JSON.parse(
+      run('npm', ['pack', '--json', '--ignore-scripts', '--dry-run=false', '--pack-destination', temp], dist, true),
+    );
+    if (packed.files.some((file) => file.path.endsWith('.map')) || !packed.files.some((file) => file.path === 'bin/kitto.mjs')) {
       throw new Error('The tarball must contain bin/kitto.mjs and no source maps. Check the dist build.');
     }
     const tarball = join(temp, packed.filename);
@@ -119,11 +126,15 @@ function release(version, publish) {
 
     const pushUrls = git('remote', 'get-url', '--push', '--all', 'origin').split('\n');
     if (pushUrls.length !== 1) throw new Error('Configure exactly one push URL for origin.');
-    const refs = new Map(git('ls-remote', '--', pushUrls[0], mainRef, tagRef, `${tagRef}^{}`)
-      .split('\n').filter(Boolean).map(line => {
-        const [hash, ref] = line.split('\t');
-        return [ref, hash];
-      }));
+    const refs = new Map(
+      git('ls-remote', '--', pushUrls[0], mainRef, tagRef, `${tagRef}^{}`)
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const [hash, ref] = line.split('\t');
+          return [ref, hash];
+        }),
+    );
     const remoteTag = refs.get(`${tagRef}^{}`) ?? refs.get(tagRef);
     if (remoteTag && remoteTag !== commit) throw new Error(`Origin tag ${tag} points to a different commit.`);
     if (!remoteTag && refs.get(mainRef) !== commit) {
@@ -147,7 +158,11 @@ function release(version, publish) {
     }
     if (existing === undefined) {
       console.log(`Origin tag ${tag} exists. If npm publishing fails, rerun from this commit.`);
-      run('npm', ['publish', tarball, '--access=public', '--tag=latest', '--ignore-scripts', '--dry-run=false', '--force=false', ...registryArgs], temp);
+      run(
+        'npm',
+        ['publish', tarball, '--access=public', '--tag=latest', '--ignore-scripts', '--dry-run=false', '--force=false', ...registryArgs],
+        temp,
+      );
       waitForPublish(spec, packed.integrity, () => npmView(spec, 'dist.integrity', temp));
     }
     console.log(`Released ${spec} at ${tag} (${commit}).`);
@@ -156,8 +171,11 @@ function release(version, publish) {
   }
 }
 function invokedDirectly() {
-  try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); }
-  catch { return false; }
+  try {
+    return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
 }
 
 if (invokedDirectly()) {
@@ -166,9 +184,13 @@ if (invokedDirectly()) {
     const usage = 'Usage: npm run release -- <major.minor.patch> [--publish]';
     if (version === '--help' && !option) console.log(usage);
     else {
-      if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version ?? '') ||
-          !version.split('.').every(part => Number.isSafeInteger(Number(part))) ||
-          (option !== undefined && option !== '--publish') || extra.length) throw new Error(usage);
+      if (
+        !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version ?? '') ||
+        !version.split('.').every((part) => Number.isSafeInteger(Number(part))) ||
+        (option !== undefined && option !== '--publish') ||
+        extra.length
+      )
+        throw new Error(usage);
       release(version, option === '--publish');
     }
   } catch (error) {

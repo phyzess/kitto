@@ -13,16 +13,18 @@ export function breakStaleSyncLock(state: State): void {
   const lock = join(state.source, 'config/pi/local/.sync-lock');
   if (!existsSync(lock)) return;
   let pid = NaN;
-  try { pid = Number(readFileSync(join(lock, 'pid'), 'utf8').trim()); } catch {}
+  try {
+    pid = Number(readFileSync(join(lock, 'pid'), 'utf8').trim());
+  } catch {}
   if (processAlive(pid) !== false) return;
   rmSync(lock, { recursive: true, force: true });
   console.log(`kitto: removed stale sync lock ${lock} (pid ${pid} is no longer running).`);
 }
 
-const ownedPiPackages = (state: State) => list(state, 'pi-package', 'pi', 'owned').map(entry => entry.spec);
+const ownedPiPackages = (state: State) => list(state, 'pi-package', 'pi', 'owned').map((entry) => entry.spec);
 
 export function recordPiPackages(state: State, specs: PiPackageSpec[]): void {
-  const keys = new Map(specs.map(spec => [packageKey(spec), spec]));
+  const keys = new Map(specs.map((spec) => [packageKey(spec), spec]));
   for (const { name } of list(state, 'pi-package', 'pi')) if (!keys.has(name)) release(state, 'pi-package', 'pi', name);
   for (const [name, spec] of keys) if (name && name !== '__proto__') record(state, 'pi-package', 'pi', name, packageHash(spec), { spec });
 }
@@ -30,9 +32,13 @@ export function recordPiPackages(state: State, specs: PiPackageSpec[]): void {
 export function syncCommand(state: State, command: PiCommand, apply = false): void {
   if (breakStaleLocks) breakStaleSyncLock(state);
   piAdapter(command, {
-    source: state.source, piHome: state.piHome, agentsHome: state.agentsHome,
+    source: state.source,
+    piHome: state.piHome,
+    agentsHome: state.agentsHome,
     dryRun: !apply && command !== 'status',
-    ownedPackages: ownedPiPackages(state), onPackages: (specs: PiPackageSpec[]) => recordPiPackages(state, specs),
-    onLock: (lock: string) => ownedLocks.add(lock), onUnlock: (lock: string) => ownedLocks.delete(lock),
+    ownedPackages: ownedPiPackages(state),
+    onPackages: (specs: PiPackageSpec[]) => recordPiPackages(state, specs),
+    onLock: (lock: string) => ownedLocks.add(lock),
+    onUnlock: (lock: string) => ownedLocks.delete(lock),
   });
 }

@@ -39,8 +39,10 @@ function parseArgs(argv) {
       i += 1;
       return value;
     };
-    if (arg === '--help' || arg === '-h') { console.log(USAGE); process.exit(0); }
-    else if (arg === '--home') opts.home = next();
+    if (arg === '--help' || arg === '-h') {
+      console.log(USAGE);
+      process.exit(0);
+    } else if (arg === '--home') opts.home = next();
     else if (arg === '--project') opts.project = next();
     else if (arg === '--days') opts.days = Number(next());
     else if (arg === '--limit') opts.limit = Number(next());
@@ -57,8 +59,11 @@ function parsePrice(spec) {
   const body = at === -1 ? spec : spec.slice(0, at);
   const eq = body.indexOf('=');
   if (eq === -1) fail(`--price expects MODEL=a,b,c[,d,e,f], got ${spec}`);
-  const numbers = body.slice(eq + 1).split(',').map(Number);
-  if (numbers.some(n => !Number.isFinite(n))) fail(`--price expects numbers, got ${spec}`);
+  const numbers = body
+    .slice(eq + 1)
+    .split(',')
+    .map(Number);
+  if (numbers.some((n) => !Number.isFinite(n))) fail(`--price expects numbers, got ${spec}`);
   const base = numbers.slice(0, 3);
   const long = numbers.length >= 6 ? numbers.slice(3, 6) : base;
   if (base.length !== 3) fail(`--price needs at least 3 numbers, got ${spec}`);
@@ -68,8 +73,9 @@ function parsePrice(spec) {
 async function listSessionFiles(sessionsRoot) {
   const files = [];
   let projects;
-  try { projects = await readdir(sessionsRoot, { withFileTypes: true }); }
-  catch (error) {
+  try {
+    projects = await readdir(sessionsRoot, { withFileTypes: true });
+  } catch (error) {
     if (error.code === 'ENOENT') return files;
     throw error;
   }
@@ -131,12 +137,14 @@ function collectRecord(session, bytes, terminated) {
       time: record.time,
       provider: isString(provider) ? provider : 'unknown',
       model: isString(model) ? model : 'unknown',
-      input, cacheRead, output,
+      input,
+      cacheRead,
+      output,
     });
   } else if (record?.type === 'session') {
     const { cwd, parentSession: parent, delegationDepth: depth, createdAt: created } = record;
-    if (!isOptional(cwd, isString) || !isOptional(parent, isString) ||
-        !isOptional(depth, isDepth) || !isOptional(created, isTimestamp)) countBadRecord(session, terminated);
+    if (!isOptional(cwd, isString) || !isOptional(parent, isString) || !isOptional(depth, isDepth) || !isOptional(created, isTimestamp))
+      countBadRecord(session, terminated);
     session.meta = {
       cwd: isString(cwd) ? cwd : undefined,
       parent: isString(parent) ? parent : undefined,
@@ -156,8 +164,10 @@ async function readSession(file) {
   const session = { usage: [], meta: null, title: null, label: null, malformedLines: 0, truncatedTails: 0 };
   const child = spawn('zstd', ['-dc', file], { stdio: ['ignore', 'pipe', 'ignore'] });
   let spawnError;
-  child.once('error', error => { spawnError = error; });
-  const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+  child.once('error', (error) => {
+    spawnError = error;
+  });
+  const closed = new Promise((resolve) => child.once('close', (code, signal) => resolve({ code, signal })));
 
   const pending = [];
   let streamFailed = false;
@@ -172,7 +182,9 @@ async function readSession(file) {
       }
       if (start < chunk.length) pending.push(chunk.subarray(start));
     }
-  } catch { streamFailed = true; }
+  } catch {
+    streamFailed = true;
+  }
   if (pending.length) collectRecord(session, Buffer.concat(pending), false);
 
   const { code, signal } = await closed;
@@ -224,12 +236,15 @@ async function main() {
   const sessionsRoot = resolve(home, 'sessions');
 
   let files;
-  try { files = await listSessionFiles(sessionsRoot); }
-  catch { fail('could not enumerate DSH session files'); }
+  try {
+    files = await listSessionFiles(sessionsRoot);
+  } catch {
+    fail('could not enumerate DSH session files');
+  }
 
   const threshold = opts.days ? Date.now() - opts.days * 86_400_000 : 0;
-  const scanned = await mapLimit(files, 4, item => readSession(item.file));
-  if (scanned.some(session => session.missingDecompressor)) {
+  const scanned = await mapLimit(files, 4, (item) => readSession(item.file));
+  if (scanned.some((session) => session.missingDecompressor)) {
     fail('could not decompress sessions; install zstd (the `zstd` executable was not found on PATH)');
   }
   const diagnostics = { malformedLines: 0, truncatedTails: 0, decompressionFailures: 0, affectedFiles: 0 };
@@ -246,22 +261,36 @@ async function main() {
   const models = new Map();
   const projects = new Map();
   const days = new Map();
-  let totalInput = 0, totalCache = 0, totalOutput = 0, totalRequests = 0, totalCost = 0;
+  let totalInput = 0,
+    totalCache = 0,
+    totalOutput = 0,
+    totalRequests = 0,
+    totalCost = 0;
   const promptSizes = [];
   const allPromptSizes = [];
-  let overThreshold = 0, tokensInOverThreshold = 0, tokensInAll = 0;
+  let overThreshold = 0,
+    tokensInOverThreshold = 0,
+    tokensInAll = 0;
 
   scanned.forEach((session, index) => {
     if (!session.usage.length) return;
     const cwd = session.meta?.cwd ?? '';
     if (opts.project && !cwd.startsWith(opts.project)) return;
-    const usage = session.usage.filter(u => u.time >= threshold);
+    const usage = session.usage.filter((u) => u.time >= threshold);
     if (!usage.length) return;
 
     const row = {
-      id: files[index].id, cwd, model: new Set(), requests: 0,
-      input: 0, cacheRead: 0, output: 0, cost: 0, promptSizes: [],
-      parent: session.meta?.parent, depth: session.meta?.depth ?? 0,
+      id: files[index].id,
+      cwd,
+      model: new Set(),
+      requests: 0,
+      input: 0,
+      cacheRead: 0,
+      output: 0,
+      cost: 0,
+      promptSizes: [],
+      parent: session.meta?.parent,
+      depth: session.meta?.depth ?? 0,
       created: session.meta?.created ?? usage[0].time,
       title: session.title || session.label || '',
     };
@@ -276,7 +305,10 @@ async function main() {
       promptSizes.push(prompt);
       allPromptSizes.push(prompt);
       tokensInAll += prompt;
-      if (prompt > 200_000) { overThreshold += 1; tokensInOverThreshold += prompt; }
+      if (prompt > 200_000) {
+        overThreshold += 1;
+        tokensInOverThreshold += prompt;
+      }
 
       const key = `${item.provider}/${item.model}`;
       row.model.add(key);
@@ -286,7 +318,11 @@ async function main() {
       modelRow.input += item.input;
       modelRow.cacheRead += item.cacheRead;
       modelRow.output += item.output;
-      if (cost !== null) { modelRow.cost += cost; row.cost += cost; totalCost += cost; }
+      if (cost !== null) {
+        modelRow.cost += cost;
+        row.cost += cost;
+        totalCost += cost;
+      }
       modelRow.sessions.add(row.id);
       models.set(key, modelRow);
 
@@ -319,8 +355,8 @@ async function main() {
     projects.set(key, projectRow);
   }
 
-  const rootSessions = sessions.filter(row => !row.parent);
-  const childSessions = sessions.filter(row => row.parent);
+  const rootSessions = sessions.filter((row) => !row.parent);
+  const childSessions = sessions.filter((row) => row.parent);
   const childTokens = childSessions.reduce((a, r) => a + r.input + r.cacheRead, 0);
   const totalTokens = totalInput + totalCache;
   const summary = {
@@ -336,9 +372,17 @@ async function main() {
     cacheHitRate: totalCache / (totalCache + totalInput),
     outputToInput: totalOutput ? (totalCache + totalInput) / totalOutput : null,
     estimatedUsd: totalCost,
-    fanOut: { root: rootSessions.length, child: childSessions.length, ratio: childSessions.length / (rootSessions.length || 1), childTokenShare: childTokens / (totalTokens || 1) },
+    fanOut: {
+      root: rootSessions.length,
+      child: childSessions.length,
+      ratio: childSessions.length / (rootSessions.length || 1),
+      childTokenShare: childTokens / (totalTokens || 1),
+    },
     prompts: {
-      p50: quantile(allPromptSizes.sort((a, b) => a - b), 0.5),
+      p50: quantile(
+        allPromptSizes.sort((a, b) => a - b),
+        0.5,
+      ),
       p90: quantile(allPromptSizes, 0.9),
       p99: quantile(allPromptSizes, 0.99),
       max: allPromptSizes.at(-1) ?? 0,
@@ -350,9 +394,14 @@ async function main() {
     projects: [...projects].map(([cwd, row]) => ({ cwd, ...row })).sort((a, b) => b.cacheRead - a.cacheRead),
     days: [...days].map(([date, row]) => ({ date, ...row, sessions: row.sessions.size })).sort((a, b) => a.date.localeCompare(b.date)),
     topSessions: sessions
-      .map(row => ({
-        id: row.id, title: row.title, depth: row.depth, requests: row.requests,
-        inputTokens: row.input, cacheReadTokens: row.cacheRead, outputTokens: row.output,
+      .map((row) => ({
+        id: row.id,
+        title: row.title,
+        depth: row.depth,
+        requests: row.requests,
+        inputTokens: row.input,
+        cacheReadTokens: row.cacheRead,
+        outputTokens: row.output,
         avgPrompt: (row.input + row.cacheRead) / row.requests,
         usd: row.cost,
       }))
@@ -366,32 +415,61 @@ async function main() {
   }
 
   console.log(`${status.toUpperCase()} · DSH usage · ${home}`);
-  console.log(` ${diagnostics.malformedLines} malformed lines · ${diagnostics.truncatedTails} truncated tails · ${diagnostics.decompressionFailures} decompression failures · ${diagnostics.affectedFiles} affected files`);
+  console.log(
+    ` ${diagnostics.malformedLines} malformed lines · ${diagnostics.truncatedTails} truncated tails · ${diagnostics.decompressionFailures} decompression failures · ${diagnostics.affectedFiles} affected files`,
+  );
   const start = opts.days ? threshold : summary.window.from;
   const window = start === null ? '' : `${day(start)} → ${day(Date.now())} · `;
   console.log(` ${window}${summary.sessions} sessions · ${summary.requests.toLocaleString('en-US')} requests`);
   if (!summary.sessions) return;
   console.log(` fresh input ${human(totalInput)} · cache read ${human(totalCache)} · output ${human(totalOutput)}`);
-  console.log(` cache hit ${percent(totalCache, totalCache + totalInput)} · output:input 1:${totalOutput ? Math.round((totalCache + totalInput) / totalOutput) : '-'} · ${usd(totalCost)} at list price`);
+  console.log(
+    ` cache hit ${percent(totalCache, totalCache + totalInput)} · output:input 1:${totalOutput ? Math.round((totalCache + totalInput) / totalOutput) : '-'} · ${usd(totalCost)} at list price`,
+  );
 
   console.log('\nMODEL'.padEnd(36) + lpad('REQ', 8) + lpad('FRESH IN', 11) + lpad('CACHE READ', 12) + lpad('OUTPUT', 10) + lpad('USD', 9));
   for (const row of summary.models) {
-    console.log(pad(row.model, 36) + lpad(row.requests.toLocaleString('en-US'), 8) + lpad(human(row.input), 11) + lpad(human(row.cacheRead), 12) + lpad(human(row.output), 10) + lpad(usd(row.cost), 9));
+    console.log(
+      pad(row.model, 36) +
+        lpad(row.requests.toLocaleString('en-US'), 8) +
+        lpad(human(row.input), 11) +
+        lpad(human(row.cacheRead), 12) +
+        lpad(human(row.output), 10) +
+        lpad(usd(row.cost), 9),
+    );
   }
 
   console.log('\nPROJECT'.padEnd(48) + lpad('SESS', 6) + lpad('REQ', 8) + lpad('CACHE READ', 12) + lpad('USD', 8));
   for (const row of summary.projects) {
-    console.log(pad(row.cwd || '(unknown)', 48) + lpad(row.sessions, 6) + lpad(row.requests.toLocaleString('en-US'), 8) + lpad(human(row.cacheRead), 12) + lpad(usd(row.cost), 8));
+    console.log(
+      pad(row.cwd || '(unknown)', 48) +
+        lpad(row.sessions, 6) +
+        lpad(row.requests.toLocaleString('en-US'), 8) +
+        lpad(human(row.cacheRead), 12) +
+        lpad(usd(row.cost), 8),
+    );
   }
 
   console.log('\nDAY'.padEnd(14) + lpad('SESS', 6) + lpad('REQ', 8) + lpad('CACHE READ', 12) + lpad('USD', 8));
   for (const row of summary.days) {
-    console.log(pad(row.date, 14) + lpad(row.sessions, 6) + lpad(row.requests.toLocaleString('en-US'), 8) + lpad(human(row.cacheRead), 12) + lpad(usd(row.cost), 8));
+    console.log(
+      pad(row.date, 14) +
+        lpad(row.sessions, 6) +
+        lpad(row.requests.toLocaleString('en-US'), 8) +
+        lpad(human(row.cacheRead), 12) +
+        lpad(usd(row.cost), 8),
+    );
   }
 
-  console.log(`\nprompt/request  p50 ${human(summary.prompts.p50)} · p90 ${human(summary.prompts.p90)} · p99 ${human(summary.prompts.p99)} · max ${human(summary.prompts.max)}`);
-  console.log(`>200K prompts   ${summary.prompts.over200k.toLocaleString('en-US')} / ${summary.requests.toLocaleString('en-US')} (${percent(summary.prompts.over200k, summary.requests)}) carrying ${percent(tokensInOverThreshold, tokensInAll)} of input tokens`);
-  console.log(`fan-out         ${summary.fanOut.root} root · ${summary.fanOut.child} subagent (${summary.fanOut.ratio.toFixed(1)}x) · subagents hold ${percent(childTokens, totalTokens)} of input`);
+  console.log(
+    `\nprompt/request  p50 ${human(summary.prompts.p50)} · p90 ${human(summary.prompts.p90)} · p99 ${human(summary.prompts.p99)} · max ${human(summary.prompts.max)}`,
+  );
+  console.log(
+    `>200K prompts   ${summary.prompts.over200k.toLocaleString('en-US')} / ${summary.requests.toLocaleString('en-US')} (${percent(summary.prompts.over200k, summary.requests)}) carrying ${percent(tokensInOverThreshold, tokensInAll)} of input tokens`,
+  );
+  console.log(
+    `fan-out         ${summary.fanOut.root} root · ${summary.fanOut.child} subagent (${summary.fanOut.ratio.toFixed(1)}x) · subagents hold ${percent(childTokens, totalTokens)} of input`,
+  );
 
   console.log('\nTOP SESSIONS BY INPUT');
   for (const row of summary.topSessions) {

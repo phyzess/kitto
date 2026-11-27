@@ -9,10 +9,19 @@ async function fixture(t) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'kitto-dsh-discovery-')));
   t.onTestFinished(() => rm(home, { recursive: true, force: true }));
   const env = { HOME: home, PATH: join(home, 'bin'), DSH_HOME: join(home, '.dsh') };
-  const run = (code, extra = {}) => spawnSync(process.execPath, ['--input-type=module', '-e', `
+  const run = (code, extra = {}) =>
+    spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
     import { dshExecutable, loadDshYaml } from './integration/scoped-dsh/native.ts';
     import { installDshScope } from './lib/scope-dsh.ts';
-    ${code}`], { env: { ...env, ...extra }, encoding: 'utf8', timeout: 15000 });
+    ${code}`,
+      ],
+      { env: { ...env, ...extra }, encoding: 'utf8', timeout: 15000 },
+    );
   async function file(path, content, mode) {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, { mode });
@@ -27,9 +36,9 @@ async function fixture(t) {
 
 const yamlProbe = 'console.log((await loadDshYaml()).origin)';
 
-test('a missing DSH gives a deferred scoped setup preview and never writes a patch', async t => {
+test('a missing DSH gives a deferred scoped setup preview and never writes a patch', async (t) => {
   const { home, env, run } = await fixture(t);
-  const setup = dryRun => run(`await installDshScope(${JSON.stringify({ home, dryRun })});`);
+  const setup = (dryRun) => run(`await installDshScope(${JSON.stringify({ home, dryRun })});`);
   const preview = setup(true);
   assert.equal(preview.status, 0, preview.stderr);
   assert.match(preview.stdout, /would register after DSH is installed/);
@@ -40,7 +49,7 @@ test('a missing DSH gives a deferred scoped setup preview and never writes a pat
   await assert.rejects(readFile(join(env.DSH_HOME, 'profiles/web/cordis.patch.yml')), { code: 'ENOENT' });
 });
 
-test('direct DSH symlink resolves modules from the selected package, including hoisted dependencies', async t => {
+test('direct DSH symlink resolves modules from the selected package, including hoisted dependencies', async (t) => {
   const { home, env, install, file, run } = await fixture(t);
   const dir = join(home, 'node_modules/@deepseek-ai/dsh');
   const entry = await install(dir);
@@ -52,7 +61,7 @@ test('direct DSH symlink resolves modules from the selected package, including h
   assert.equal(result.stdout.trim(), 'hoisted');
 });
 
-test('an unknown wrapper cannot load yaml even next to an unrelated package', async t => {
+test('an unknown wrapper cannot load yaml even next to an unrelated package', async (t) => {
   const { home, env, install, file, run } = await fixture(t);
   const entry = await install(join(home, 'real-dsh'));
   await file(join(home, 'node_modules/yaml/index.js'), 'exports.origin = "foreign"');
@@ -65,15 +74,19 @@ test('an unknown wrapper cannot load yaml even next to an unrelated package', as
   assert.doesNotMatch(result.stdout, /foreign/);
 });
 
-test('a verified mise shim uses the selected installation, never modules next to the shim', async t => {
+test('a verified mise shim uses the selected installation, never modules next to the shim', async (t) => {
   const { home, env, install, file, run } = await fixture(t);
   const dir = join(home, 'runtime');
   const entry = await install(dir);
   await file(join(dir, 'node_modules/yaml/index.js'), 'exports.origin = "selected"');
-  const mise = await file(join(env.PATH, 'mise'), `#!/bin/sh
+  const mise = await file(
+    join(env.PATH, 'mise'),
+    `#!/bin/sh
 [ "$1 $2" = "which dsh" ] || exit 9
 printf '%s\\n' '${entry}'
-`, 0o700);
+`,
+    0o700,
+  );
   const shims = join(home, 's');
   await mkdir(shims);
   await symlink(mise, join(shims, 'dsh'));
@@ -82,7 +95,7 @@ printf '%s\\n' '${entry}'
   assert.equal(result.stdout.trim(), 'selected');
 });
 
-test('mise failure, ambiguous success and shim recursion do not fall back', async t => {
+test('mise failure, ambiguous success and shim recursion do not fall back', async (t) => {
   const { home, env, install, file, run } = await fixture(t);
   const later = join(home, 'later');
   const entry = await install(join(home, 'runtime'));
@@ -101,7 +114,7 @@ test('mise failure, ambiguous success and shim recursion do not fall back', asyn
   }
 });
 
-test('a valid DSH entry rejects external NODE_PATH modules and conflicting runtime anchors', async t => {
+test('a valid DSH entry rejects external NODE_PATH modules and conflicting runtime anchors', async (t) => {
   const { home, env, install, file, run } = await fixture(t);
   const entry = await install(join(home, 'selected'));
   await mkdir(env.PATH);

@@ -26,10 +26,17 @@ function sandbox(t) {
   return { home, agent, synced };
 }
 
-test('the synced migration module needs no host imports and installs no editor hook', async t => {
+test('the synced migration module needs no host imports and installs no editor hook', async (t) => {
   const { synced } = sandbox(t);
   const { default: activate } = await import(pathToFileURL(synced));
-  const pi = new Proxy({}, { get(_target, key) { assert.fail(`Unexpected Pi API access: ${String(key)}`); } });
+  const pi = new Proxy(
+    {},
+    {
+      get(_target, key) {
+        assert.fail(`Unexpected Pi API access: ${String(key)}`);
+      },
+    },
+  );
   assert.equal(activate(pi), undefined);
   assert.equal(JSON.parse(readFileSync(settings, 'utf8')).showHardwareCursor, true);
 });
@@ -137,17 +144,20 @@ finally:
 `;
 
 for (const setting of ['on', 'off']) {
-  test(`pinned Pi resolves ANSI and wide graphemes with hardware cursor ${setting}`, { skip: skipNative }, t => {
+  test(`pinned Pi resolves ANSI and wide graphemes with hardware cursor ${setting}`, { skip: skipNative }, (t) => {
     const { home, helper, env } = fixture(t);
     const result = spawnSync(process.execPath, [helper, 'render', setting], { cwd: home, env, encoding: 'utf8', timeout: 10000 });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
   });
 
-  test(`pinned Pi in a PTY shows the hardware cursor only when ${setting}`, { skip: skipNative }, t => {
+  test(`pinned Pi in a PTY shows the hardware cursor only when ${setting}`, { skip: skipNative }, (t) => {
     const { home, helper, env } = fixture(t);
     const result = spawnSync('python3', ['-c', pty, process.execPath, helper, 'pty', setting], {
-      cwd: home, env, encoding: 'utf8', timeout: 15000,
+      cwd: home,
+      env,
+      encoding: 'utf8',
+      timeout: 15000,
     });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stdout + result.stderr);

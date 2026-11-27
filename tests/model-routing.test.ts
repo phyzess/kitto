@@ -16,25 +16,68 @@ import { createRoutingStore } from '../lib/routing-state.ts';
 const now = Date.parse('2026-11-25T12:00:00Z');
 const stamp = new Date(now).toISOString();
 const reset = new Date(now + 3600_000).toISOString();
-const sol = { provider: 'openai-codex', model: 'gpt-6.2-sol', canonicalModel: 'openai/gpt-6.2-sol',
-  upstream: 'openai-codex', billing: 'subscription', account: 'personal-codex', accountType: 'personal',
-  accountVerified: true, available: true, reasoningEfforts: ['low', 'medium', 'high'] };
-const claude = { ...sol, upstream: 'anthropic', provider: 'company-claude', model: 'claude-stable',
-  canonicalModel: 'anthropic/claude-sonnet-5-5', account: 'corp-claude', accountType: 'company', tier: 1, premium: false };
+const sol = {
+  provider: 'openai-codex',
+  model: 'gpt-6.2-sol',
+  canonicalModel: 'openai/gpt-6.2-sol',
+  upstream: 'openai-codex',
+  billing: 'subscription',
+  account: 'personal-codex',
+  accountType: 'personal',
+  accountVerified: true,
+  available: true,
+  reasoningEfforts: ['low', 'medium', 'high'],
+};
+const claude = {
+  ...sol,
+  upstream: 'anthropic',
+  provider: 'company-claude',
+  model: 'claude-stable',
+  canonicalModel: 'anthropic/claude-sonnet-5-5',
+  account: 'corp-claude',
+  accountType: 'company',
+  tier: 1,
+  premium: false,
+};
 const router = { ...claude, upstream: 'openrouter', provider: 'corp-router', account: 'corp-router-plan' };
-const makeGo = (model, canonicalModel, reasoningEfforts) => ({ ...sol, provider: 'opencode-go', upstream: 'opencode-go',
-  billing: 'go-included', account: 'my-go', model, canonicalModel, reasoningEfforts });
+const makeGo = (model, canonicalModel, reasoningEfforts) => ({
+  ...sol,
+  provider: 'opencode-go',
+  upstream: 'opencode-go',
+  billing: 'go-included',
+  account: 'my-go',
+  model,
+  canonicalModel,
+  reasoningEfforts,
+});
 const flash = makeGo('deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash-1017', ['low', 'high']);
 const glmFlash = makeGo('glm-5.3-flash', 'zhipuai/glm-5.3-flash', ['low', 'medium']);
 const glm = makeGo('glm-5.3', 'zhipuai/glm-5.3', ['low', 'medium']);
 const grok = makeGo('grok-4.7', 'xai/grok-4.7', ['low', 'high']);
-const goEntry = (route, monthly, plus, teams, input, output) => ({ id: route.model, canonical_id: route.canonicalModel,
-  type: 'chat', go: { monthly_usage: { go: monthly, 'go-plus': plus, 'go-teams': teams }, training: false },
-  cost: { text: { input: { price: input }, output: { price: output } } } });
-const goFixture = () => ({ plan: 'go', account: 'my-go', extraUsage: 'off', observedAt: stamp, catalogObservedAt: stamp,
-  usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map(key => [key, { status: 'ok', percent: 10, resetsAt: reset }])),
-  catalog: { object: 'list', data: [goEntry(flash, 100, 200, 105, 0.15, 0.60), goEntry(glmFlash, 60, 180, 65, 0.15, 0.50),
-    goEntry(glm, 200, 400, 205, 1.4, 4.4), goEntry(grok, 15, 60, 20, 2, 6)] } });
+const goEntry = (route, monthly, plus, teams, input, output) => ({
+  id: route.model,
+  canonical_id: route.canonicalModel,
+  type: 'chat',
+  go: { monthly_usage: { go: monthly, 'go-plus': plus, 'go-teams': teams }, training: false },
+  cost: { text: { input: { price: input }, output: { price: output } } },
+});
+const goFixture = () => ({
+  plan: 'go',
+  account: 'my-go',
+  extraUsage: 'off',
+  observedAt: stamp,
+  catalogObservedAt: stamp,
+  usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map((key) => [key, { status: 'ok', percent: 10, resetsAt: reset }])),
+  catalog: {
+    object: 'list',
+    data: [
+      goEntry(flash, 100, 200, 105, 0.15, 0.6),
+      goEntry(glmFlash, 60, 180, 65, 0.15, 0.5),
+      goEntry(glm, 200, 400, 205, 1.4, 4.4),
+      goEntry(grok, 15, 60, 20, 2, 6),
+    ],
+  },
+});
 
 function state(mode = 'personal', custom) {
   const value = { schema: 1, routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web', preserveMe: 42 };
@@ -43,20 +86,50 @@ function state(mode = 'personal', custom) {
 }
 function fixture(routes = [flash, glmFlash], options = {}) {
   const { role = 'verify', data = 'public', surface = 'subagent', effects = 'read' } = options;
-  return { host: { kind: 'dsh', installation: 'full-local', profile: 'web', surface, observedAt: stamp, routes,
-    ...(surface === 'teams' && { effectiveFallbacks: [] }) },
-  task: { role, data, effects, effort: ['low'], tokens: { input: 10_000, output: 1_000 },
-    authorized: routes.map(({ provider, model, canonicalModel, upstream, billing, account, accountType }) =>
-      ({ provider, model, canonicalModel, upstream, billing, account, accountType, data })) }, go: goFixture() };
+  return {
+    host: {
+      kind: 'dsh',
+      installation: 'full-local',
+      profile: 'web',
+      surface,
+      observedAt: stamp,
+      routes,
+      ...(surface === 'teams' && { effectiveFallbacks: [] }),
+    },
+    task: {
+      role,
+      data,
+      effects,
+      effort: ['low'],
+      tokens: { input: 10_000, output: 1_000 },
+      authorized: routes.map(({ provider, model, canonicalModel, upstream, billing, account, accountType }) => ({
+        provider,
+        model,
+        canonicalModel,
+        upstream,
+        billing,
+        account,
+        accountType,
+        data,
+      })),
+    },
+    go: goFixture(),
+  };
 }
 const advise = (request, saved = state()) => adviseRoute({ request, state: saved, now });
-const reasons = result => result.rejected.map(row => row.reason);
+const reasons = (result) => result.rejected.map((row) => row.reason);
 
 test('missing, skipped, damaged, copied and non-local device confirmations stop', () => {
   const request = fixture();
-  for (const saved of [null, {}, state('skip'), { ...state(), ready: false }, { ...state(), routingInstallKind: 'service' },
+  for (const saved of [
+    null,
+    {},
+    state('skip'),
+    { ...state(), ready: false },
+    { ...state(), routingInstallKind: 'service' },
     { ...state(), routingBoundary: { ...state().routingBoundary, identity: 'another-machine' } },
-    { ...state(), routingBoundary: { ...state().routingBoundary, routes: [flash.model] } }]) {
+    { ...state(), routingBoundary: { ...state().routingBoundary, routes: [flash.model] } },
+  ]) {
     assert.equal(advise(request, saved).reason, 'boundary-unconfirmed');
   }
   assert.equal(advise({ ...request, host: { ...request.host, installation: 'scoped' } }).reason, 'unsupported-surface');
@@ -73,7 +146,11 @@ test('company separates personal from approved custom Claude or OpenRouter upstr
   assert.equal(saved.preserveMe, 42);
   assert.deepEqual(Object.keys(saved.routingBoundary).sort(), ['identity', 'mode', 'profile', 'schema']);
   assert.equal(advise(fixture([router], { role: 'implement', data: 'restricted' }), saved).route.provider, router.provider);
-  for (const invalid of [{ ...router, billing: 'payg' }, { ...router, upstream: 'unknown' }, { ...router, accountVerified: false }]) {
+  for (const invalid of [
+    { ...router, billing: 'payg' },
+    { ...router, upstream: 'unknown' },
+    { ...router, accountVerified: false },
+  ]) {
     assert.equal(advise(fixture([invalid]), saved).status, 'stop');
   }
   request.task.authorized[1].account = 'different';
@@ -102,10 +179,18 @@ test('Go ranks plan-normalized estimates and selects the tightest time window', 
 
 test('Go handles missing, expired, stale, malformed, exhausted and tiny headroom distinctly', () => {
   for (const [reason, edit] of Object.entries({
-    missing: request => { delete request.go.usage; },
-    stale: request => { request.go.observedAt = '2026-11-25T11:00:00Z'; },
-    invalid: request => { delete request.go.usage.monthly; },
-    exhausted: request => { request.go.usage.rolling = { status: 'rate-limited', percent: 99, resetsAt: reset }; },
+    missing: (request) => {
+      delete request.go.usage;
+    },
+    stale: (request) => {
+      request.go.observedAt = '2026-11-25T11:00:00Z';
+    },
+    invalid: (request) => {
+      delete request.go.usage.monthly;
+    },
+    exhausted: (request) => {
+      request.go.usage.rolling = { status: 'rate-limited', percent: 99, resetsAt: reset };
+    },
   })) {
     const request = fixture();
     edit(request);
@@ -143,8 +228,12 @@ test('unsupported efforts, unavailable routes, unknown models and unapproved pre
   const unknown = makeGo('imaginary-model', 'deepseek/imaginary-model', ['low']);
   const request = fixture([flash, { ...glmFlash, available: false }, unknown, grok]);
   request.task.effort = ['medium'];
-  assert.deepEqual(reasons(advise(request)), ['effort-unavailable', 'unavailable-or-not-allowed',
-    'upstream-or-model-metadata-unverified', 'premium-not-approved']);
+  assert.deepEqual(reasons(advise(request)), [
+    'effort-unavailable',
+    'unavailable-or-not-allowed',
+    'upstream-or-model-metadata-unverified',
+    'premium-not-approved',
+  ]);
   request.task.effort = ['default'];
   assert.ok(!Object.hasOwn(advise(request).route, 'reasoning_effort'));
   request.host.surface = 'teams';
@@ -167,12 +256,20 @@ test('built-in short names cannot inherit a lower tier from a same-family catalo
 test('native capability imports supply exact effort without changing authorization or pool holds', () => {
   const request = fixture([flash, glmFlash, sol]);
   request.host.session = 'fixture-session';
-  request.host.evidence = { source: 'operator-native-result', profile: 'web', session: request.host.session,
-    routes: [flash, glmFlash, sol].map(route => ({ provider: route.provider, model: route.model, observedAt: stamp,
-      result: `${route.provider}/${route.model} — Model\nReasoning efforts:\nmedium (default) — Medium` })) };
+  request.host.evidence = {
+    source: 'operator-native-result',
+    profile: 'web',
+    session: request.host.session,
+    routes: [flash, glmFlash, sol].map((route) => ({
+      provider: route.provider,
+      model: route.model,
+      observedAt: stamp,
+      result: `${route.provider}/${route.model} — Model\nReasoning efforts:\nmedium (default) — Medium`,
+    })),
+  };
   request.task.effort = ['medium'];
   assert.equal(advise(request).route.reasoning_effort, 'medium');
-  request.task.authorized = request.task.authorized.filter(route => route.provider !== sol.provider);
+  request.task.authorized = request.task.authorized.filter((route) => route.provider !== sol.provider);
   assert.ok(reasons(advise(request)).includes('route-or-data-not-authorized'));
 });
 
@@ -180,8 +277,12 @@ test('native capability evidence cannot invent Teams availability or bypass fall
   const request = fixture([{ ...sol }]);
   const [route] = request.host.routes;
   request.host.session = 'fixture-session';
-  request.host.evidence = { source: 'operator-native-result', profile: 'web', session: request.host.session,
-    routes: [{ ...route, observedAt: stamp, result: `${route.provider}/${route.model} — Model\nReasoning efforts:\nlow — Low` }] };
+  request.host.evidence = {
+    source: 'operator-native-result',
+    profile: 'web',
+    session: request.host.session,
+    routes: [{ ...route, observedAt: stamp, result: `${route.provider}/${route.model} — Model\nReasoning efforts:\nlow — Low` }],
+  };
   for (const surface of ['subagent', 'teams']) {
     request.host.surface = surface;
     request.host.effectiveFallbacks = [];
@@ -201,8 +302,10 @@ test('native capability evidence cannot invent Teams availability or bypass fall
 
 test('review independence requires actual identities', () => {
   const request = fixture([sol, claude, glm, grok], { role: 'review' });
-  request.task.implementers = [{ provider: 'cross-provider', canonicalModel: sol.canonicalModel },
-    { canonicalModel: 'anthropic/claude-opus-5-5' }];
+  request.task.implementers = [
+    { provider: 'cross-provider', canonicalModel: sol.canonicalModel },
+    { canonicalModel: 'anthropic/claude-opus-5-5' },
+  ];
   let result = advise(request);
   assert.equal(result.route.model, glm.model);
   assert.ok(reasons(result).includes('same-model'));
@@ -211,19 +314,31 @@ test('review independence requires actual identities', () => {
   assert.equal(advise(request).reason, 'implementation-identity-unverified');
 });
 
-test('full setup persists only an explicit local boundary and dry-run leaves state unchanged', t => {
+test('full setup persists only an explicit local boundary and dry-run leaves state unchanged', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'kitto-boundary-setup-'));
   t.onTestFinished(() => rmSync(root, { recursive: true, force: true }));
-  const home = join(root, 'home'), source = join(root, 'source'), bin = join(root, 'bin'), kitto = join(home, 'kitto');
+  const home = join(root, 'home'),
+    source = join(root, 'source'),
+    bin = join(root, 'bin'),
+    kitto = join(home, 'kitto');
   for (const dir of [home, bin, join(source, 'config/dsh'), join(source, 'config/instructions')]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(source, 'config/dsh/AGENTS.md'), 'DSH fixture');
   writeFileSync(join(source, 'config/instructions/common.md'), 'Shared fixture');
   for (const name of ['dsh', 'pnpm']) writeFileSync(join(bin, name), `#!/bin/sh\nprintf "${hosts.dsh.version}\n"\n`, { mode: 0o755 });
-  const env = { ...process.env, HOME: home, KITTO_HOME: kitto, DSH_HOME: join(home, 'dsh'), DSH_AGENTS_HOME: join(home, 'agents'),
-    PATH: `${bin}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const env = {
+    ...process.env,
+    HOME: home,
+    KITTO_HOME: kitto,
+    DSH_HOME: join(home, 'dsh'),
+    DSH_AGENTS_HOME: join(home, 'agents'),
+    PATH: `${bin}:${process.env.PATH}`,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
   const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 10_000 });
-  const good = result => assert.equal(result.status, 0, result.stderr + result.stdout);
-  for (const args of [['init'], ['add', '.'], ['-c', 'user.name=Kitto', '-c', 'user.email=kitto@example.invalid', 'commit', '-m', 'test']]) good(run('git', args, source));
+  const good = (result) => assert.equal(result.status, 0, result.stderr + result.stdout);
+  for (const args of [['init'], ['add', '.'], ['-c', 'user.name=Kitto', '-c', 'user.email=kitto@example.invalid', 'commit', '-m', 'test']])
+    good(run('git', args, source));
   const cli = fileURLToPath(new URL('../dist/bin/kitto.mjs', import.meta.url));
   const setup = (...args) => run(process.execPath, [cli, 'setup', '--agents', 'dsh', '--source', source, ...args]);
   const path = join(kitto, 'state.json');
@@ -249,13 +364,13 @@ test('full setup persists only an explicit local boundary and dry-run leaves sta
   assert.equal(existsSync(join(env.DSH_HOME, 'cordis.patch.yml')), false);
 });
 
-
-test('Go permit rejects an exact authorization split from its verified pool', t => {
+test('Go permit rejects an exact authorization split from its verified pool', (t) => {
   const home = mkdtempSync(join(tmpdir(), 'kitto-approval-split-'));
   t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const dshHome = join(home, 'dsh');
   mkdirSync(dshHome);
-  const saved = { ...state(), dshHome }, pool = 'verified-pool';
+  const saved = { ...state(), dshHome },
+    pool = 'verified-pool';
   const request = fixture([{ ...grok, pool }]);
   Object.assign(request.host, { version: ROUTING_HOST_VERSION, session: 'fixture-session', spawnVerified: true, effectiveFallbacks: [] });
   Object.assign(request.task, { id: 'verify-fixture', budget: { maxAdditionalCashUsd: 0, maxMonthlyGoFraction: 1 } });
@@ -263,12 +378,20 @@ test('Go permit rejects an exact authorization split from its verified pool', t 
   request.dispatch = { source: 'operator-verified', project: home, callerCwd: home, cwd: home };
   const approve = { ...request.task.authorized[0], premium: true };
   const issue = () => issueRoutePermit({ state: saved, home: dshHome, request, store: createRoutingStore(home), now });
-  for (const override of [{ account: 'other' }, { accountType: 'company' }, { billing: 'subscription' },
-    { data: 'personal' }, { canonicalModel: 'xai/other' }, { premium: false }]) {
-    request.task.authorized = [{ ...approve, pool: 'wrong-pool' }, { ...approve, ...override, pool }];
+  for (const override of [
+    { account: 'other' },
+    { accountType: 'company' },
+    { billing: 'subscription' },
+    { data: 'personal' },
+    { canonicalModel: 'xai/other' },
+    { premium: false },
+  ]) {
+    request.task.authorized = [
+      { ...approve, pool: 'wrong-pool' },
+      { ...approve, ...override, pool },
+    ];
     assert.throws(issue, /Dispatch preflight stopped/);
   }
   request.task.authorized = [{ ...approve, pool }];
   assert.equal(issue().status, 'permit-issued');
 });
-

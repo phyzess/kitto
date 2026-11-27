@@ -28,20 +28,22 @@ export function adapterFor(state: State, name: HostName, deps: HostAdapterDeps =
   return factories[name](state, { ...deps.common, ...deps[name] } as PiAdapterDeps & CodexAdapterDeps & DshWebAdapterDeps);
 }
 
-export const selectedAdapters = (state: State, deps: HostAdapterDeps = {}): HostAdapter[] => state.agents.map(name => adapterFor(state, name, deps));
+export const selectedAdapters = (state: State, deps: HostAdapterDeps = {}): HostAdapter[] =>
+  state.agents.map((name) => adapterFor(state, name, deps));
 
 const hostOrder = Object.keys(hosts);
 const byHostOrder = (left: HostAction, right: HostAction) => hostOrder.indexOf(left.host) - hostOrder.indexOf(right.host);
 
 export function planDeploy(state: State, { deps = undefined }: { deps?: HostAdapterDeps } = {}): DeployPlan {
-  const actions = selectedAdapters(state, deps).flatMap(adapter => adapter.plan(state));
+  const actions = selectedAdapters(state, deps).flatMap((adapter) => adapter.plan(state));
   return {
-    sync: actions.filter(action => action.phase === 'sync').sort(byHostOrder),
-    postSkills: actions.filter(action => action.phase === 'post-skills'),
+    sync: actions.filter((action) => action.phase === 'sync').sort(byHostOrder),
+    postSkills: actions.filter((action) => action.phase === 'post-skills'),
   };
 }
 
-export const planConnect = (state: State, { deps = undefined }: { deps?: HostAdapterDeps } = {}): HostAction[] => selectedAdapters(state, deps).flatMap(adapter => adapter.planConnect(state));
+export const planConnect = (state: State, { deps = undefined }: { deps?: HostAdapterDeps } = {}): HostAction[] =>
+  selectedAdapters(state, deps).flatMap((adapter) => adapter.planConnect(state));
 
 export async function connectNative(state: State, { deps = undefined }: { deps?: HostAdapterDeps } = {}): Promise<void> {
   for (const adapter of selectedAdapters(state, deps)) adapter.assertConnectable?.();

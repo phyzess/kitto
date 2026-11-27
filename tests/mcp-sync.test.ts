@@ -56,101 +56,154 @@ async function sourceFixture(t, servers, { linux, macos } = {}) {
   return source;
 }
 
-const read = path => readFile(path, 'utf8');
-const exists = async path => {
-  try { await access(path); return true; } catch { return false; }
+const read = (path) => readFile(path, 'utf8');
+const exists = async (path) => {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 };
-const conflictRow = serverName => ({
-  insert: [{ id: `mcp-${serverName}`, name: '@deepseek-ai/dsh-mcp-client', config: { serverName, transport: 'stdio', command: serverName } }],
+const conflictRow = (serverName) => ({
+  insert: [
+    { id: `mcp-${serverName}`, name: '@deepseek-ai/dsh-mcp-client', config: { serverName, transport: 'stdio', command: serverName } },
+  ],
 });
-const kittoConfigs = (text, yaml) => new Map(yaml.parseDocument(text).toJS()
-  .flatMap(item => item.insert ?? [])
-  .filter(row => row.id?.startsWith('kitto-mcp-'))
-  .map(row => [row.config.serverName, row.config]));
+const kittoConfigs = (text, yaml) =>
+  new Map(
+    yaml
+      .parseDocument(text)
+      .toJS()
+      .flatMap((item) => item.insert ?? [])
+      .filter((row) => row.id?.startsWith('kitto-mcp-'))
+      .map((row) => [row.config.serverName, row.config]),
+  );
 
-test('Pi MCP source applies the platform overlay and reads private/local files only when opted in', async t => {
-  const source = await sourceFixture(t, {
-    _comment: 'not a server',
-    context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@4.7.3'], directTools: true, lifecycle: 'lazy' },
-    codegraph: { command: 'codegraph', args: ['serve', '--mcp'], lifecycle: 'lazy' },
-    api: { type: 'http', url: 'https://example.test/mcp', toolExposure: 'auto' },
-    plain: { command: 'plain' },
-    envServer: { command: 'env-server', env: { TOKEN: '${TOKEN}' } },
-    headerServer: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
-    'bad/name': { command: 'bad' },
-  }, {
-    linux: { codegraph: { enabled: false } },
-    macos: { codegraph: { enabled: false }, 'computer-use': { command: 'npx', args: ['computer-use'] } },
-  });
+test('Pi MCP source applies the platform overlay and reads private/local files only when opted in', async (t) => {
+  const source = await sourceFixture(
+    t,
+    {
+      _comment: 'not a server',
+      context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@4.7.3'], directTools: true, lifecycle: 'lazy' },
+      codegraph: { command: 'codegraph', args: ['serve', '--mcp'], lifecycle: 'lazy' },
+      api: { type: 'http', url: 'https://example.test/mcp', toolExposure: 'auto' },
+      plain: { command: 'plain' },
+      envServer: { command: 'env-server', env: { TOKEN: '${TOKEN}' } },
+      headerServer: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
+      'bad/name': { command: 'bad' },
+    },
+    {
+      linux: { codegraph: { enabled: false } },
+      macos: { codegraph: { enabled: false }, 'computer-use': { command: 'npx', args: ['computer-use'] } },
+    },
+  );
   await writeJson(join(source, 'config/pi/mcp.private.json'), { mcpServers: { gitlab: { url: 'https://example.test/mcp' } } });
   await writeJson(join(source, 'config/pi/local/mcp.json'), { mcpServers: { localOnly: { command: 'local' } } });
 
   const linux = await piMcpServers(source, 'linux');
-  assert.deepEqual(linux.servers.map(server => server.name),
-    ['context7', 'api', 'plain', 'envServer', 'headerServer']);
+  assert.deepEqual(
+    linux.servers.map((server) => server.name),
+    ['context7', 'api', 'plain', 'envServer', 'headerServer'],
+  );
   assert.deepEqual(linux.servers[0], {
-    name: 'context7', transport: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp@4.7.3'],
+    name: 'context7',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', '@upstash/context7-mcp@4.7.3'],
   });
   assert.deepEqual(linux.servers[1], { name: 'api', transport: 'streamable-http', url: 'https://example.test/mcp' });
   assert.deepEqual(linux.servers[3], {
-    name: 'envServer', transport: 'stdio', command: 'env-server', args: [],
-    env: { TOKEN: '${credential:TOKEN}' }, expandTemplates: true,
+    name: 'envServer',
+    transport: 'stdio',
+    command: 'env-server',
+    args: [],
+    env: { TOKEN: '${credential:TOKEN}' },
+    expandTemplates: true,
   });
   assert.deepEqual(linux.servers[4], {
-    name: 'headerServer', transport: 'streamable-http', url: 'https://example.test/mcp',
-    headers: { Authorization: 'Bearer ${credential:TOKEN}' }, expandTemplates: true,
+    name: 'headerServer',
+    transport: 'streamable-http',
+    url: 'https://example.test/mcp',
+    headers: { Authorization: 'Bearer ${credential:TOKEN}' },
+    expandTemplates: true,
   });
-  assert(linux.skipped.some(item => item.name === 'bad/name'));
-  assert(!linux.servers.some(server => ['gitlab', 'localOnly', 'codegraph'].includes(server.name)));
+  assert(linux.skipped.some((item) => item.name === 'bad/name'));
+  assert(!linux.servers.some((server) => ['gitlab', 'localOnly', 'codegraph'].includes(server.name)));
 
   const withPrivate = await piMcpServers(source, 'linux', { includePrivate: true });
-  assert.deepEqual(withPrivate.servers.map(server => server.name),
-    ['context7', 'api', 'plain', 'envServer', 'headerServer', 'localOnly', 'gitlab']);
+  assert.deepEqual(
+    withPrivate.servers.map((server) => server.name),
+    ['context7', 'api', 'plain', 'envServer', 'headerServer', 'localOnly', 'gitlab'],
+  );
 
   const macos = await piMcpServers(source, 'darwin');
-  assert.deepEqual(macos.servers.map(server => server.name),
-    ['context7', 'api', 'plain', 'envServer', 'headerServer', 'computer-use']);
+  assert.deepEqual(
+    macos.servers.map((server) => server.name),
+    ['context7', 'api', 'plain', 'envServer', 'headerServer', 'computer-use'],
+  );
 });
 
 test('DSH rows use kitto ids, DSH transport names and credential templates', () => {
-  assert.deepEqual(dshMcpRows([
-    { name: 'context7', transport: 'stdio', command: 'npx', args: ['-y', 'context7'] },
-    { name: 'api', transport: 'streamable-http', url: 'https://example.test/mcp' },
-    {
-      name: 'env', transport: 'stdio', command: 'env-mcp', args: [],
-      env: { TOKEN: '${credential:TOKEN}' }, expandTemplates: true,
-    },
-    {
-      name: 'headers', transport: 'streamable-http', url: 'https://example.test/headers',
-      headers: { Authorization: 'Bearer ${credential:AUTH}' }, expandTemplates: true,
-    },
-  ]), [
-    {
-      id: 'kitto-mcp-context7', name: '@deepseek-ai/dsh-mcp-client',
-      config: { serverName: 'context7', transport: 'stdio', command: 'npx', args: ['-y', 'context7'] },
-    },
-    {
-      id: 'kitto-mcp-api', name: '@deepseek-ai/dsh-mcp-client',
-      config: { serverName: 'api', transport: 'streamable-http', url: 'https://example.test/mcp' },
-    },
-    {
-      id: 'kitto-mcp-env', name: '@deepseek-ai/dsh-mcp-client',
-      config: {
-        serverName: 'env', transport: 'stdio', command: 'env-mcp', args: [],
-        env: { TOKEN: '${credential:TOKEN}' }, expandTemplates: true,
+  assert.deepEqual(
+    dshMcpRows([
+      { name: 'context7', transport: 'stdio', command: 'npx', args: ['-y', 'context7'] },
+      { name: 'api', transport: 'streamable-http', url: 'https://example.test/mcp' },
+      {
+        name: 'env',
+        transport: 'stdio',
+        command: 'env-mcp',
+        args: [],
+        env: { TOKEN: '${credential:TOKEN}' },
+        expandTemplates: true,
       },
-    },
-    {
-      id: 'kitto-mcp-headers', name: '@deepseek-ai/dsh-mcp-client',
-      config: {
-        serverName: 'headers', transport: 'streamable-http', url: 'https://example.test/headers',
-        headers: { Authorization: 'Bearer ${credential:AUTH}' }, expandTemplates: true,
+      {
+        name: 'headers',
+        transport: 'streamable-http',
+        url: 'https://example.test/headers',
+        headers: { Authorization: 'Bearer ${credential:AUTH}' },
+        expandTemplates: true,
       },
-    },
-  ]);
+    ]),
+    [
+      {
+        id: 'kitto-mcp-context7',
+        name: '@deepseek-ai/dsh-mcp-client',
+        config: { serverName: 'context7', transport: 'stdio', command: 'npx', args: ['-y', 'context7'] },
+      },
+      {
+        id: 'kitto-mcp-api',
+        name: '@deepseek-ai/dsh-mcp-client',
+        config: { serverName: 'api', transport: 'streamable-http', url: 'https://example.test/mcp' },
+      },
+      {
+        id: 'kitto-mcp-env',
+        name: '@deepseek-ai/dsh-mcp-client',
+        config: {
+          serverName: 'env',
+          transport: 'stdio',
+          command: 'env-mcp',
+          args: [],
+          env: { TOKEN: '${credential:TOKEN}' },
+          expandTemplates: true,
+        },
+      },
+      {
+        id: 'kitto-mcp-headers',
+        name: '@deepseek-ai/dsh-mcp-client',
+        config: {
+          serverName: 'headers',
+          transport: 'streamable-http',
+          url: 'https://example.test/headers',
+          headers: { Authorization: 'Bearer ${credential:AUTH}' },
+          expandTemplates: true,
+        },
+      },
+    ],
+  );
 });
 
-test('reference env/headers become DSH credential templates; literal values are skipped', { skip: !yaml }, async t => {
+test('reference env/headers become DSH credential templates; literal values are skipped', { skip: !yaml }, async (t) => {
   const literalToken = `ghp_${'a'.repeat(30)}`;
   const openAiToken = `sk-${'b'.repeat(30)}`;
   const source = await sourceFixture(t, {
@@ -175,19 +228,33 @@ test('reference env/headers become DSH credential templates; literal values are 
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
   const warnings = [];
-  const result = await syncDshMcp({ source, dshHome }, { yaml, warn: line => warnings.push(line) });
+  const result = await syncDshMcp({ source, dshHome }, { yaml, warn: (line) => warnings.push(line) });
   assert.equal(result.changed, true);
   const configs = kittoConfigs(await read(path), yaml);
   assert.deepEqual(configs.get('envServer').env, {
-    TOKEN: '${credential:TOKEN}', OTHER: '${credential:OTHER_KEY}',
+    TOKEN: '${credential:TOKEN}',
+    OTHER: '${credential:OTHER_KEY}',
   });
   assert.equal(configs.get('envServer').expandTemplates, true);
   assert.deepEqual(configs.get('bearerServer').headers, { Authorization: 'Bearer ${credential:TOKEN}' });
   assert.deepEqual(configs.get('headerServer').headers, { 'X-Api-Key': '${credential:API_KEY}' });
   assert.equal(configs.get('bearerServer').expandTemplates, true);
   assert.equal(configs.get('headerServer').expandTemplates, true);
-  for (const name of ['literalEnv', 'partialEnv', 'literalBearer', 'secretHeader', 'secretArgs', 'partialHeader',
-    'urlTemplate', 'urlUserinfo', 'urlQueryToken', 'urlQueryKey', 'cmdFlag', 'cmdAssign', 'cmdHeader']) {
+  for (const name of [
+    'literalEnv',
+    'partialEnv',
+    'literalBearer',
+    'secretHeader',
+    'secretArgs',
+    'partialHeader',
+    'urlTemplate',
+    'urlUserinfo',
+    'urlQueryToken',
+    'urlQueryKey',
+    'cmdFlag',
+    'cmdAssign',
+    'cmdHeader',
+  ]) {
     assert.equal(configs.has(name), false, name);
   }
   assert.equal(configs.get('urlQuerySafe').url, 'https://example.test/mcp?tenant=acme');
@@ -211,9 +278,21 @@ test('reference env/headers become DSH credential templates; literal values are 
   assert.equal(again.changed, false);
 });
 
-test('sensitive query keys and header flags are refused without values', { skip: !yaml }, async t => {
-  const queryKeys = ['sig', 'signature', 'auth', 'apikey', 'api_key', 'access_token',
-    'refresh_token', 'credential', 'token', 'key', 'secret', 'password'];
+test('sensitive query keys and header flags are refused without values', { skip: !yaml }, async (t) => {
+  const queryKeys = [
+    'sig',
+    'signature',
+    'auth',
+    'apikey',
+    'api_key',
+    'access_token',
+    'refresh_token',
+    'credential',
+    'token',
+    'key',
+    'secret',
+    'password',
+  ];
   const servers = {};
   for (const key of queryKeys) {
     servers[`query_${key}`] = { type: 'http', url: `https://example.test/mcp?${key}=abcd` };
@@ -230,7 +309,7 @@ test('sensitive query keys and header flags are refused without values', { skip:
   const source = await sourceFixture(t, servers);
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const warnings = [];
-  await syncDshMcp({ source, dshHome }, { yaml, warn: line => warnings.push(line) });
+  await syncDshMcp({ source, dshHome }, { yaml, warn: (line) => warnings.push(line) });
   const configs = kittoConfigs(await read(join(dshHome, 'cordis.patch.yml')), yaml);
   assert.deepEqual([...configs.keys()], ['safeQuery', 'headerSafe']);
   assert.equal(configs.get('safeQuery').url, 'https://example.test/mcp?tenant=acme&monkey=1&author=me&design=plain&signal=ok');
@@ -248,18 +327,22 @@ test('sensitive query keys and header flags are refused without values', { skip:
   assert.doesNotMatch(joined, /abcd/);
 });
 
-test('private and local MCP sources are opt-in for DSH sync', { skip: !yaml }, async t => {
+test('private and local MCP sources are opt-in for DSH sync', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, {
     context7: { command: 'npx' },
     shared: { command: 'shared', args: ['base'] },
   });
-  await writeJson(join(source, 'config/pi/local/mcp.json'), { mcpServers: {
-    shared: { args: ['local'] },
-    localOnly: { command: 'local', env: { LOCAL_TOKEN: '${LOCAL_TOKEN}' } },
-  } });
-  await writeJson(join(source, 'config/pi/mcp.private.json'), { mcpServers: {
-    privateApi: { type: 'http', url: 'https://private.test/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
-  } });
+  await writeJson(join(source, 'config/pi/local/mcp.json'), {
+    mcpServers: {
+      shared: { args: ['local'] },
+      localOnly: { command: 'local', env: { LOCAL_TOKEN: '${LOCAL_TOKEN}' } },
+    },
+  });
+  await writeJson(join(source, 'config/pi/mcp.private.json'), {
+    mcpServers: {
+      privateApi: { type: 'http', url: 'https://private.test/mcp', headers: { Authorization: 'Bearer ${PRIVATE_TOKEN}' } },
+    },
+  });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
 
@@ -282,7 +365,7 @@ test('private and local MCP sources are opt-in for DSH sync', { skip: !yaml }, a
   assert.deepEqual([...configs.keys()], ['context7', 'shared']);
 });
 
-test('removeDshMcp removes credential template rows', { skip: !yaml }, async t => {
+test('removeDshMcp removes credential template rows', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, {
     envServer: { command: 'env-server', env: { TOKEN: '${TOKEN}' } },
     headerServer: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
@@ -297,16 +380,18 @@ test('removeDshMcp removes credential template rows', { skip: !yaml }, async t =
   assert.doesNotMatch(after, /kitto-mcp-|credential:/);
 });
 
-test('KITTO_NO_MCP_SYNC disables the sync', async t => {
+test('KITTO_NO_MCP_SYNC disables the sync', async (t) => {
   process.env.KITTO_NO_MCP_SYNC = '1';
-  t.onTestFinished(() => { delete process.env.KITTO_NO_MCP_SYNC; });
+  t.onTestFinished(() => {
+    delete process.env.KITTO_NO_MCP_SYNC;
+  });
   const lines = [];
-  const result = await syncDshMcp({ source: '/missing', dshHome: '/missing' }, { log: line => lines.push(line) });
+  const result = await syncDshMcp({ source: '/missing', dshHome: '/missing' }, { log: (line) => lines.push(line) });
   assert.equal(result.disabled, true);
   assert.match(lines.join('\n'), /KITTO_NO_MCP_SYNC=1/);
 });
 
-test('sync preserves unrelated YAML, comments and !!js, then leaves a clean file alone', { skip: !yaml }, async t => {
+test('sync preserves unrelated YAML, comments and !!js, then leaves a clean file alone', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, {
     context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@4.7.3'] },
     api: { type: 'http', url: 'https://example.test/mcp' },
@@ -340,28 +425,43 @@ test('sync preserves unrelated YAML, comments and !!js, then leaves a clean file
   const parsed = yaml.parseDocument(after);
   assert.equal(parsed.errors.length, 0);
   const values = parsed.toJS();
-  assert.deepEqual(values.flatMap(item => item.insert ?? []).filter(row => row.id?.startsWith('kitto-mcp-')).map(row => row.config.serverName), ['context7', 'api']);
-  assert.deepEqual(values.flatMap(item => item.insert ?? []).filter(row => row.id === 'mcp-codegraph').map(row => row.config.serverName), ['codegraph']);
+  assert.deepEqual(
+    values
+      .flatMap((item) => item.insert ?? [])
+      .filter((row) => row.id?.startsWith('kitto-mcp-'))
+      .map((row) => row.config.serverName),
+    ['context7', 'api'],
+  );
+  assert.deepEqual(
+    values
+      .flatMap((item) => item.insert ?? [])
+      .filter((row) => row.id === 'mcp-codegraph')
+      .map((row) => row.config.serverName),
+    ['codegraph'],
+  );
   assert.deepEqual(await dshMcpNames(dshHome), ['api', 'codegraph', 'context7']);
 
   const info = await stat(path);
   const logs = [];
-  const second = await syncDshMcp({ source, dshHome }, { yaml, log: line => logs.push(line) });
+  const second = await syncDshMcp({ source, dshHome }, { yaml, log: (line) => logs.push(line) });
   assert.equal(second.changed, false);
   assert.equal((await stat(path)).ino, info.ino);
   assert.equal(await read(path), after);
-  assert(logs.some(line => /up to date/.test(line)));
+  assert(logs.some((line) => /up to date/.test(line)));
 });
 
-test('sync removes only stale kitto rows and keeps foreign entries', { skip: !yaml }, async t => {
+test('sync removes only stale kitto rows and keeps foreign entries', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { alpha: { command: 'alpha' }, beta: { command: 'beta' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
-  await writeFile(path, `# keep
+  await writeFile(
+    path,
+    `# keep
 - insert:
     - id: foreign
       name: example
-`);
+`,
+  );
   await syncDshMcp({ source, dshHome }, { yaml });
   let after = await read(path);
   assert.match(after, /kitto-mcp-alpha/);
@@ -386,16 +486,16 @@ test('sync removes only stale kitto rows and keeps foreign entries', { skip: !ya
   assert.equal(yaml.parseDocument(after).errors.length, 0);
 });
 
-test('a serverName declared outside Kitto is skipped, never duplicated', { skip: !yaml }, async t => {
+test('a serverName declared outside Kitto is skipped, never duplicated', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' }, alpha: { command: 'alpha' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
   const foreign = yaml.stringify([conflictRow('context7')], { lineWidth: 0 });
   await writeFile(path, foreign);
   const warnings = [];
-  const result = await syncDshMcp({ source, dshHome }, { yaml, warn: line => warnings.push(line) });
+  const result = await syncDshMcp({ source, dshHome }, { yaml, warn: (line) => warnings.push(line) });
   assert.equal(result.changed, true);
-  assert(warnings.some(line => /skipped context7 \(already declared in .*cordis\.patch\.yml\)/.test(line)));
+  assert(warnings.some((line) => /skipped context7 \(already declared in .*cordis\.patch\.yml\)/.test(line)));
   const after = await read(path);
   assert.equal(after.match(/serverName: context7/g).length, 1);
   assert.match(after, /kitto-mcp-alpha/);
@@ -410,7 +510,7 @@ test('a serverName declared outside Kitto is skipped, never duplicated', { skip:
   assert.equal(await read(foreignOnly), unchanged);
 });
 
-test('invalid YAML, mixed kitto rows and non-sequence patches are rejected without writes', { skip: !yaml }, async t => {
+test('invalid YAML, mixed kitto rows and non-sequence patches are rejected without writes', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
@@ -435,7 +535,7 @@ test('invalid YAML, mixed kitto rows and non-sequence patches are rejected witho
   assert.equal(await read(path), flow);
 });
 
-test('an empty flow-style home patch becomes a block sequence', { skip: !yaml }, async t => {
+test('an empty flow-style home patch becomes a block sequence', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
@@ -445,18 +545,18 @@ test('an empty flow-style home patch becomes a block sequence', { skip: !yaml },
   assert.match(after, /# empty for now/);
   const values = yaml.parseDocument(after).toJS();
   assert(Array.isArray(values));
-  assert.deepEqual(values.filter(item => item.insert?.[0]?.id === 'kitto-mcp-context7').length, 1);
+  assert.deepEqual(values.filter((item) => item.insert?.[0]?.id === 'kitto-mcp-context7').length, 1);
 });
 
-test('dry-run previews additions and removals without writing', { skip: !yaml }, async t => {
+test('dry-run previews additions and removals without writing', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
   const logs = [];
-  const preview = await syncDshMcp({ source, dshHome }, { yaml, dryRun: true, log: line => logs.push(line) });
+  const preview = await syncDshMcp({ source, dshHome }, { yaml, dryRun: true, log: (line) => logs.push(line) });
   assert.equal(preview.changed, true);
   assert.equal(await exists(path), false);
-  assert(logs.some(line => /would update .* \(1 server\)/.test(line)));
+  assert(logs.some((line) => /would update .* \(1 server\)/.test(line)));
 
   const before = '# untouched\n[]\n';
   await writeFile(path, before);
@@ -465,7 +565,7 @@ test('dry-run previews additions and removals without writing', { skip: !yaml },
   assert.equal(await read(path), before);
 });
 
-test('a trailing document-end marker stays after the managed rows', { skip: !yaml }, async t => {
+test('a trailing document-end marker stays after the managed rows', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
@@ -499,7 +599,7 @@ test('a trailing document-end marker stays after the managed rows', { skip: !yam
   assert.equal(yaml.parseDocument(fromMarker).errors.length, 0);
 });
 
-test('an indented ... inside a block scalar is content, not a document end', { skip: !yaml }, async t => {
+test('an indented ... inside a block scalar is content, not a document end', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
@@ -518,8 +618,12 @@ test('an indented ... inside a block scalar is content, not a document end', { s
   assert.doesNotMatch(cleaned, /kitto-mcp-/);
 });
 
-test('a top-level null patch is treated as an empty list', { skip: !yaml }, async t => {
-  for (const [label, content] of [['null', 'null\n'], ['tilde', '~\n'], ['comment', '# keep\nnull\n']]) {
+test('a top-level null patch is treated as an empty list', { skip: !yaml }, async (t) => {
+  for (const [label, content] of [
+    ['null', 'null\n'],
+    ['tilde', '~\n'],
+    ['comment', '# keep\nnull\n'],
+  ]) {
     const source = await sourceFixture(t, { context7: { command: 'npx' } });
     const dshHome = await temporary(t, 'kitto-mcp-dsh-');
     const path = join(dshHome, 'cordis.patch.yml');
@@ -538,7 +642,7 @@ test('a top-level null patch is treated as an empty list', { skip: !yaml }, asyn
   }
 });
 
-test('removing a row whose alias would be left unresolved is refused', { skip: !yaml }, async t => {
+test('removing a row whose alias would be left unresolved is refused', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
@@ -548,7 +652,7 @@ test('removing a row whose alias would be left unresolved is refused', { skip: !
   assert.equal(await read(path), before);
 });
 
-test('profile patches and mcp-manager servers count as declared names', { skip: !yaml }, async t => {
+test('profile patches and mcp-manager servers count as declared names', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, {
     context7: { command: 'npx' },
     alpha: { command: 'alpha' },
@@ -562,29 +666,56 @@ test('profile patches and mcp-manager servers count as declared names', { skip: 
   const profileDir = join(dshHome, 'profiles', 'web');
   await mkdir(profileDir, { recursive: true });
   const profilePath = join(profileDir, 'cordis.patch.yml');
-  await writeFile(profilePath, yaml.stringify([
-    { insert: [{ id: 'profile-a', name: 'example' }] },
-    { insert: [{ id: 'profile-b', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'alpha' } }] },
-    { insert: [{ id: 'profile-manager', name: '@deepseek-ai/dsh-mcp-manager', config: { servers: {
-      epsilon: { transport: 'stdio', command: 'epsilon' },
-    } } }] },
-  ], { lineWidth: 0 }));
-  await writeFile(path, yaml.stringify([
-    { insert: [{ id: 'home-client', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'context7' } }] },
-    { id: 'mcp-manager', config: { servers: {
-      beta: { transport: 'stdio', command: 'beta' },
-      gamma: { transport: 'stdio', command: 'gamma', enabled: false },
-    } } },
-    { insert: [{ id: 'home-other', name: 'example' }] },
-  ], { lineWidth: 0 }));
+  await writeFile(
+    profilePath,
+    yaml.stringify(
+      [
+        { insert: [{ id: 'profile-a', name: 'example' }] },
+        { insert: [{ id: 'profile-b', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'alpha' } }] },
+        {
+          insert: [
+            {
+              id: 'profile-manager',
+              name: '@deepseek-ai/dsh-mcp-manager',
+              config: {
+                servers: {
+                  epsilon: { transport: 'stdio', command: 'epsilon' },
+                },
+              },
+            },
+          ],
+        },
+      ],
+      { lineWidth: 0 },
+    ),
+  );
+  await writeFile(
+    path,
+    yaml.stringify(
+      [
+        { insert: [{ id: 'home-client', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'context7' } }] },
+        {
+          id: 'mcp-manager',
+          config: {
+            servers: {
+              beta: { transport: 'stdio', command: 'beta' },
+              gamma: { transport: 'stdio', command: 'gamma', enabled: false },
+            },
+          },
+        },
+        { insert: [{ id: 'home-other', name: 'example' }] },
+      ],
+      { lineWidth: 0 },
+    ),
+  );
 
   const warnings = [];
-  const result = await syncDshMcp({ source, dshHome }, { yaml, warn: line => warnings.push(line) });
+  const result = await syncDshMcp({ source, dshHome }, { yaml, warn: (line) => warnings.push(line) });
   assert.equal(result.changed, true);
-  assert(warnings.some(line => /skipped context7 \(already declared in .*cordis\.patch\.yml\)/.test(line)));
-  assert(warnings.some(line => /skipped alpha \(already declared in .*profiles\/web\/cordis\.patch\.yml\)/.test(line)));
-  assert(warnings.some(line => /skipped beta \(already declared in .*cordis\.patch\.yml \(mcp-manager\)\)/.test(line)));
-  assert(warnings.some(line => /skipped epsilon \(already declared in .*profiles\/web\/cordis\.patch\.yml \(mcp-manager\)\)/.test(line)));
+  assert(warnings.some((line) => /skipped context7 \(already declared in .*cordis\.patch\.yml\)/.test(line)));
+  assert(warnings.some((line) => /skipped alpha \(already declared in .*profiles\/web\/cordis\.patch\.yml\)/.test(line)));
+  assert(warnings.some((line) => /skipped beta \(already declared in .*cordis\.patch\.yml \(mcp-manager\)\)/.test(line)));
+  assert(warnings.some((line) => /skipped epsilon \(already declared in .*profiles\/web\/cordis\.patch\.yml \(mcp-manager\)\)/.test(line)));
   const after = await read(path);
   assert.match(after, /kitto-mcp-delta/);
   assert.match(after, /kitto-mcp-gamma/);
@@ -600,7 +731,7 @@ test('profile patches and mcp-manager servers count as declared names', { skip: 
   assert.equal(await read(path), after);
 });
 
-test('removeDshMcp previews and removes only Kitto-owned rows without a source', { skip: !yaml }, async t => {
+test('removeDshMcp previews and removes only Kitto-owned rows without a source', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' }, api: { type: 'http', url: 'https://example.test/mcp' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
@@ -609,10 +740,10 @@ test('removeDshMcp previews and removes only Kitto-owned rows without a source',
   const before = await read(path);
 
   const logs = [];
-  const preview = await removeDshMcp({ dshHome }, { yaml, dryRun: true, log: line => logs.push(line) });
+  const preview = await removeDshMcp({ dshHome }, { yaml, dryRun: true, log: (line) => logs.push(line) });
   assert.equal(preview.changed, true);
   assert.deepEqual(preview.removed, ['context7', 'api']);
-  assert(logs.some(line => /would remove 2 Kitto MCP servers/.test(line)));
+  assert(logs.some((line) => /would remove 2 Kitto MCP servers/.test(line)));
   assert.equal(await read(path), before);
 
   const applied = await removeDshMcp({ dshHome }, { yaml });
@@ -627,19 +758,24 @@ test('removeDshMcp previews and removes only Kitto-owned rows without a source',
   assert.equal(again.changed, false);
 });
 
-test('multiple Kitto insert items are normalized and stale rows removed', { skip: !yaml }, async t => {
+test('multiple Kitto insert items are normalized and stale rows removed', { skip: !yaml }, async (t) => {
   const source = await sourceFixture(t, { alpha: { command: 'next' } });
   const dshHome = await temporary(t, 'kitto-mcp-dsh-');
   const path = join(dshHome, 'cordis.patch.yml');
-  const stale = (name, command) => ({ insert: [{
-    id: `kitto-mcp-${name}`, name: '@deepseek-ai/dsh-mcp-client',
-    config: { serverName: name, transport: 'stdio', command, args: [] },
-  }] });
-  await writeFile(path, yaml.stringify([
-    { insert: [{ id: 'foreign', name: 'example' }] },
-    stale('alpha', 'old'),
-    stale('beta', 'old'),
-  ], { lineWidth: 0 }) + '...  # end marker\n# tail comment\n\n');
+  const stale = (name, command) => ({
+    insert: [
+      {
+        id: `kitto-mcp-${name}`,
+        name: '@deepseek-ai/dsh-mcp-client',
+        config: { serverName: name, transport: 'stdio', command, args: [] },
+      },
+    ],
+  });
+  await writeFile(
+    path,
+    yaml.stringify([{ insert: [{ id: 'foreign', name: 'example' }] }, stale('alpha', 'old'), stale('beta', 'old')], { lineWidth: 0 }) +
+      '...  # end marker\n# tail comment\n\n',
+  );
   await syncDshMcp({ source, dshHome }, { yaml });
   const after = await read(path);
   assert.equal(after.match(/kitto-mcp-alpha/g).length, 1);
@@ -651,7 +787,7 @@ test('multiple Kitto insert items are normalized and stale rows removed', { skip
   assert(Array.isArray(yaml.parseDocument(after).toJS()));
 });
 
-test('removeDshMcp warns and keeps unreadable patch shapes', { skip: !yaml }, async t => {
+test('removeDshMcp warns and keeps unreadable patch shapes', { skip: !yaml }, async (t) => {
   const cases = [
     ['invalid', '- insert: [\n'],
     ['flow', '[{ insert: [{ id: foreign }] }]\n'],
@@ -663,14 +799,17 @@ test('removeDshMcp warns and keeps unreadable patch shapes', { skip: !yaml }, as
     const path = join(dshHome, 'cordis.patch.yml');
     await writeFile(path, content);
     const warnings = [];
-    const result = await removeDshMcp({ dshHome }, { yaml, warn: line => warnings.push(line) });
+    const result = await removeDshMcp({ dshHome }, { yaml, warn: (line) => warnings.push(line) });
     assert.equal(result.changed, false, label);
-    assert(warnings.some(line => /skipped removal/.test(line)), label);
+    assert(
+      warnings.some((line) => /skipped removal/.test(line)),
+      label,
+    );
     assert.equal(await read(path), content, label);
   }
 });
 
-test('maintain remove cleans Kitto MCP rows for a DSH home', { skip: !nativeDsh, timeout: 60_000 }, async t => {
+test('maintain remove cleans Kitto MCP rows for a DSH home', { skip: !nativeDsh, timeout: 60_000 }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' } });
   const home = await temporary(t, 'kitto-mcp-native-');
   const dshHome = join(home, '.dsh');
@@ -681,25 +820,42 @@ test('maintain remove cleans Kitto MCP rows for a DSH home', { skip: !nativeDsh,
   await writeFile(path, '# keep\n- insert:\n    - id: foreign\n      name: example\n');
   await syncDshMcp({ source, dshHome }, { yaml });
   const statePath = join(kittoHome, 'state.json');
-  await writeFile(statePath, JSON.stringify({
-    schema: 1, ready: true, detached: false, removing: false, removedAgents: [],
-    source, agents: ['dsh'], dshProfile: 'web',
-    agentsHome: join(home, '.agents'), piHome: join(home, '.pi'), codexHome: join(home, '.codex'),
-    dshHome, version: '0.2.1',
-  }, null, 2) + '\n');
-  const run = (...args) => execFileSync(process.execPath, [join(dist, 'bin/maintain.mjs'), 'remove', ...args], {
-    encoding: 'utf8',
-    timeout: 45_000,
-    env: {
-      ...process.env,
-      HOME: home,
-      KITTO_HOME: kittoHome,
-      DSH_HOME: dshHome,
-      DSH_AGENTS_HOME: join(home, '.agents'),
-      DSH_TELEMETRY_DISABLED: '1',
-      PATH: `${dirname(executable)}${delimiter}${process.env.PATH}`,
-    },
-  });
+  await writeFile(
+    statePath,
+    JSON.stringify(
+      {
+        schema: 1,
+        ready: true,
+        detached: false,
+        removing: false,
+        removedAgents: [],
+        source,
+        agents: ['dsh'],
+        dshProfile: 'web',
+        agentsHome: join(home, '.agents'),
+        piHome: join(home, '.pi'),
+        codexHome: join(home, '.codex'),
+        dshHome,
+        version: '0.2.1',
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+  const run = (...args) =>
+    execFileSync(process.execPath, [join(dist, 'bin/maintain.mjs'), 'remove', ...args], {
+      encoding: 'utf8',
+      timeout: 45_000,
+      env: {
+        ...process.env,
+        HOME: home,
+        KITTO_HOME: kittoHome,
+        DSH_HOME: dshHome,
+        DSH_AGENTS_HOME: join(home, '.agents'),
+        DSH_TELEMETRY_DISABLED: '1',
+        PATH: `${dirname(executable)}${delimiter}${process.env.PATH}`,
+      },
+    });
 
   const before = await read(path);
   const stateBefore = await read(statePath);
@@ -715,7 +871,7 @@ test('maintain remove cleans Kitto MCP rows for a DSH home', { skip: !nativeDsh,
   assert.equal(JSON.parse(await read(statePath)).detached, true);
 });
 
-test('maintain remove continues when the home patch cannot be updated', { skip: !nativeDsh, timeout: 60_000 }, async t => {
+test('maintain remove continues when the home patch cannot be updated', { skip: !nativeDsh, timeout: 60_000 }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx' } });
   const home = await temporary(t, 'kitto-mcp-native-');
   const dshHome = join(home, '.dsh');
@@ -726,12 +882,28 @@ test('maintain remove continues when the home patch cannot be updated', { skip: 
   const broken = '- insert: [\n';
   await writeFile(path, broken);
   const statePath = join(kittoHome, 'state.json');
-  await writeFile(statePath, JSON.stringify({
-    schema: 1, ready: true, detached: false, removing: false, removedAgents: [],
-    source, agents: ['dsh'], dshProfile: 'web',
-    agentsHome: join(home, '.agents'), piHome: join(home, '.pi'), codexHome: join(home, '.codex'),
-    dshHome, version: '0.2.1',
-  }, null, 2) + '\n');
+  await writeFile(
+    statePath,
+    JSON.stringify(
+      {
+        schema: 1,
+        ready: true,
+        detached: false,
+        removing: false,
+        removedAgents: [],
+        source,
+        agents: ['dsh'],
+        dshProfile: 'web',
+        agentsHome: join(home, '.agents'),
+        piHome: join(home, '.pi'),
+        codexHome: join(home, '.codex'),
+        dshHome,
+        version: '0.2.1',
+      },
+      null,
+      2,
+    ) + '\n',
+  );
   const result = spawnSync(process.execPath, [join(dist, 'bin/maintain.mjs'), 'remove', '--apply'], {
     encoding: 'utf8',
     timeout: 45_000,
@@ -751,7 +923,7 @@ test('maintain remove continues when the home patch cannot be updated', { skip: 
   assert.equal(JSON.parse(await read(statePath)).detached, true);
 });
 
-test('the native DSH loader accepts the synced home patch', { skip: !nativeDsh, timeout: 60_000 }, async t => {
+test('the native DSH loader accepts the synced home patch', { skip: !nativeDsh, timeout: 60_000 }, async (t) => {
   const source = await sourceFixture(t, { context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@4.7.3'] } });
   const home = await temporary(t, 'kitto-mcp-native-');
   const dshHome = join(home, '.dsh');
@@ -773,7 +945,7 @@ test('the native DSH loader accepts the synced home patch', { skip: !nativeDsh, 
   assert.match(output, /transport: stdio/);
 });
 
-test('the native DSH loader accepts credential template rows', { skip: !nativeDsh, timeout: 60_000 }, async t => {
+test('the native DSH loader accepts credential template rows', { skip: !nativeDsh, timeout: 60_000 }, async (t) => {
   const source = await sourceFixture(t, {
     envServer: { command: 'env-server', env: { TOKEN: '${TOKEN}' } },
     headerServer: { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
@@ -808,21 +980,24 @@ async function ledgerFixture(t) {
   await mkdir(dshHome, { recursive: true });
   const path = join(dshHome, 'cordis.patch.yml');
   const messages = [];
-  const options = { yaml: localYaml, log: () => {}, warn: message => messages.push(message) };
+  const options = { yaml: localYaml, log: () => {}, warn: (message) => messages.push(message) };
   return { state: { schema: 2, source, dshHome }, path, messages, options };
 }
 
-test('DSH sync records owned rows with fingerprints; preview records nothing', async t => {
+test('DSH sync records owned rows with fingerprints; preview records nothing', async (t) => {
   const f = await ledgerFixture(t);
   await syncDshMcp(f.state, { ...f.options, dryRun: true });
   assert.deepEqual(list(f.state, 'mcp', 'dsh'), []);
   await syncDshMcp(f.state, f.options);
-  assert.deepEqual(list(f.state, 'mcp', 'dsh', 'owned').map(entry => entry.name), ['kitto-mcp-alpha', 'kitto-mcp-beta']);
+  assert.deepEqual(
+    list(f.state, 'mcp', 'dsh', 'owned').map((entry) => entry.name),
+    ['kitto-mcp-alpha', 'kitto-mcp-beta'],
+  );
   assert.match(get(f.state, 'mcp', 'dsh', 'kitto-mcp-alpha').hash, /^[0-9a-f]{64}$/);
   assert.deepEqual(f.messages, []);
 });
 
-test('DSH sync preserves a row changed outside Kitto and warns', async t => {
+test('DSH sync preserves a row changed outside Kitto and warns', async (t) => {
   const f = await ledgerFixture(t);
   await syncDshMcp(f.state, f.options);
   const edited = (await read(f.path)).replace('alpha-mcp', 'user-alpha');
@@ -836,7 +1011,7 @@ test('DSH sync preserves a row changed outside Kitto and warns', async t => {
   assert.equal((await read(f.path)).match(/kitto-mcp-alpha/g).length, 1, 'the preserved row is never duplicated');
 });
 
-test('DSH removal keeps a changed row and releases the rest', async t => {
+test('DSH removal keeps a changed row and releases the rest', async (t) => {
   const f = await ledgerFixture(t);
   await syncDshMcp(f.state, f.options);
   await writeFile(f.path, (await read(f.path)).replace('beta-mcp', 'user-beta'));
@@ -847,10 +1022,13 @@ test('DSH removal keeps a changed row and releases the rest', async t => {
   assert.doesNotMatch(after, /kitto-mcp-alpha/);
   assert.match(after, /kitto-mcp-beta/);
   assert.match(f.messages.join('\n'), /preserved kitto-mcp-beta/);
-  assert.deepEqual(list(f.state, 'mcp', 'dsh').map(entry => entry.name), ['kitto-mcp-beta']);
+  assert.deepEqual(
+    list(f.state, 'mcp', 'dsh').map((entry) => entry.name),
+    ['kitto-mcp-beta'],
+  );
 });
 
-test('DSH rows without a ledger entry keep the namespace-only behavior', async t => {
+test('DSH rows without a ledger entry keep the namespace-only behavior', async (t) => {
   const f = await ledgerFixture(t);
   await syncDshMcp(f.state, f.options);
   const legacy = { schema: 2, source: f.state.source, dshHome: f.state.dshHome };

@@ -9,10 +9,11 @@ import type { ScopeInstallOptions } from './scope-pi.ts';
 const packageDir = fileURLToPath(new URL('../', import.meta.url));
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
-const existing = async (path: string) => lstat(path).catch((error: unknown): null => {
-  if (!missing(error)) throw error;
-  return null;
-});
+const existing = async (path: string) =>
+  lstat(path).catch((error: unknown): null => {
+    if (!missing(error)) throw error;
+    return null;
+  });
 
 async function inspectHooks(path: string) {
   const info = await existing(path);
@@ -24,7 +25,13 @@ function isObject(value: unknown): value is Json {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-export async function installCodexScope({ dryRun = false, home = homedir(), root, global, runtime = packageDir }: ScopeInstallOptions = {}) {
+export async function installCodexScope({
+  dryRun = false,
+  home = homedir(),
+  root,
+  global,
+  runtime = packageDir,
+}: ScopeInstallOptions = {}) {
   const path = join(resolve(process.env.CODEX_HOME || join(home, '.codex')), 'hooks.json');
   const { info, text } = await inspectHooks(path);
   const config: Json = text === null ? {} : JSON.parse(text);
@@ -37,8 +44,10 @@ export async function installCodexScope({ dryRun = false, home = homedir(), root
 
   const adapter = join(runtime, 'integration/scoped-codex/session-start.mjs');
   const command = [process.execPath, adapter].map(shellQuote).join(' ');
-  const needsHook = !groups.some((group: Json) => Array.isArray(group?.hooks) &&
-    group.hooks.some((handler: Json) => handler?.type === 'command' && handler.command === command));
+  const needsHook = !groups.some(
+    (group: Json) =>
+      Array.isArray(group?.hooks) && group.hooks.some((handler: Json) => handler?.type === 'command' && handler.command === command),
+  );
 
   const skillsPath = global ? join(home, '.agents/skills/kitto-shared') : null;
   const skillsSource = global ? join(root, '.agents/skills') : null;
@@ -51,9 +60,12 @@ export async function installCodexScope({ dryRun = false, home = homedir(), root
   }
   const link = await needsLink();
   if (!dryRun && needsHook) {
-    config.hooks.SessionStart = [...groups, {
-      hooks: [{ type: 'command', command, statusMessage: 'Loading Kitto scopes' }],
-    }];
+    config.hooks.SessionStart = [
+      ...groups,
+      {
+        hooks: [{ type: 'command', command, statusMessage: 'Loading Kitto scopes' }],
+      },
+    ];
     await mkdir(dirname(path), { recursive: true });
     const staging = await mkdtemp(join(dirname(path), '.kitto-hooks-'));
     try {
@@ -70,7 +82,7 @@ export async function installCodexScope({ dryRun = false, home = homedir(), root
     try {
       await symlink(skillsSource, skillsPath, 'dir');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || await needsLink()) throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || (await needsLink())) throw error;
     }
   }
   if (dryRun) console.log(`Codex scoped configuration: ${path}`);

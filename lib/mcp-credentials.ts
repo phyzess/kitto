@@ -1,4 +1,3 @@
-
 export const REFERENCE_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 const BEARER_REFERENCE_PATTERN = /^Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 const PLACEHOLDER_PATTERN = /YOUR_[A-Za-z0-9_]+/;
@@ -117,8 +116,7 @@ export function urlCredentialReason(value: unknown): string | null {
       const name = part.split('=')[0];
       if (name && isCredentialName(safeDecode(name))) return 'has a credential-like query parameter';
     }
-  } catch {
-  }
+  } catch {}
   return null;
 }
 
@@ -208,7 +206,7 @@ export function transportCredentialProblem(entry: unknown): string | null {
     const header = headerFlagMatch(token.value);
     if (header) {
       const spec = header[2] ?? tokens[index + 1]?.value;
-      const specPath = header[2] === undefined ? tokens[index + 1]?.path ?? token.path : token.path;
+      const specPath = header[2] === undefined ? (tokens[index + 1]?.path ?? token.path) : token.path;
       if (spec !== undefined) {
         const problem = headerSpecProblem(spec);
         if (problem) return `${specPath} ${problem}`;

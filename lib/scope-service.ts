@@ -27,9 +27,17 @@ const defaultPackageDir = fileURLToPath(new URL('../', import.meta.url));
 const systemEnv = { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C' };
 const properties = ['Id', 'LoadState', 'ActiveState', 'MainPID', 'User', 'DynamicUser', 'RootDirectory', 'RootImage'];
 
-function execute(program: string, args: string[], { cwd = '/', capture = true, timeout = 8_000 }: { cwd?: string; capture?: boolean; timeout?: number } = {}): string {
+function execute(
+  program: string,
+  args: string[],
+  { cwd = '/', capture = true, timeout = 8_000 }: { cwd?: string; capture?: boolean; timeout?: number } = {},
+): string {
   const result = spawnSync(program, args, {
-    cwd, env: systemEnv, encoding: 'utf8', timeout, stdio: capture ? 'pipe' : 'inherit',
+    cwd,
+    env: systemEnv,
+    encoding: 'utf8',
+    timeout,
+    stdio: capture ? 'pipe' : 'inherit',
   });
   if (result.error || result.status !== 0) {
     throw new Error(`${program} failed: ${result.error?.message || result.stderr?.trim() || result.signal || result.status}`);
@@ -38,26 +46,41 @@ function execute(program: string, args: string[], { cwd = '/', capture = true, t
 }
 
 export function readServiceProperties(unit: string, output: string): { pid: string; user: string } {
-  const details = Object.fromEntries(output.trimEnd().split('\n').map((line): [string, string] => {
-    const equals = line.indexOf('=');
-    return [line.slice(0, equals), line.slice(equals + 1)];
-  }));
-  if (details.Id !== unit || details.LoadState !== 'loaded' || details.ActiveState !== 'active' ||
-      !/^[1-9][0-9]*$/.test(details.MainPID ?? '')) {
+  const details = Object.fromEntries(
+    output
+      .trimEnd()
+      .split('\n')
+      .map((line): [string, string] => {
+        const equals = line.indexOf('=');
+        return [line.slice(0, equals), line.slice(equals + 1)];
+      }),
+  );
+  if (
+    details.Id !== unit ||
+    details.LoadState !== 'loaded' ||
+    details.ActiveState !== 'active' ||
+    !/^[1-9][0-9]*$/.test(details.MainPID ?? '')
+  ) {
     throw new Error(`Expected a loaded and active systemd service with a main process: ${unit}`);
   }
-  if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.-]*[$]?$/.test(details.User ?? '') ||
-      details.User === 'root' || /^0+$/.test(details.User) ||
-      details.DynamicUser !== 'no' || details.RootDirectory !== '' || details.RootImage !== '') {
+  if (
+    !/^[a-zA-Z0-9_][a-zA-Z0-9_.-]*[$]?$/.test(details.User ?? '') ||
+    details.User === 'root' ||
+    /^0+$/.test(details.User) ||
+    details.DynamicUser !== 'no' ||
+    details.RootDirectory !== '' ||
+    details.RootImage !== ''
+  ) {
     throw new Error(`Service must use a fixed non-root account and the host filesystem: ${unit}`);
   }
   return { pid: details.MainPID, user: details.User };
 }
 
 function serviceDetails(unit: string) {
-  return readServiceProperties(unit, execute('/usr/bin/systemctl', [
-    '--system', 'show', '--no-pager', '--property=' + properties.join(','), '--', unit,
-  ]));
+  return readServiceProperties(
+    unit,
+    execute('/usr/bin/systemctl', ['--system', 'show', '--no-pager', '--property=' + properties.join(','), '--', unit]),
+  );
 }
 
 export function readServiceEnvironment(data: string): Record<string, string> {
@@ -130,8 +153,11 @@ async function requireWorkspaceAccess(workspace: string, includeAssets: boolean)
     await access(join(workspace, 'AGENTS.md'), constants.R_OK);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    try { await access(workspace, constants.W_OK | constants.X_OK); }
-    catch (accessError) { if ((accessError as NodeJS.ErrnoException).code !== 'ENOENT') throw accessError; }
+    try {
+      await access(workspace, constants.W_OK | constants.X_OK);
+    } catch (accessError) {
+      if ((accessError as NodeJS.ErrnoException).code !== 'ENOENT') throw accessError;
+    }
   }
 }
 
@@ -140,11 +166,16 @@ async function checkLocalSource(source: string | false | undefined): Promise<voi
   try {
     await access(source, constants.R_OK | constants.X_OK);
   } catch (error) {
-    throw new Error(`The DSH service account cannot read the local source checkout ${source}. Use a checkout accessible to that account or a Git URL.`, { cause: error });
+    throw new Error(
+      `The DSH service account cannot read the local source checkout ${source}. Use a checkout accessible to that account or a Git URL.`,
+      { cause: error },
+    );
   }
   const git = spawnSync('git', ['-C', source, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 8_000 });
   if (git.status !== 0) {
-    throw new Error(`The DSH service account cannot use the local Git checkout ${source}. Use a checkout trusted by that account or a Git URL.`);
+    throw new Error(
+      `The DSH service account cannot use the local Git checkout ${source}. Use a checkout trusted by that account or a Git URL.`,
+    );
   }
 }
 
@@ -160,21 +191,36 @@ async function runServiceSetup() {
   const options: KittoOptions = { agents: ['dsh'], 'dry-run': dryRun };
   if (dshProfile) options['dsh-profile'] = dshProfile;
   if (source !== false) {
-    await setup({ ...options, keepExistingSkills: true, serviceSetup: true,
-      ...(source ? { source } : {}), ...(installAgents ? { 'install-agents': true } : {}) });
+    await setup({
+      ...options,
+      keepExistingSkills: true,
+      serviceSetup: true,
+      ...(source ? { source } : {}),
+      ...(installAgents ? { 'install-agents': true } : {}),
+    });
   }
-  const plans = [global && { global: true }, workspace && { [workspaceParent ? 'workspace-parent' : 'workspace']: workspace }].filter(Boolean);
-  if (plans.length && dryRun && source !== false && installAgents &&
-      spawnSync('dsh', ['--version'], { stdio: 'ignore', timeout: 8_000 }).status !== 0) {
+  const plans = [global && { global: true }, workspace && { [workspaceParent ? 'workspace-parent' : 'workspace']: workspace }].filter(
+    Boolean,
+  );
+  if (
+    plans.length &&
+    dryRun &&
+    source !== false &&
+    installAgents &&
+    spawnSync('dsh', ['--version'], { stdio: 'ignore', timeout: 8_000 }).status !== 0
+  ) {
     console.log('DSH scope registration will run after the DSH CLI is installed.');
   } else {
     for (const plan of plans) await setup({ ...options, ...plan });
   }
   if (deps) {
-    const hasState = await stat(join(kittoHome(), 'state.json')).then(() => true, (error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return false;
-      throw error;
-    });
+    const hasState = await stat(join(kittoHome(), 'state.json')).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      },
+    );
     if (!dryRun || source === false || hasState) {
       await maintain(['deps', ...(!dryRun ? ['--apply'] : [])]);
     } else if (source && isAbsolute(source)) {
@@ -232,7 +278,10 @@ export async function servicePnpmAvailable(unit: string): Promise<boolean> {
   validateServiceHost(unit);
   const account = await accountForService(unit);
   const result = spawnSync('/usr/sbin/runuser', serviceInvocation(account, ['pnpm', '--version']), {
-    cwd: '/', env: systemEnv, stdio: 'ignore', timeout: 3_000,
+    cwd: '/',
+    env: systemEnv,
+    stdio: 'ignore',
+    timeout: 3_000,
   });
   if (result.error) throw result.error;
   return result.status === 0;
@@ -250,23 +299,63 @@ async function delegateServiceSetup(unit: string, packageDir: string, request: S
     await chmod(stage, 0o755);
     console.log(`Delegating DSH setup for ${unit} to ${account.name}.`);
     const runner = join(stage, 'lib', 'scope-service.mjs');
-    execute('/usr/sbin/runuser', serviceInvocation(account, ['node', runner, account.uid, JSON.stringify(request)]),
-      { cwd: stage, capture: false, timeout: request.dryRun ? 60_000 : 1_800_000 });
+    execute('/usr/sbin/runuser', serviceInvocation(account, ['node', runner, account.uid, JSON.stringify(request)]), {
+      cwd: stage,
+      capture: false,
+      timeout: request.dryRun ? 60_000 : 1_800_000,
+    });
   } finally {
     await rm(stage, { recursive: true, force: true });
   }
 }
 
-export async function configureServiceScope({ unit, root, dryRun = false, packageDir = defaultPackageDir, dshProfile }: { unit: string; root: string; dryRun?: boolean; packageDir?: string; dshProfile?: string }): Promise<void> {
+export async function configureServiceScope({
+  unit,
+  root,
+  dryRun = false,
+  packageDir = defaultPackageDir,
+  dshProfile,
+}: {
+  unit: string;
+  root: string;
+  dryRun?: boolean;
+  packageDir?: string;
+  dshProfile?: string;
+}): Promise<void> {
   if (typeof root !== 'string' || !isAbsolute(root)) throw new Error('Service workspace must be an absolute path.');
   return delegateServiceSetup(unit, packageDir, { source: false, workspace: root, dryRun, dshProfile });
 }
 
 export async function configureServiceEnvironment({
-  unit, source, dryRun = false, dshProfile, deps = false, workspace, global = false, installAgents = false,
-}: { unit: string; source?: string | false; dryRun?: boolean; dshProfile?: string; deps?: boolean; workspace?: string; global?: boolean; installAgents?: boolean }): Promise<void> {
+  unit,
+  source,
+  dryRun = false,
+  dshProfile,
+  deps = false,
+  workspace,
+  global = false,
+  installAgents = false,
+}: {
+  unit: string;
+  source?: string | false;
+  dryRun?: boolean;
+  dshProfile?: string;
+  deps?: boolean;
+  workspace?: string;
+  global?: boolean;
+  installAgents?: boolean;
+}): Promise<void> {
   if (typeof source === 'string' && source && !/^(https:\/\/|ssh:\/\/|git@)/.test(source)) source = resolve(source);
-  return delegateServiceSetup(unit, defaultPackageDir, { source, dryRun, dshProfile, deps, workspace, global, installAgents, workspaceParent: true });
+  return delegateServiceSetup(unit, defaultPackageDir, {
+    source,
+    dryRun,
+    dshProfile,
+    deps,
+    workspace,
+    global,
+    installAgents,
+    workspaceParent: true,
+  });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

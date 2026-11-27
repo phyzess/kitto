@@ -1,1 +1,1 @@
-module.exports = specifier => import(specifier);
+module.exports = (specifier) => import(specifier);

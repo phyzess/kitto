@@ -4,7 +4,13 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  CURRENT_SCHEMA, downgradeState, importedPiPackages, loadState, migrateState, rollbackState, saveState,
+  CURRENT_SCHEMA,
+  downgradeState,
+  importedPiPackages,
+  loadState,
+  migrateState,
+  rollbackState,
+  saveState,
 } from '../lib/state-schema.ts';
 import { get, list } from '../lib/ownership.ts';
 import { activeRoutingBoundary, setRoutingBoundary } from '../lib/routing-policy.ts';
@@ -13,10 +19,20 @@ const block = '<!-- kitto:begin -->\nrules\n<!-- kitto:end -->\n';
 
 function v1() {
   return {
-    schema: 1, ready: true, detached: false, removing: false, removedAgents: [],
-    source: '/home/u/kitto-config', agents: ['pi', 'codex', 'dsh'], dshProfile: 'web',
-    agentsHome: '/home/u/.agents', piHome: '/home/u/.pi/agent', codexHome: '/home/u/.codex', dshHome: '/home/u/.dsh',
-    version: '0.4.0', keepExistingSkills: true,
+    schema: 1,
+    ready: true,
+    detached: false,
+    removing: false,
+    removedAgents: [],
+    source: '/home/u/kitto-config',
+    agents: ['pi', 'codex', 'dsh'],
+    dshProfile: 'web',
+    agentsHome: '/home/u/.agents',
+    piHome: '/home/u/.pi/agent',
+    codexHome: '/home/u/.codex',
+    dshHome: '/home/u/.dsh',
+    version: '0.4.0',
+    keepExistingSkills: true,
     skills: { review: 'sha-review', plan: 'sha-plan' },
     hostSkills: { pi: { 'pi-only': 'sha-pi' }, codex: {} },
     keptSkills: { shared: ['mine'], pi: ['host-mine'] },
@@ -81,7 +97,10 @@ test('a missing schema field is treated as v1', () => {
 
 test('an entry that is both owned and kept stays owned', () => {
   const { state } = migrateState({ schema: 1, skills: { a: 'h' }, keptSkills: { shared: ['a', 'b'] } });
-  assert.deepEqual(list(state, 'skill', 'shared').map(entry => `${entry.name}:${entry.status}`), ['a:owned', 'b:kept']);
+  assert.deepEqual(
+    list(state, 'skill', 'shared').map((entry) => `${entry.name}:${entry.status}`),
+    ['a:owned', 'b:kept'],
+  );
 });
 
 test('unknown and malformed schemas are refused', async () => {
@@ -105,14 +124,17 @@ test('downgrade refuses ownership that schema 1 cannot express', () => {
   assert.throws(() => downgradeState(pending), /pending skill/);
 });
 
-test('pi managed packages are imported and reported as removable', t => {
+test('pi managed packages are imported and reported as removable', (t) => {
   const dir = temp(t);
   const file = join(dir, 'managed-packages.json');
   const specs = ['npm:pi-foo@1.2.0', { source: 'git:github.com/acme/tool.git@main', extensions: ['a'] }];
   writeFileSync(file, JSON.stringify(specs));
   const result = migrateState(v1(), { piLocalDir: dir });
   assert.deepEqual(result.removable, [file]);
-  assert.deepEqual(list(result.state, 'pi-package', 'pi').map(entry => entry.name), ['npm:pi-foo', 'github.com/acme/tool']);
+  assert.deepEqual(
+    list(result.state, 'pi-package', 'pi').map((entry) => entry.name),
+    ['npm:pi-foo', 'github.com/acme/tool'],
+  );
   assert.deepEqual(importedPiPackages(result.state), specs);
   assert.equal(downgradeState(result.state).owned, undefined);
   assert.deepEqual(downgradeState(result.state), v1());
@@ -122,7 +144,7 @@ test('pi managed packages are imported and reported as removable', t => {
   assert.deepEqual(migrateState(result.state, { piLocalDir: dir }).removable, []);
 });
 
-test('pi import tolerates a missing file and rejects a malformed one', t => {
+test('pi import tolerates a missing file and rejects a malformed one', (t) => {
   const dir = temp(t);
   assert.deepEqual(migrateState(v1(), { piLocalDir: dir }).removable, []);
   writeFileSync(join(dir, 'managed-packages.json'), '{"not":"a list"}');
@@ -131,7 +153,7 @@ test('pi import tolerates a missing file and rejects a malformed one', t => {
   assert.throws(() => migrateState(v1(), { piLocalDir: dir }), /Cannot import/);
 });
 
-test('loadState migrates on disk and writes the v1 backup exactly once', async t => {
+test('loadState migrates on disk and writes the v1 backup exactly once', async (t) => {
   const dir = temp(t);
   const path = join(dir, 'state.json');
   const original = JSON.stringify(v1(), null, 2) + '\n';
@@ -152,7 +174,7 @@ test('loadState migrates on disk and writes the v1 backup exactly once', async t
   assert.equal(readFileSync(join(dir, 'state.v1.json'), 'utf8'), original);
 });
 
-test('dry run reads and migrates in memory without touching disk', async t => {
+test('dry run reads and migrates in memory without touching disk', async (t) => {
   const dir = temp(t);
   const path = join(dir, 'state.json');
   const original = JSON.stringify(v1());
@@ -168,7 +190,7 @@ test('dry run reads and migrates in memory without touching disk', async t => {
   assert.equal((await rollbackState(path, { dryRun: true })).wrote, false);
 });
 
-test('loadState returns undefined for a missing file and refuses a future schema on disk', async t => {
+test('loadState returns undefined for a missing file and refuses a future schema on disk', async (t) => {
   const dir = temp(t);
   const path = join(dir, 'state.json');
   assert.equal(await loadState(path), undefined);
@@ -179,7 +201,7 @@ test('loadState returns undefined for a missing file and refuses a future schema
   assert.equal(existsSync(join(dir, 'state.v1.json')), false);
 });
 
-test('saveState persists v2 atomically and rollbackState restores v1', async t => {
+test('saveState persists v2 atomically and rollbackState restores v1', async (t) => {
   const dir = temp(t);
   const path = join(dir, 'state.json');
   const { state } = migrateState(v1());

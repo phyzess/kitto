@@ -23,7 +23,12 @@ export interface DshWebAdapterDeps {
 const quiet = { log: () => {}, warn: () => {} };
 
 export function createDshWebAdapter({
-  home = kittoHome(), run = defaultRun, syncMcp = syncDshMcp, removeMcp = removeDshMcp, hasPnpm = () => available('pnpm'), inspect = undefined,
+  home = kittoHome(),
+  run = defaultRun,
+  syncMcp = syncDshMcp,
+  removeMcp = removeDshMcp,
+  hasPnpm = () => available('pnpm'),
+  inspect = undefined,
 }: DshWebAdapterDeps = {}): HostAdapter {
   const runtime = join(home, 'runtime');
   const cli = nativeCli('dsh', { capabilityArgs: { plugin: ['plugin', '--help'] } });
@@ -32,51 +37,75 @@ export function createDshWebAdapter({
   return {
     ...cli,
     assertConnectable() {
-      if (!hasPnpm()) throw new Error('DSH native plugin operations require pnpm on PATH. Run setup --install-agents to install the missing prerequisite.');
+      if (!hasPnpm())
+        throw new Error(
+          'DSH native plugin operations require pnpm on PATH. Run setup --install-agents to install the missing prerequisite.',
+        );
     },
-    plan: (state: State) => [hostAction('dsh', 'sync-mcp', 'sync Kitto MCP servers into the DSH home patch', {
-      phase: 'sync',
-      preview: async () => { await syncMcp(state, { dryRun: true }); },
-      apply: async () => { await syncMcp(state, { dryRun: false }); },
-    })],
-    planConnect: (state: State) => [hostAction('dsh', 'register-bundle', `dsh plugin --profile ${profileOf(state)} add ${runtime}`, {
-      phase: 'connect',
-      apply: async () => {
-        const dsh = inspectCli();
-        if (!dsh.capabilities.plugin) {
-          console.warn(`kitto: this dsh CLI${dsh.actual ? ` (${dsh.actual})` : ''} has no plugin subcommand; `
-            + 'skipped the Kitto bundle registration. Rules and skills were still deployed.');
-          return;
-        }
-        await mkdir(state.dshHome, { recursive: true });
-        run('dsh', ['plugin', '--profile', profileOf(state), 'add', runtime], {
-          env: { ...process.env, DSH_HOME: state.dshHome, DSH_AGENTS_HOME: state.agentsHome },
-        });
-      },
-    })],
+    plan: (state: State) => [
+      hostAction('dsh', 'sync-mcp', 'sync Kitto MCP servers into the DSH home patch', {
+        phase: 'sync',
+        preview: async () => {
+          await syncMcp(state, { dryRun: true });
+        },
+        apply: async () => {
+          await syncMcp(state, { dryRun: false });
+        },
+      }),
+    ],
+    planConnect: (state: State) => [
+      hostAction('dsh', 'register-bundle', `dsh plugin --profile ${profileOf(state)} add ${runtime}`, {
+        phase: 'connect',
+        apply: async () => {
+          const dsh = inspectCli();
+          if (!dsh.capabilities.plugin) {
+            console.warn(
+              `kitto: this dsh CLI${dsh.actual ? ` (${dsh.actual})` : ''} has no plugin subcommand; ` +
+                'skipped the Kitto bundle registration. Rules and skills were still deployed.',
+            );
+            return;
+          }
+          await mkdir(state.dshHome, { recursive: true });
+          run('dsh', ['plugin', '--profile', profileOf(state), 'add', runtime], {
+            env: { ...process.env, DSH_HOME: state.dshHome, DSH_AGENTS_HOME: state.agentsHome },
+          });
+        },
+      }),
+    ],
     async planDetach(state: State): Promise<HostAction[]> {
-      const mcp = (dryRun: boolean) => ({ announce = true }: PreviewOptions = {}) => removeMcp(state, { dryRun, ...(announce ? {} : quiet) });
+      const mcp =
+        (dryRun: boolean) =>
+        ({ announce = true }: PreviewOptions = {}) =>
+          removeMcp(state, { dryRun, ...(announce ? {} : quiet) });
       let registered: boolean | undefined;
       const bundleRegistered = async (): Promise<boolean> => {
         if (registered !== undefined) return registered;
         const manifest = join(state.dshHome, 'profiles', profileOf(state), 'package.json');
-        if (!await present(manifest)) return registered = false;
-        const profile = await readJson(manifest), dependency = profile.dependencies?.['@phyzess/kitto'];
-        if (dependency && (!dependency.startsWith('link:') || !sameLocation(resolve(dirname(manifest), dependency.slice(5)), runtime))) throw new Error('DSH Kitto dependency now comes from another source. Preserved.');
-        if (!dependency && !profile.dsh?.profile?.bundles?.includes('@phyzess/kitto')) return registered = false;
+        if (!(await present(manifest))) return (registered = false);
+        const profile = await readJson(manifest),
+          dependency = profile.dependencies?.['@phyzess/kitto'];
+        if (dependency && (!dependency.startsWith('link:') || !sameLocation(resolve(dirname(manifest), dependency.slice(5)), runtime)))
+          throw new Error('DSH Kitto dependency now comes from another source. Preserved.');
+        if (!dependency && !profile.dsh?.profile?.bundles?.includes('@phyzess/kitto')) return (registered = false);
         if (!hasPnpm()) throw new Error('DSH native removal requires pnpm on PATH. Restore pnpm before retrying removal.');
-        return registered = true;
+        return (registered = true);
       };
       return [
         hostAction('dsh', 'detach-mcp', 'remove Kitto-owned MCP servers from the DSH home patch', {
-          phase: 'detach', preview: mcp(true), apply: mcp(false),
+          phase: 'detach',
+          preview: mcp(true),
+          apply: mcp(false),
         }),
         hostAction('dsh', 'unregister-bundle', `dsh plugin --profile ${profileOf(state)} remove @phyzess/kitto`, {
           phase: 'detach',
-          preview: async () => { await bundleRegistered(); },
+          preview: async () => {
+            await bundleRegistered();
+          },
           apply: async () => {
-            if (!await bundleRegistered()) return;
-            run('dsh', ['plugin', '--profile', profileOf(state), 'remove', '@phyzess/kitto'], { env: { ...process.env, DSH_HOME: state.dshHome } });
+            if (!(await bundleRegistered())) return;
+            run('dsh', ['plugin', '--profile', profileOf(state), 'remove', '@phyzess/kitto'], {
+              env: { ...process.env, DSH_HOME: state.dshHome },
+            });
           },
         }),
       ];

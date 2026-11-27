@@ -4,8 +4,14 @@ import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/
 import { dirname, join } from 'node:path';
 import { loadDshYaml } from '../integration/scoped-dsh/native.ts';
 import {
-  bearerCredentialReference, bearerCredentialTemplate, credentialReference, credentialTemplate,
-  literalSecretsIn, literalValueReason, transportCredentialProblem, unresolvedPlaceholdersIn,
+  bearerCredentialReference,
+  bearerCredentialTemplate,
+  credentialReference,
+  credentialTemplate,
+  literalSecretsIn,
+  literalValueReason,
+  transportCredentialProblem,
+  unresolvedPlaceholdersIn,
 } from './mcp-credentials.ts';
 import { list, record, release } from './ownership.ts';
 import { platformOverlay } from './platform.ts';
@@ -67,17 +73,22 @@ const yamlOptions = { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (valu
 const isObject = (value: unknown): value is Json => value !== null && typeof value === 'object' && !Array.isArray(value);
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${(value as unknown[]).map(canonical).join(',')}]`;
-  if (isObject(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  if (isObject(value))
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+      .join(',')}}`;
   return JSON.stringify(value);
 }
 
 export const rowFingerprint = (row: unknown): string => createHash('sha256').update(canonical(row)).digest('hex');
 
-const recordedRows = (state: State): Record<string, string> => Object.fromEntries(list(state, 'mcp', 'dsh', 'owned').map((entry): [string, string] => [entry.name, entry.hash]));
+const recordedRows = (state: State): Record<string, string> =>
+  Object.fromEntries(list(state, 'mcp', 'dsh', 'owned').map((entry): [string, string] => [entry.name, entry.hash]));
 
 function settleRows(state: State, keep: string[], rows: DshRow[] = []) {
   for (const row of rows) record(state, 'mcp', 'dsh', row.id, rowFingerprint(row));
-  const kept = new Set([...keep, ...rows.map(row => row.id)]);
+  const kept = new Set([...keep, ...rows.map((row) => row.id)]);
   for (const { name } of list(state, 'mcp', 'dsh')) if (!kept.has(name)) release(state, 'mcp', 'dsh', name);
 }
 
@@ -164,7 +175,11 @@ function dshHeaders(headers: unknown): { skip?: string; value?: Record<string, s
   return Object.keys(mapped).length ? { value: mapped } : {};
 }
 
-export async function piMcpServers(source: string, platform: string = process.platform, { includePrivate = false }: { includePrivate?: boolean } = {}): Promise<{ servers: DshServer[]; skipped: Array<{ name: string; reason: string }> }> {
+export async function piMcpServers(
+  source: string,
+  platform: string = process.platform,
+  { includePrivate = false }: { includePrivate?: boolean } = {},
+): Promise<{ servers: DshServer[]; skipped: Array<{ name: string; reason: string }> }> {
   const sources = [join(source, 'config/pi/mcp.json')];
   const overlayName = platformOverlay(platform);
   if (overlayName) sources.push(join(source, 'config/pi/platform', overlayName, 'mcp.json'));
@@ -178,39 +193,85 @@ export async function piMcpServers(source: string, platform: string = process.pl
     for (const [name, entry] of Object.entries(declared)) merged[name] = merge(merged[name], entry);
   }
 
-  const servers: DshServer[] = [], skipped: Array<{ name: string; reason: string }> = [];
+  const servers: DshServer[] = [],
+    skipped: Array<{ name: string; reason: string }> = [];
   for (const [name, entry] of Object.entries(merged)) {
     if (name.startsWith('_') || !isObject(entry) || entry.enabled === false) continue;
     const skip = (reason: string) => skipped.push({ name, reason });
-    if (!serverNamePattern.test(name)) { skip('not a valid DSH server name'); continue; }
+    if (!serverNamePattern.test(name)) {
+      skip('not a valid DSH server name');
+      continue;
+    }
     const literal = scanLiteralCredentials(entry);
-    if (literal) { skip(literal); continue; }
+    if (literal) {
+      skip(literal);
+      continue;
+    }
     const transportProblem = transportCredentialProblem(entry);
-    if (transportProblem) { skip(`${transportProblem}; only env/headers references are synced`); continue; }
+    if (transportProblem) {
+      skip(`${transportProblem}; only env/headers references are synced`);
+      continue;
+    }
     const env = entry.env === undefined ? undefined : dshEnv(entry.env);
     const headers = entry.headers === undefined ? undefined : dshHeaders(entry.headers);
     if (entry.url !== undefined) {
-      if (typeof entry.url !== 'string' || !entry.url) { skip('url is not a string'); continue; }
-      if (entry.type !== undefined && !['http', 'streamable-http'].includes(entry.type)) { skip(`Pi transport ${entry.type} is not supported by DSH`); continue; }
-      if (entry.url.includes('${')) { skip('url contains a credential template; only env/headers references are synced'); continue; }
-      if (env) { skip('env is only synced for stdio servers'); continue; }
-      if (headers?.skip) { skip(headers.skip); continue; }
+      if (typeof entry.url !== 'string' || !entry.url) {
+        skip('url is not a string');
+        continue;
+      }
+      if (entry.type !== undefined && !['http', 'streamable-http'].includes(entry.type)) {
+        skip(`Pi transport ${entry.type} is not supported by DSH`);
+        continue;
+      }
+      if (entry.url.includes('${')) {
+        skip('url contains a credential template; only env/headers references are synced');
+        continue;
+      }
+      if (env) {
+        skip('env is only synced for stdio servers');
+        continue;
+      }
+      if (headers?.skip) {
+        skip(headers.skip);
+        continue;
+      }
       const server: DshServer = { name, transport: 'streamable-http', url: entry.url };
-      if (headers?.value) { server.headers = headers.value; server.expandTemplates = true; }
+      if (headers?.value) {
+        server.headers = headers.value;
+        server.expandTemplates = true;
+      }
       servers.push(server);
     } else if (entry.command !== undefined) {
-      if (typeof entry.command !== 'string' || !entry.command) { skip('command is not a string'); continue; }
-      if (entry.type !== undefined && entry.type !== 'stdio') { skip(`Pi transport ${entry.type} is not supported by DSH`); continue; }
+      if (typeof entry.command !== 'string' || !entry.command) {
+        skip('command is not a string');
+        continue;
+      }
+      if (entry.type !== undefined && entry.type !== 'stdio') {
+        skip(`Pi transport ${entry.type} is not supported by DSH`);
+        continue;
+      }
       const args = entry.args ?? [];
-      if (!Array.isArray(args) || args.some((arg: unknown) => typeof arg !== 'string')) { skip('args is not a string array'); continue; }
+      if (!Array.isArray(args) || args.some((arg: unknown) => typeof arg !== 'string')) {
+        skip('args is not a string array');
+        continue;
+      }
       if (entry.command.includes('${') || args.some((arg: string) => arg.includes('${'))) {
         skip('command or args contain a credential template; only env/headers references are synced');
         continue;
       }
-      if (headers) { skip('headers are only synced for HTTP servers'); continue; }
-      if (env?.skip) { skip(env.skip); continue; }
+      if (headers) {
+        skip('headers are only synced for HTTP servers');
+        continue;
+      }
+      if (env?.skip) {
+        skip(env.skip);
+        continue;
+      }
       const server: DshServer = { name, transport: 'stdio', command: entry.command, args };
-      if (env?.value) { server.env = env.value; server.expandTemplates = true; }
+      if (env?.value) {
+        server.env = env.value;
+        server.expandTemplates = true;
+      }
       servers.push(server);
     } else {
       skip('no command or url');
@@ -220,25 +281,26 @@ export async function piMcpServers(source: string, platform: string = process.pl
 }
 
 export function dshMcpRows(servers: DshServer[]): DshRow[] {
-  return servers.map(server => ({
+  return servers.map((server) => ({
     id: rowPrefix + server.name,
     name: pluginName,
-    config: server.transport === 'stdio'
-      ? {
-          serverName: server.name,
-          transport: 'stdio',
-          command: server.command,
-          args: server.args,
-          ...(server.env ? { env: server.env } : {}),
-          ...(server.expandTemplates ? { expandTemplates: true } : {}),
-        }
-      : {
-          serverName: server.name,
-          transport: 'streamable-http',
-          url: server.url,
-          ...(server.headers ? { headers: server.headers } : {}),
-          ...(server.expandTemplates ? { expandTemplates: true } : {}),
-        },
+    config:
+      server.transport === 'stdio'
+        ? {
+            serverName: server.name,
+            transport: 'stdio',
+            command: server.command,
+            args: server.args,
+            ...(server.env ? { env: server.env } : {}),
+            ...(server.expandTemplates ? { expandTemplates: true } : {}),
+          }
+        : {
+            serverName: server.name,
+            transport: 'streamable-http',
+            url: server.url,
+            ...(server.headers ? { headers: server.headers } : {}),
+            ...(server.expandTemplates ? { expandTemplates: true } : {}),
+          },
   }));
 }
 
@@ -322,8 +384,9 @@ function lineRange(text: string, node: any): [number, number] {
 
 function sameRows(left: unknown[], right: unknown[]): boolean {
   if (left.length !== right.length) return false;
-  const canon = (list: unknown[]) => list.map(row => JSON.stringify(row)).sort();
-  const a = canon(left), b = canon(right);
+  const canon = (list: unknown[]) => list.map((row) => JSON.stringify(row)).sort();
+  const a = canon(left),
+    b = canon(right);
   return a.every((value, index) => value === b[index]);
 }
 
@@ -369,7 +432,14 @@ async function writePatch(path: string, text: string, before: string | null, mod
   }
 }
 
-export function planDshMcp({ content, rows, yaml, declared = new Map(), location = 'DSH home patch', recorded = {} }: {
+export function planDshMcp({
+  content,
+  rows,
+  yaml,
+  declared = new Map(),
+  location = 'DSH home patch',
+  recorded = {},
+}: {
   content: string | null;
   rows: DshRow[];
   yaml: any;
@@ -387,7 +457,8 @@ export function planDshMcp({ content, rows, yaml, declared = new Map(), location
     const sequence = parsed.document.contents;
     const emptyScalar = yaml.isScalar(sequence) && sequence.value === null;
     if (sequence?.flow) {
-      if (sequence.items.length) throw new Error('DSH home patch uses flow-style YAML; convert it to block style before syncing MCP servers.');
+      if (sequence.items.length)
+        throw new Error('DSH home patch uses flow-style YAML; convert it to block style before syncing MCP servers.');
       base = text.slice(0, sequence.range[0]) + text.slice(sequence.range[1]);
     } else if (emptyScalar) {
       base = text.slice(0, sequence.range[0]) + text.slice(sequence.range[1]);
@@ -414,9 +485,9 @@ export function planDshMcp({ content, rows, yaml, declared = new Map(), location
     collectDeclared(value, found, location);
   }
 
-  const removed: DshRow[] = removable.flatMap(item => item.value.insert);
+  const removed: DshRow[] = removable.flatMap((item) => item.value.insert);
   const conflicts: DshPatchPlan['conflicts'] = [];
-  const preservedIds = new Set(preserved.map(row => row.id));
+  const preservedIds = new Set(preserved.map((row) => row.id));
   const desired = rows.filter((row: DshRow) => {
     if (preservedIds.has(row.id)) return false;
     const where = found.get(row.config.serverName);
@@ -433,7 +504,10 @@ export function planDshMcp({ content, rows, yaml, declared = new Map(), location
   const trimmed = body.replace(/[ \t\r\n]+$/, '');
   let core: string;
   if (desired.length) {
-    const blocks = yaml.stringify(desired.map(row => ({ insert: [row] })), { lineWidth: 0, singleQuote: true });
+    const blocks = yaml.stringify(
+      desired.map((row) => ({ insert: [row] })),
+      { lineWidth: 0, singleQuote: true },
+    );
     core = trimmed ? `${trimmed}\n\n${blocks}` : blocks;
   } else if (!trimmed) {
     core = '[]\n';
@@ -447,10 +521,10 @@ export function planDshMcp({ content, rows, yaml, declared = new Map(), location
   return { changed: true, text: next, conflicts, removed, preserved, desired };
 }
 
-export async function syncDshMcp(state: State, {
-  dryRun = false, yaml, log = console.log, warn = console.warn,
-  includePrivate = state.includePrivate === true,
-}: McpSyncOptions = {}): Promise<McpRemoval> {
+export async function syncDshMcp(
+  state: State,
+  { dryRun = false, yaml, log = console.log, warn = console.warn, includePrivate = state.includePrivate === true }: McpSyncOptions = {},
+): Promise<McpRemoval> {
   if (process.env[optOut] === '1') {
     log(`mcp dsh: skipped (${optOut}=1)`);
     return { changed: false, disabled: true };
@@ -482,7 +556,14 @@ export async function syncDshMcp(state: State, {
   for (const conflict of plan.conflicts) {
     warn(`mcp dsh: skipped ${conflict.row.config.serverName} (already declared in ${conflict.location})`);
   }
-  const settle = () => { if (!dryRun) settleRows(state, plan.preserved.map(row => row.id), plan.desired); };
+  const settle = () => {
+    if (!dryRun)
+      settleRows(
+        state,
+        plan.preserved.map((row) => row.id),
+        plan.desired,
+      );
+  };
   if (!plan.changed) {
     settle();
     log(`mcp dsh: up to date (${path})`);
@@ -500,7 +581,10 @@ export async function syncDshMcp(state: State, {
   return { changed: true, path, skipped, conflicts: plan.conflicts };
 }
 
-export async function removeDshMcp(state: State, { dryRun = false, yaml, log = console.log, warn = console.warn }: Omit<McpSyncOptions, 'includePrivate'> = {}): Promise<McpRemoval> {
+export async function removeDshMcp(
+  state: State,
+  { dryRun = false, yaml, log = console.log, warn = console.warn }: Omit<McpSyncOptions, 'includePrivate'> = {},
+): Promise<McpRemoval> {
   if (!state.dshHome) throw new Error('DSH MCP removal requires the DSH home directory.');
   const path = join(state.dshHome, 'cordis.patch.yml');
   const { content, mode } = await readPatch(path);
@@ -526,12 +610,18 @@ export async function removeDshMcp(state: State, { dryRun = false, yaml, log = c
     return { changed: false, path, removed: [], skipped: (error as Error).message };
   }
   warnPreserved(plan, warn);
-  const settle = () => { if (!dryRun) settleRows(state, plan.preserved.map(row => row.id)); };
+  const settle = () => {
+    if (!dryRun)
+      settleRows(
+        state,
+        plan.preserved.map((row) => row.id),
+      );
+  };
   if (!plan.changed) {
     settle();
     return { changed: false, path, removed: [] };
   }
-  const names = plan.removed.map(row => row.config?.serverName ?? row.id);
+  const names = plan.removed.map((row) => row.config?.serverName ?? row.id);
   const summary = `${names.length} Kitto MCP server${names.length === 1 ? '' : 's'}`;
   if (dryRun) {
     log(`mcp dsh: would remove ${summary} from ${path}`);

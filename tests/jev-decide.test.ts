@@ -67,9 +67,14 @@ async function fixture(t) {
     await writeFile(path, text, { mode: 0o600 });
     await chmod(path, 0o600);
   };
-  const run = (args = inline, extraEnv = {}, input) => spawnSync(
-    process.execPath, [...preload, script, ...args], { cwd: dir, env: { ...env, ...extraEnv }, encoding: 'utf8', input, timeout: 4000 },
-  );
+  const run = (args = inline, extraEnv = {}, input) =>
+    spawnSync(process.execPath, [...preload, script, ...args], {
+      cwd: dir,
+      env: { ...env, ...extraEnv },
+      encoding: 'utf8',
+      input,
+      timeout: 4000,
+    });
   return { dir, home, env, filename, store, run };
 }
 
@@ -96,15 +101,21 @@ function expectNoKey(result) {
   assert.equal(result.stderr, noKey);
 }
 
-test('rejects double stdin immediately with the pipe still open', async t => {
+test('rejects double stdin immediately with the pipe still open', async (t) => {
   const { dir, env } = await fixture(t);
   const child = spawn(process.execPath, [...preload, script, '--state', '@-', '--questions', '@-'], {
-    cwd: dir, env: { ...env, DSH_INSTALL_DIR: installDir ?? '', TEST_FORBID_STORE_IO: '1' }, timeout: 4000,
+    cwd: dir,
+    env: { ...env, DSH_INSTALL_DIR: installDir ?? '', TEST_FORBID_STORE_IO: '1' },
+    timeout: 4000,
   });
   let stdout = '';
   let stderr = '';
-  child.stdout.on('data', chunk => { stdout += chunk; });
-  child.stderr.on('data', chunk => { stderr += chunk; });
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
   const [code, signal] = await once(child, 'close');
   assert.equal(signal, null);
   assert.equal(code, 2);
@@ -112,27 +123,37 @@ test('rejects double stdin immediately with the pipe still open', async t => {
   assert.equal(stderr, 'jev: only one of --state and --questions may use @- (stdin)\n');
 });
 
-test('either single stdin source works with the other inline or in a file', async t => {
+test('either single stdin source works with the other inline or in a file', async (t) => {
   const { dir, run } = await fixture(t);
   await Promise.all([writeFile(join(dir, 'state.md'), state), writeFile(join(dir, 'q.json'), questionText)]);
   for (const [stateArg, questionArg, input] of [
-    ['@-', questionText, state], ['@-', '@q.json', state],
-    [state, '@-', questionText], ['@state.md', '@-', questionText],
+    ['@-', questionText, state],
+    ['@-', '@q.json', state],
+    [state, '@-', questionText],
+    ['@state.md', '@-', questionText],
   ]) {
-    expectPost(run(['--state', stateArg, '--questions', questionArg], { OPENCODE_API_KEY: 'fake-env', TEST_FORBID_STORE_IO: '1' }, input), 'fake-env');
+    expectPost(
+      run(['--state', stateArg, '--questions', questionArg], { OPENCODE_API_KEY: 'fake-env', TEST_FORBID_STORE_IO: '1' }, input),
+      'fake-env',
+    );
   }
 });
 
-test('env keys take precedence and keep the Go default and explicit endpoint override', async t => {
+test('env keys take precedence and keep the Go default and explicit endpoint override', async (t) => {
   const { run, store } = await fixture(t);
   await store('invalid: [synthetic');
   const env = { DSH_INSTALL_DIR: installDir ?? '', TEST_FORBID_STORE_IO: '1', OPENCODE_GO_API_KEY: 'fake-env-go' };
   expectPost(run(inline, { ...env, OPENCODE_API_KEY: 'fake-env-api' }), 'fake-env-api');
   const override = 'https://example.invalid/custom';
-  expectPost(run([...inline, '--model', 'gpt-6-luna-decision'], { ...env, JEV_ENDPOINT: override }), 'fake-env-go', override, 'gpt-6-luna-decision');
+  expectPost(
+    run([...inline, '--model', 'gpt-6-luna-decision'], { ...env, JEV_ENDPOINT: override }),
+    'fake-env-go',
+    override,
+    'gpt-6-luna-decision',
+  );
 });
 
-test('HTTP failures report only status and fixed guidance, not reflected credentials or input', async t => {
+test('HTTP failures report only status and fixed guidance, not reflected credentials or input', async (t) => {
   const { run } = await fixture(t);
   const key = 'fake-reflected-key';
   const diagnostics = [
@@ -154,7 +175,7 @@ test('HTTP failures report only status and fixed guidance, not reflected credent
   }
 });
 
-test('uses direct v1 refs with the host parser and preserves their precedence', dshOnly, async t => {
+test('uses direct v1 refs with the host parser and preserves their precedence', dshOnly, async (t) => {
   const { home, run, store } = await fixture(t);
   const env = { DSH_INSTALL_DIR: installDir };
   await store('{version: 1, refs: {OPENCODE_GO_API_KEY: "fake-store-go", "OPENCODE_API_KEY": \'fake:primary#key\'}}');
@@ -167,7 +188,7 @@ test('uses direct v1 refs with the host parser and preserves their precedence', 
   expectPost(run(inline, { ...env, DSH_HOME: '' }), 'fake-home');
 });
 
-test('rejects malformed, unsupported, misplaced, or oversized store data without echoing it', dshOnly, async t => {
+test('rejects malformed, unsupported, misplaced, or oversized store data without echoing it', dshOnly, async (t) => {
   const { run, store } = await fixture(t);
   const env = { DSH_INSTALL_DIR: installDir };
   for (const [name, text] of Object.entries({
@@ -198,25 +219,29 @@ test('rejects malformed, unsupported, misplaced, or oversized store data without
   assert.equal(result.stderr, 'jev: OpenCode key is not a usable authorization header\n');
 });
 
-test('rejects non-regular and unsafe POSIX credential files without reading them', {
-  skip: dshOnly.skip || (process.platform === 'win32' && 'POSIX permission and FIFO checks'),
-}, async t => {
-  const { dir, filename, run, store } = await fixture(t);
-  const env = { DSH_INSTALL_DIR: installDir };
-  await store('version: 1\nrefs: {OPENCODE_API_KEY: fake-insecure}');
-  await chmod(filename, 0o644);
-  expectNoKey(run(inline, env));
-  await rm(filename);
-  assert.equal(spawnSync('mkfifo', [filename], { timeout: 4000 }).status, 0);
-  expectNoKey(run(inline, env));
-  await rm(filename);
-  const target = join(dir, 'target.yaml');
-  await store('version: 1\nrefs: {OPENCODE_API_KEY: fake-symlink}', target);
-  await symlink(target, filename);
-  expectNoKey(run(inline, env));
-});
+test(
+  'rejects non-regular and unsafe POSIX credential files without reading them',
+  {
+    skip: dshOnly.skip || (process.platform === 'win32' && 'POSIX permission and FIFO checks'),
+  },
+  async (t) => {
+    const { dir, filename, run, store } = await fixture(t);
+    const env = { DSH_INSTALL_DIR: installDir };
+    await store('version: 1\nrefs: {OPENCODE_API_KEY: fake-insecure}');
+    await chmod(filename, 0o644);
+    expectNoKey(run(inline, env));
+    await rm(filename);
+    assert.equal(spawnSync('mkfifo', [filename], { timeout: 4000 }).status, 0);
+    expectNoKey(run(inline, env));
+    await rm(filename);
+    const target = join(dir, 'target.yaml');
+    await store('version: 1\nrefs: {OPENCODE_API_KEY: fake-symlink}', target);
+    await symlink(target, filename);
+    expectNoKey(run(inline, env));
+  },
+);
 
-test('fails closed without the host interface and does not load a NODE_PATH parser', async t => {
+test('fails closed without the host interface and does not load a NODE_PATH parser', async (t) => {
   const { dir, run, store } = await fixture(t);
   await store('version: 1\nrefs: {OPENCODE_API_KEY: fake-sensitive}');
   expectNoKey(run());

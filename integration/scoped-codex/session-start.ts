@@ -21,10 +21,17 @@ async function skillCatalog(directory: string) {
     const file = await optional(() => readFile(path, 'utf8'), '');
     const metadata = file.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
     if (!metadata) continue;
-    const name = metadata.match(/^name:[ \t]*(.*)$/m)?.[1]?.trim().replace(/^(['"])(.*)\1$/, '$2');
+    const name = metadata
+      .match(/^name:[ \t]*(.*)$/m)?.[1]
+      ?.trim()
+      .replace(/^(['"])(.*)\1$/, '$2');
     const field = metadata.match(/^description:[ \t]*([^\r\n]*)((?:\r?\n[ \t]+[^\r\n]*)*)/m);
-    const description = field && (/^[>|]/.test(field[1]) ? field[2] : field[1])
-      .trim().replace(/\s+/g, ' ').replace(/^(['"])(.*)\1$/, '$2');
+    const description =
+      field &&
+      (/^[>|]/.test(field[1]) ? field[2] : field[1])
+        .trim()
+        .replace(/\s+/g, ' ')
+        .replace(/^(['"])(.*)\1$/, '$2');
     if (name) skills.push({ name, description, path });
   }
   return skills.sort((a, b) => a.path.localeCompare(b.path));
@@ -44,17 +51,22 @@ for (const scope of await resolveScopes(cwd)) {
   for (const skill of await skillCatalog(scope.skills)) skills.set(skill.name, skill);
 }
 if (skills.size) {
-  const entries = [...skills.values()].map(({ name, description, path }) =>
-    `- ${name}${description ? ': ' + description : ''} (${path})`);
-  context.push([
-    '# Kitto shared skills',
-    'When a listed skill applies, read its SKILL.md and follow it. Resolve its relative resource paths from the directory containing that file.',
-    ...entries,
-  ].join('\n'));
+  const entries = [...skills.values()].map(({ name, description, path }) => `- ${name}${description ? ': ' + description : ''} (${path})`);
+  context.push(
+    [
+      '# Kitto shared skills',
+      'When a listed skill applies, read its SKILL.md and follow it. Resolve its relative resource paths from the directory containing that file.',
+      ...entries,
+    ].join('\n'),
+  );
 }
 if (context.length) {
-  context.unshift('Apply the closest workspace’s shared instructions if scopes conflict. Follow repository instructions for any conflicting repository-specific guidance, including repository-local skills.');
-  console.log(JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context.join('\n\n') },
-  }));
+  context.unshift(
+    'Apply the closest workspace’s shared instructions if scopes conflict. Follow repository instructions for any conflicting repository-specific guidance, including repository-local skills.',
+  );
+  console.log(
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context.join('\n\n') },
+    }),
+  );
 }

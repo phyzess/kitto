@@ -13,12 +13,35 @@ import { evaluateCodexTaskRoutes } from '../integration/codex-task-routing.ts';
 
 const now = Date.now();
 const session = 'native-session';
-const route = { provider: 'deepseek-official', model: 'deepseek-flash', upstream: 'deepseek-official', account: 'official',
-  billing: 'metered', estimateUsd: 0.15, accountVerified: true, dataAllowed: true, available: true, dispatchable: true, fallback: 'none' };
+const route = {
+  provider: 'deepseek-official',
+  model: 'deepseek-flash',
+  upstream: 'deepseek-official',
+  account: 'official',
+  billing: 'metered',
+  estimateUsd: 0.15,
+  accountVerified: true,
+  dataAllowed: true,
+  available: true,
+  dispatchable: true,
+  fallback: 'none',
+};
 function input(kind, surface) {
-  return { id: 'review-work', host: { kind, surface, session, observedAt: new Date(now).toISOString(), routes: [route] },
-    roles: [{ id: 'review', workRevision: 'diff1', effects: 'read', data: 'personal', dependencies: [], choice: route,
-      authorization: { ...route, plan: 'review-work', role: 'review', workRevision: 'diff1', data: 'personal', maxUsd: 0.3 } }] };
+  return {
+    id: 'review-work',
+    host: { kind, surface, session, observedAt: new Date(now).toISOString(), routes: [route] },
+    roles: [
+      {
+        id: 'review',
+        workRevision: 'diff1',
+        effects: 'read',
+        data: 'personal',
+        dependencies: [],
+        choice: route,
+        authorization: { ...route, plan: 'review-work', role: 'review', workRevision: 'diff1', data: 'personal', maxUsd: 0.3 },
+      },
+    ],
+  };
 }
 
 test('DSH planner binds to the native session and does not launch a role', () => {
@@ -30,8 +53,15 @@ test('DSH staged check rejects extra native work, route edits and unresolved fal
   const request = input('dsh', 'teams');
   const ready = evaluateDshTaskRoutes(request, session, now).rows[0];
   request.approval = [{ id: ready.id, approvalKey: ready.route.approvalKey }];
-  const task = { id: 'review', provider: route.provider, model: route.model, effort: 'default', fallback: 'none',
-    workRevision: 'diff1', dependencies: [] };
+  const task = {
+    id: 'review',
+    provider: route.provider,
+    model: route.model,
+    effort: 'default',
+    fallback: 'none',
+    workRevision: 'diff1',
+    dependencies: [],
+  };
   request.host.nativePlan = { id: request.id, phase: 'staged', session, tasks: [task] };
   assert.equal(evaluateDshTaskRoutes(request, session, now).status, 'approved');
   request.host.nativePlan.tasks.push({ ...task, id: 'unapproved' });
@@ -46,10 +76,23 @@ test('DSH staged check rejects extra native work, route edits and unresolved fal
 test('Pi binds a current model check to the actual model; headless command does not prompt', async () => {
   const request = input('pi', 'current');
   assert.equal(evaluatePiTaskRoutes(request, { session, current: { provider: route.provider, id: route.model } }, now).status, 'ready');
-  assert.equal(evaluatePiTaskRoutes(request, { session, current: { provider: 'other', id: route.model } }, now).questions[0].reason, 'select-in-native-host');
+  assert.equal(
+    evaluatePiTaskRoutes(request, { session, current: { provider: 'other', id: route.model } }, now).questions[0].reason,
+    'select-in-native-host',
+  );
   let command;
-  registerPiTaskRouting({ registerCommand(name, value) { assert.equal(name, 'kitto-route'); command = value; } });
-  await command.handler('', { hasUI: false, get ui() { assert.fail('headless Pi cannot prompt'); } });
+  registerPiTaskRouting({
+    registerCommand(name, value) {
+      assert.equal(name, 'kitto-route');
+      command = value;
+    },
+  });
+  await command.handler('', {
+    hasUI: false,
+    get ui() {
+      assert.fail('headless Pi cannot prompt');
+    },
+  });
 });
 
 test('Codex groups outstanding decisions and presents paid estimates without treating selection as approval', () => {
@@ -69,8 +112,9 @@ test('current route requires an observed non-default effort and ignores a route-
     const request = input(kind, 'current');
     request.roles[0].choice = { ...route, effort: 'high' };
     request.host.routes = [{ ...route, efforts: ['high', 'low'], nativeEffort: 'high' }];
-    const evaluate = effort => {
-      if (kind === 'pi') return evaluatePiTaskRoutes(request, { session, current: { provider: route.provider, id: route.model }, effort }, now);
+    const evaluate = (effort) => {
+      if (kind === 'pi')
+        return evaluatePiTaskRoutes(request, { session, current: { provider: route.provider, id: route.model }, effort }, now);
       request.host.native = { thread: { id: session }, model: route.model, modelProvider: route.provider, reasoningEffort: effort };
       return evaluateCodexTaskRoutes(request, now);
     };
@@ -93,7 +137,12 @@ test('DSH parent-session route is not inferred from a caller-supplied current mo
 
 test('Codex model override does not imply an upstream override', () => {
   const request = input('codex', 'subagent');
-  request.host.native = { thread: { id: session }, model: 'primary', modelProvider: 'openai', spawnParameters: ['model', 'reasoning_effort'] };
+  request.host.native = {
+    thread: { id: session },
+    model: 'primary',
+    modelProvider: 'openai',
+    spawnParameters: ['model', 'reasoning_effort'],
+  };
   assert.equal(evaluateCodexTaskRoutes(request, now).rows[0].options[0].reason, 'host-cannot-select-route');
   request.host.native.modelProvider = route.provider;
   assert.equal(evaluateCodexTaskRoutes(request, now).status, 'ready');
@@ -101,7 +150,7 @@ test('Codex model override does not imply an upstream override', () => {
   assert.equal(evaluateCodexTaskRoutes(request, now).rows[0].options[0].reason, 'host-cannot-select-route');
 });
 
-test('public CLI plan and check accept only the approved official DSH task and matching staged scope', t => {
+test('public CLI plan and check accept only the approved official DSH task and matching staged scope', (t) => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-task-cli-'));
   t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const fixture = join(temp, 'plan.json');
@@ -113,7 +162,9 @@ test('public CLI plan and check accept only the approved official DSH task and m
     else env.DSH_SESSION_ID = nativeSession;
     writeFileSync(fixture, JSON.stringify(request), { mode: 0o600 });
     const result = spawnSync(process.execPath, [cli, 'route', operation, '--input', fixture], {
-      env, encoding: 'utf8', timeout: 5000,
+      env,
+      encoding: 'utf8',
+      timeout: 5000,
     });
     assert.equal(result.stderr, '');
     return [result.status, JSON.parse(result.stdout)];
@@ -124,8 +175,22 @@ test('public CLI plan and check accept only the approved official DSH task and m
   assert.equal(selected.provider, 'deepseek-official');
   request.approval = [{ id, approvalKey: selected.approvalKey }];
   assert.equal(run('check')[0], 2);
-  request.host.nativePlan = { id: request.id, phase: 'staged', session, tasks: [{ id, provider: selected.provider,
-    model: selected.model, effort: selected.effort, fallback: 'none', workRevision: 'diff1', dependencies: [] }] };
+  request.host.nativePlan = {
+    id: request.id,
+    phase: 'staged',
+    session,
+    tasks: [
+      {
+        id,
+        provider: selected.provider,
+        model: selected.model,
+        effort: selected.effort,
+        fallback: 'none',
+        workRevision: 'diff1',
+        dependencies: [],
+      },
+    ],
+  };
   assert.equal(run('check')[1].status, 'approved');
   for (const invalidSession of [null, 'other']) {
     const [exit, result] = run('check', invalidSession);
@@ -141,22 +206,32 @@ test('public CLI plan and check accept only the approved official DSH task and m
 });
 
 test('independently recomputing the native work fingerprint rejects a stale scope approval', () => {
-  const fingerprint = (contract, diff) => createHash('sha256').update(JSON.stringify([contract, diff])).digest('hex');
+  const fingerprint = (contract, diff) =>
+    createHash('sha256')
+      .update(JSON.stringify([contract, diff]))
+      .digest('hex');
   const request = input('dsh', 'teams');
   const [role] = request.roles;
   role.workRevision = fingerprint('Review billing only', 'original diff');
   role.authorization.workRevision = role.workRevision;
   const ready = evaluateDshTaskRoutes(request, session, now).rows[0];
   request.approval = [{ id: ready.id, approvalKey: ready.route.approvalKey }];
-  const task = { id: role.id, provider: route.provider, model: route.model, effort: 'default', fallback: 'none',
-    workRevision: role.workRevision, dependencies: [] };
+  const task = {
+    id: role.id,
+    provider: route.provider,
+    model: route.model,
+    effort: 'default',
+    fallback: 'none',
+    workRevision: role.workRevision,
+    dependencies: [],
+  };
   request.host.nativePlan = { id: request.id, phase: 'staged', session, tasks: [task] };
   assert.equal(evaluateDshTaskRoutes(request, session, now).status, 'approved');
   task.workRevision = fingerprint('Review billing only', 'updated diff');
   assert.equal(evaluateDshTaskRoutes(request, session, now).reason, 'team-launch-scope-mismatch');
 });
 
-test('Pi CLI plan refuses a self-reported effort without native state', t => {
+test('Pi CLI plan refuses a self-reported effort without native state', (t) => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-pi-cli-'));
   t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const fixture = join(temp, 'plan.json');
@@ -172,18 +247,35 @@ test('Pi CLI plan refuses a self-reported effort without native state', t => {
   }
 });
 
-test('real DSH tool definition registers and runs the paid-route plan without spawning', { skip: !process.env.KITTO_TEST_DSH_INSTALL }, async () => {
-  const installAnchor = join(process.env.KITTO_TEST_DSH_INSTALL, 'package.json');
-  const require = createRequire(installAnchor);
-  assert.equal(require('./package.json').name, '@deepseek-ai/dsh');
-  const tools = [];
-  registerDshTaskRouting({ inject(deps, activate) {
-    assert.deepEqual(deps, ['profileContext', 'tools']);
-    activate({ profileContext: { installAnchor, name: 'web' }, tools: { register(tool) { tools.push(tool); } } });
-  } });
-  assert.equal(tools.length, 1);
-  const result = await tools[0].execute({ input_json: JSON.stringify(input('dsh', 'teams')) }, {
-    agent: { session: { id: session } }, signal: new AbortController().signal,
-  });
-  assert.equal(JSON.parse(result).rows[0].route.billing, 'metered');
-});
+test(
+  'real DSH tool definition registers and runs the paid-route plan without spawning',
+  { skip: !process.env.KITTO_TEST_DSH_INSTALL },
+  async () => {
+    const installAnchor = join(process.env.KITTO_TEST_DSH_INSTALL, 'package.json');
+    const require = createRequire(installAnchor);
+    assert.equal(require('./package.json').name, '@deepseek-ai/dsh');
+    const tools = [];
+    registerDshTaskRouting({
+      inject(deps, activate) {
+        assert.deepEqual(deps, ['profileContext', 'tools']);
+        activate({
+          profileContext: { installAnchor, name: 'web' },
+          tools: {
+            register(tool) {
+              tools.push(tool);
+            },
+          },
+        });
+      },
+    });
+    assert.equal(tools.length, 1);
+    const result = await tools[0].execute(
+      { input_json: JSON.stringify(input('dsh', 'teams')) },
+      {
+        agent: { session: { id: session } },
+        signal: new AbortController().signal,
+      },
+    );
+    assert.equal(JSON.parse(result).rows[0].route.billing, 'metered');
+  },
+);

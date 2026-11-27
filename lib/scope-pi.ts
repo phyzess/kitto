@@ -24,7 +24,10 @@ function piAgentDir(home: string): string {
   return resolve(configured);
 }
 
-export async function installPiScope({ dryRun = false, home = homedir(), runtime = packageDir }: ScopeInstallOptions = {}): Promise<{ path: string; changed: boolean }> {
+export async function installPiScope({ dryRun = false, home = homedir(), runtime = packageDir }: ScopeInstallOptions = {}): Promise<{
+  path: string;
+  changed: boolean;
+}> {
   const adapter = resolve(runtime, 'integration/scoped-pi/index.mjs');
   const path = join(piAgentDir(home), 'extensions', 'kitto-scopes.js');
 
@@ -43,7 +46,7 @@ export async function installPiScope({ dryRun = false, home = homedir(), runtime
     try {
       await symlink(adapter, path, 'file');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || !await existingAdapter()) throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || !(await existingAdapter())) throw error;
       return { path, changed: false };
     }
   }

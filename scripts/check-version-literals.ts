@@ -15,7 +15,7 @@ const pinned = new Map([
 ]);
 
 function files(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : files(path);
     return entry.isFile() ? [path] : [];
@@ -24,7 +24,7 @@ function files(directory) {
 
 function lines(text, version) {
   const pattern = new RegExp(`(?<![\\w.])${version.replace(/[.+]/g, '\\$&')}(?!\\w|\\.\\d)`, 'g');
-  return [...text.matchAll(pattern)].map(match => text.slice(0, match.index).split('\n').length);
+  return [...text.matchAll(pattern)].map((match) => text.slice(0, match.index).split('\n').length);
 }
 
 const failures = [];

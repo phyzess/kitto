@@ -57,18 +57,30 @@ export async function codexMcpNames(home: string | undefined, { codex }: McpPari
   try {
     const text = await optionalText(join(home, 'config.toml'));
     if (!text.trim()) return [];
-    const command = codex ?? await codexExecutable();
+    const command = codex ?? (await codexExecutable());
     if (!isAbsolute(command)) throw new Error('Expected an absolute Codex executable.');
     sandbox = await mkdtemp(join(tmpdir(), 'kitto-parity-codex-'));
     await writeFile(join(sandbox, 'config.toml'), text, { mode: 0o600 });
     const { stdout } = await run(command, ['mcp', 'list', '--json'], {
-      cwd: sandbox, timeout: 10000, maxBuffer: 1024 * 1024,
+      cwd: sandbox,
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
       env: {
-        PATH: (process.env.PATH ?? '').split(delimiter).map(dir => resolve(dir)).join(delimiter),
-        HOME: sandbox, CODEX_HOME: sandbox, USERPROFILE: sandbox,
-        XDG_CONFIG_HOME: join(sandbox, 'config'), XDG_DATA_HOME: join(sandbox, 'data'),
-        XDG_CACHE_HOME: join(sandbox, 'cache'), XDG_STATE_HOME: join(sandbox, 'state'),
-        TMPDIR: sandbox, TMP: sandbox, TEMP: sandbox, RUST_LOG: 'off',
+        PATH: (process.env.PATH ?? '')
+          .split(delimiter)
+          .map((dir) => resolve(dir))
+          .join(delimiter),
+        HOME: sandbox,
+        CODEX_HOME: sandbox,
+        USERPROFILE: sandbox,
+        XDG_CONFIG_HOME: join(sandbox, 'config'),
+        XDG_DATA_HOME: join(sandbox, 'data'),
+        XDG_CACHE_HOME: join(sandbox, 'cache'),
+        XDG_STATE_HOME: join(sandbox, 'state'),
+        TMPDIR: sandbox,
+        TMP: sandbox,
+        TEMP: sandbox,
+        RUST_LOG: 'off',
       },
     });
     const rows = JSON.parse(stdout);
@@ -95,8 +107,11 @@ function parseDeclarations(yaml: any, text: string): Row[] {
   if (doc.errors.length || doc.warnings.length) throw new Error('Invalid patch.');
   const value = doc.toJS();
   if (value == null) return [];
-  if (!Array.isArray(value) || value.some((patch: unknown) => !isRecord(patch) || patch.id === expression ||
-    patch.name === expression || patch.insert === expression)) throw new Error('Invalid patch list.');
+  if (
+    !Array.isArray(value) ||
+    value.some((patch: unknown) => !isRecord(patch) || patch.id === expression || patch.name === expression || patch.insert === expression)
+  )
+    throw new Error('Invalid patch list.');
   return value;
 }
 
@@ -139,12 +154,12 @@ export async function dshMcpNames(home: string | undefined, profile = 'web', { d
       optionalText(join(home, 'profiles', validateDshProfile(profile), 'cordis.patch.yml')),
       optionalText(join(home, 'cordis.patch.yml')),
     ]);
-    if (!texts.some(text => text.trim())) return [];
-    const [yaml, { composeEntries }] = await Promise.all([
-      loadDshModule('yaml', dsh), loadDshModule('@deepseek-ai/dsh-app-boot', dsh),
-    ]);
+    if (!texts.some((text) => text.trim())) return [];
+    const [yaml, { composeEntries }] = await Promise.all([loadDshModule('yaml', dsh), loadDshModule('@deepseek-ai/dsh-app-boot', dsh)]);
     const layers = texts.map((text: string) => parseDeclarations(yaml, text));
-    const rows = composeEntries(layers, () => { throw new Error('Patch depends on an uninspected entry.'); });
+    const rows = composeEntries(layers, () => {
+      throw new Error('Patch depends on an uninspected entry.');
+    });
     const found = new Set<string>();
     collectNames(rows, found);
     return [...found].sort();
@@ -154,7 +169,9 @@ export async function dshMcpNames(home: string | undefined, profile = 'web', { d
 }
 
 export async function mcpParity(state: State, options?: McpParityOptions): Promise<McpParity> {
-  const hosts: Record<string, string[]> = {}, globalOnly: string[] = [], unavailable: Record<string, string> = {};
+  const hosts: Record<string, string[]> = {},
+    globalOnly: string[] = [],
+    unavailable: Record<string, string> = {};
   async function inspect(host: string, read: () => Promise<string[]>) {
     try {
       hosts[host] = await read();
@@ -170,11 +187,15 @@ export async function mcpParity(state: State, options?: McpParityOptions): Promi
   }
   const all = [...new Set(Object.values(hosts).flat())].sort();
   const missing: Record<string, string[]> = {};
-  for (const [host, entries] of Object.entries(hosts)) missing[host] = all.filter(name => !entries.includes(name));
+  for (const [host, entries] of Object.entries(hosts)) missing[host] = all.filter((name) => !entries.includes(name));
   return { hosts, all, missing, globalOnly, unavailable };
 }
 
-export async function printMcpParity(state: State, log: (message: string) => void = console.log, options?: McpParityOptions): Promise<McpParity> {
+export async function printMcpParity(
+  state: State,
+  log: (message: string) => void = console.log,
+  options?: McpParityOptions,
+): Promise<McpParity> {
   const parity = await mcpParity(state, options);
   for (const [host, entries] of Object.entries(parity.hosts)) {
     log(`mcp ${host}: ${entries.length ? entries.join(', ') : '(none)'}`);

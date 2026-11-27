@@ -1,7 +1,18 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
-  forgetPending, get, isOwnedWith, list, markKept, markPending, promote, record, recordedHash, release, replaceScope, scopes,
+  forgetPending,
+  get,
+  isOwnedWith,
+  list,
+  markKept,
+  markPending,
+  promote,
+  record,
+  recordedHash,
+  release,
+  replaceScope,
+  scopes,
 } from '../lib/ownership.ts';
 
 test('record and release a skill', () => {
@@ -81,7 +92,10 @@ test('replaceScope mirrors a deploy pass and lets owned win over kept', () => {
     { name: 'a', hash: 'h1', status: 'owned' },
     { name: 'b', hash: null, status: 'kept' },
   ]);
-  assert.deepEqual(list(state, 'skill', 'shared', 'kept').map(entry => entry.name), ['b']);
+  assert.deepEqual(
+    list(state, 'skill', 'shared', 'kept').map((entry) => entry.name),
+    ['b'],
+  );
   replaceScope(state, 'skill', 'pi');
   assert.deepEqual(scopes(state, 'skill'), ['shared', 'pi']);
 });

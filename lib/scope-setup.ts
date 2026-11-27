@@ -15,14 +15,20 @@ const packageDir = fileURLToPath(new URL('../', import.meta.url));
 const installers: Record<string, string> = { pi: 'installPiScope', codex: 'installCodexScope', dsh: 'installDshScope' };
 
 async function exists(path: string): Promise<boolean> {
-  try { await lstat(path); return true; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 async function workspacePath(path: string): Promise<string> {
-  try { return await realpath(path); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || await exists(path)) throw error;
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || (await exists(path))) throw error;
     return join(await workspacePath(dirname(path)), basename(path));
   }
 }
@@ -32,15 +38,18 @@ async function installRuntime(home: string): Promise<string> {
   const backup = join(home, 'scope-runtime.previous');
   if (sameLocation(packageDir, runtime)) return runtime;
   for (const dir of [runtime, backup]) {
-    if (await exists(dir) && !await exists(join(dir, '.kitto-scope-runtime'))) {
+    if ((await exists(dir)) && !(await exists(join(dir, '.kitto-scope-runtime')))) {
       throw new Error('Existing directory is not a Kitto scope runtime: ' + dir);
     }
   }
-  if (await exists(backup) && !await exists(runtime)) await rename(backup, runtime);
+  if ((await exists(backup)) && !(await exists(runtime))) await rename(backup, runtime);
   const temp = await mkdtemp(join(home, '.scope-runtime-'));
   try {
     await writeFile(join(temp, '.kitto-scope-runtime'), '1\n');
-    for (const [dir, prefix] of [['lib', 'scope'], ['integration', 'scoped-']]) {
+    for (const [dir, prefix] of [
+      ['lib', 'scope'],
+      ['integration', 'scoped-'],
+    ]) {
       await mkdir(join(temp, dir));
       for (const entry of await readdir(join(packageDir, dir))) {
         if (entry.startsWith(prefix)) await cp(join(packageDir, dir, entry), join(temp, dir, entry), { recursive: true });
@@ -53,14 +62,17 @@ async function installRuntime(home: string): Promise<string> {
       await rm(backup, { recursive: true, force: true });
       await rename(runtime, backup);
     }
-    try { await rename(temp, runtime); }
-    catch (error) {
+    try {
+      await rename(temp, runtime);
+    } catch (error) {
       if (await exists(backup)) await rename(backup, runtime);
       throw error;
     }
     await rm(backup, { recursive: true, force: true });
     return runtime;
-  } finally { await rm(temp, { recursive: true, force: true }); }
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
 }
 
 export async function setupScope(options: KittoOptions): Promise<void> {
@@ -77,14 +89,17 @@ export async function setupScope(options: KittoOptions): Promise<void> {
   const home = scopeHome();
   const global = Boolean(options.global);
   const root = global ? join(home, 'global') : await workspacePath(resolve(workspaceParent || options.workspace));
-  if (!global && await exists(root) && !(await stat(root)).isDirectory()) throw new Error('Workspace must be a directory.');
+  if (!global && (await exists(root)) && !(await stat(root)).isDirectory()) throw new Error('Workspace must be a directory.');
   const unit = options['dsh-service'];
   if (unit && (global || workspaceParent || (options.agents && !options.agents.includes('dsh')))) {
     throw new Error('--dsh-service requires --workspace PATH and the DSH host.');
   }
   const dshProfile = validateDshProfile(options['dsh-profile'] || 'web', 'Invalid DSH profile.');
-  const requestedAgents = options.agents || (Object.keys(installers) as HostName[]).filter((name: HostName) =>
-    (name === 'dsh' && unit) || spawnSync(name, ['--version'], { stdio: 'ignore', timeout: 8000 }).status === 0);
+  const requestedAgents =
+    options.agents ||
+    (Object.keys(installers) as HostName[]).filter(
+      (name: HostName) => (name === 'dsh' && unit) || spawnSync(name, ['--version'], { stdio: 'ignore', timeout: 8000 }).status === 0,
+    );
   if (options['dsh-profile'] && !requestedAgents.includes('dsh')) throw new Error('--dsh-profile requires DSH.');
   if (unit && isDesktopProfile(dshProfile)) {
     throw new Error('The DSH desktop profile cannot be configured for a system service. Use --dsh-profile web.');
@@ -93,22 +108,32 @@ export async function setupScope(options: KittoOptions): Promise<void> {
   if (agents.includes('dsh') && isDesktopProfile(dshProfile)) {
     if (!agents.some((name: HostName) => name !== 'dsh')) throw new Error(desktopScopeError);
     agents = agents.filter((name: HostName) => name !== 'dsh');
-    console.warn('Kitto: skipping the DSH desktop profile in scoped setup; the Desktop app manages it and Kitto v1 does not write its profile patch.');
+    console.warn(
+      'Kitto: skipping the DSH desktop profile in scoped setup; the Desktop app manages it and Kitto v1 does not write its profile patch.',
+    );
   }
   if (!agents.length) throw new Error('No supported host CLI found in this account. Use --agents to select a host.');
 
   const args = { global, root, home: homedir(), dshProfile, dryRun };
   const scopeLabel = global ? 'global' : workspaceParent ? 'workspace parent' : 'workspace';
   const contentRoot = workspaceParent ? join(root, '<workspace>') : root;
-  console.log(`Kitto ${scopeLabel}: ${root}\nHosts: ${agents.join(', ')}\nInstructions: ${join(contentRoot, 'AGENTS.md')}\nSkills: ${join(contentRoot, '.agents/skills')}`);
-  if (!global && await exists(root) && !canWrite(root)) {
-    console.warn(`Kitto: workspace ${root} is not writable by the current user. Agents cannot create CodeGraph indexes or edit files there; grant write access (chown or setfacl) before starting a session.`);
+  console.log(
+    `Kitto ${scopeLabel}: ${root}\nHosts: ${agents.join(', ')}\nInstructions: ${join(contentRoot, 'AGENTS.md')}\nSkills: ${join(contentRoot, '.agents/skills')}`,
+  );
+  if (!global && (await exists(root)) && !canWrite(root)) {
+    console.warn(
+      `Kitto: workspace ${root} is not writable by the current user. Agents cannot create CodeGraph indexes or edit files there; grant write access (chown or setfacl) before starting a session.`,
+    );
   }
   async function installHosts(directory: string, preview: boolean) {
     for (const name of agents) {
       if (unit && name === 'dsh') continue;
       const module = await import(pathToFileURL(join(directory, 'lib', 'scope-' + name + '.mjs')).href);
-      await (module as Record<string, (options: ScopeInstallOptions) => Promise<unknown>>)[installers[name]]({ ...args, runtime: join(home, 'scope-runtime'), dryRun: preview });
+      await (module as Record<string, (options: ScopeInstallOptions) => Promise<unknown>>)[installers[name]]({
+        ...args,
+        runtime: join(home, 'scope-runtime'),
+        dryRun: preview,
+      });
     }
   }
   async function configureService(preview: boolean) {
@@ -117,9 +142,11 @@ export async function setupScope(options: KittoOptions): Promise<void> {
     await configureServiceScope({ unit, root, dryRun: preview, packageDir, dshProfile });
   }
   const instructions = join(root, 'AGENTS.md');
-  if (!workspaceParent && await exists(instructions) && !(await stat(instructions)).isFile()) throw new Error('Expected an instructions file at ' + instructions);
+  if (!workspaceParent && (await exists(instructions)) && !(await stat(instructions)).isFile())
+    throw new Error('Expected an instructions file at ' + instructions);
   const skills = join(root, '.agents/skills');
-  if (!workspaceParent && await exists(skills) && !(await stat(skills)).isDirectory()) throw new Error('Expected a skills directory at ' + skills);
+  if (!workspaceParent && (await exists(skills)) && !(await stat(skills)).isDirectory())
+    throw new Error('Expected a skills directory at ' + skills);
   await readScopeRegistry(home);
   await installHosts(packageDir, true);
   await configureService(true);
@@ -130,8 +157,9 @@ export async function setupScope(options: KittoOptions): Promise<void> {
 
   await mkdir(home, { recursive: true });
   const lock = join(home, '.scope-setup.lock');
-  try { await mkdir(lock); }
-  catch (error) {
+  try {
+    await mkdir(lock);
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Scope setup is locked: ' + lock);
     throw error;
   }
@@ -142,8 +170,11 @@ export async function setupScope(options: KittoOptions): Promise<void> {
       await configureService(false);
     } else if (!workspaceParent) {
       await mkdir(skills, { recursive: true });
-      try { await writeFile(instructions, '', { flag: 'wx' }); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+      try {
+        await writeFile(instructions, '', { flag: 'wx' });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
     }
     await installHosts(runtime, false);
     if (global) registry.global = true;
@@ -154,12 +185,16 @@ export async function setupScope(options: KittoOptions): Promise<void> {
     await writeScopeRegistry(home, registry);
     console.log('Scope ready. Start a new agent session in your project.');
     if (!global) {
-      const owner = await stat(root).then(info => info.uid).catch((): null => null);
+      const owner = await stat(root)
+        .then((info) => info.uid)
+        .catch((): null => null);
       if (process.getuid?.() === 0 && owner !== null && owner !== 0) {
         console.warn(`CodeGraph indexes: setup runs as root but ${root} belongs to uid ${owner}; run codegraph init as that user instead.`);
       } else {
         await ensureCodeGraphIndexes({ home, source: join(home, 'config') }, { apply: true, registeredOnly: true });
       }
     }
-  } finally { await rm(lock, { recursive: true }); }
+  } finally {
+    await rm(lock, { recursive: true });
+  }
 }
