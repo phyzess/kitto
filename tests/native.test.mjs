@@ -39,7 +39,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   for (const [name, text] of Object.entries(files)) writeFileSync(join(source, name), text);
   for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@example.invalid'], ['config', 'user.name', 'Kitto test'], ['add', '.'], ['commit', '-m', 'fixture']]) run('git', ['-C', source, ...args]);
   const sourceHead = run('git', ['-C', source, 'rev-parse', 'HEAD']);
-  for (const name of ['package.json', 'bin', 'lib', 'integration', 'sync.sh', 'CHANGELOG.md']) {
+  for (const name of ['package.json', 'bin', 'lib', 'integration', 'CHANGELOG.md']) {
     cpSync(join(root, name), join(previous, name), { recursive: true, filter: path => !path.includes('__pycache__') });
   }
   for (const name of ['package.json', 'integration/plugin.json']) {

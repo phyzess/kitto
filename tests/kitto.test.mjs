@@ -61,8 +61,8 @@ function snapshot(directory) {
 function release(f, version, operation = 'setup') {
   const directory = join(f.temp, version);
   mkdirSync(directory);
-  for (const name of ['package.json', 'bin', 'lib', 'integration', 'sync.sh', 'CHANGELOG.md']) {
-    cpSync(join(root, name), join(directory, name), { recursive: true, filter: path => !path.includes('__pycache__') });
+  for (const name of ['package.json', 'bin', 'lib', 'integration', 'CHANGELOG.md']) {
+    cpSync(join(root, name), join(directory, name), { recursive: true});
   }
   for (const name of ['package.json', 'integration/plugin.json']) {
     const file = join(directory, name), data = readJson(file); data.version = version; writeFileSync(file, JSON.stringify(data));
@@ -597,12 +597,12 @@ test('kitto update refreshes the runtime copy, deploys the new source and record
   const state = readJson(statePath);
   assert.equal(state.version, '0.1.0-test.2');
   assert.equal(state.deployed.commit, revision);
-  assert.equal(state.runtimeHash, await treeHash(runtime, true));
+  assert.equal(state.runtimeHash, await treeHash(runtime));
   assert.equal(state.pendingRuntime, undefined);
   assert.notEqual(deployed.commit, state.deployed.commit);
   const checkpoint = readJson(join(home, 'runtime.previous.json'));
   assert.equal(checkpoint.version, '0.1.0-test.1');
-  assert.equal(checkpoint.hash, await treeHash(join(home, 'runtime.previous'), true));
+  assert.equal(checkpoint.hash, await treeHash(join(home, 'runtime.previous')));
   assert(existsSync(join(home, 'runtime.previous/lib/kitto.mjs')));
   const installed = snapshot(home);
   const refreshed = command(process.execPath, [join(runtime, 'bin/kitto.mjs'), 'update', '--check'], f.env);
@@ -1067,11 +1067,9 @@ test('failed upgrade retries preserve the working checkpoint, and external setup
   good(f.maintain('status'));
 });
 
-test('same-version setup and generated Python cache do not erase a prior version checkpoint', t => {
+test('same-version setup does not erase a prior version checkpoint', t => {
   const f = fixture(t), a = release(f, '0.1.0-test.1'), b = release(f, '0.1.0-test.2');
   good(a('--agents', 'codex', '--source', f.source)); good(b());
-  const cache = join(f.env.KITTO_HOME, 'runtime/lib/__pycache__'); mkdirSync(cache);
-  writeFileSync(join(cache, 'local.pyc'), 'generated');
   good(b());
   assert.equal(readJson(join(f.env.KITTO_HOME, 'runtime.previous.json')).version, '0.1.0-test.1');
   good(f.maintain('recover', '--apply'));
@@ -1890,22 +1888,6 @@ test('a live lock is never displaced, even with --break-lock', t => {
   assert.match(blocked.stderr, new RegExp(`Another Kitto operation holds .*: pid ${process.pid}`));
   assert.match(blocked.stderr, /Wait for it to finish/);
   assert.equal(existsSync(join(lock, 'owner.json')), true);
-});
-
-test('a slow python3 shim warns instead of stranding the deployment', t => {
-  const f = fixture(t);
-  const real = command('bash', ['-c', 'python3 -c "import sys; print(sys.executable)"'], f.env).stdout.trim();
-  assert(real, 'the fixture needs a real python3 to delegate to');
-  writeFileSync(join(f.temp, 'bin/python3'),
-    `#!${process.execPath}\nrequire(${JSON.stringify(join(root, 'tests/helpers/slow-python.cjs'))});\n`, { mode: 0o755 });
-  f.env.REAL_PYTHON = real;
-
-  const result = f.cli('setup', '--agents', 'pi', '--source', f.source);
-  good(result);
-  assert.match(result.stderr, /python3 did not answer within 8s/);
-  const state = readJson(join(f.env.KITTO_HOME, 'state.json'));
-  assert.equal(state.ready, true);
-  assert.equal(state.pendingRuntime, undefined);
 });
 
 test('release verification polls npm before reporting a result', () => {

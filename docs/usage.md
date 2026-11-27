@@ -161,7 +161,7 @@ npx --yes @phyzess/kitto scope remove --workspace-parent /path/to/workspaces
 
 | 宿主 | Kitto 管理的内容 | 使用前准备 |
 |---|---|---|
-| Pi | settings、MCP、扩展、规则和 skills | Bash、Python 3.10+。通过 Kitto 安装 Pi CLI 需要 Node 22.19+ |
+| Pi | settings、MCP、扩展、规则和 skills | 通过 Kitto 安装 Pi CLI 需要 Node 22.19+ |
 | Codex | 全局规则、skills、Kitto 插件，以及 Pi 源中启用 MCP 的白名单同步 | 登录 Codex，按需配置自己的模型和权限 |
 | DSH | 全局规则、skills、指定 profile 的 Kitto bundle、白名单 MCP 同步，以及 CodeGraph 索引提醒/初始化（`desktop` 仅全局规则与 skills） | pnpm（web/headless）。通过 Kitto 安装 DSH CLI 需要 Node 24.9+；`--install-agents` 可补装 pnpm。Desktop 配置档由 App 管理，不需要 pnpm |
 
@@ -228,7 +228,7 @@ Kitto 部署时直接按文件拼接组合，不使用模板。共享段与宿�
 | Codex | `common.md` + `config/codex/AGENTS.md` 写入 `$CODEX_HOME/AGENTS.md` 的 Kitto 标记块 |
 | DSH | `common.md` + `config/dsh/AGENTS.md` 写入 `$DSH_HOME/AGENTS.md` 的 Kitto 标记块 |
 
-Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖。`sync.sh push` 只把 `$PI_CODING_AGENT_DIR/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件缺少分隔哨兵、共享段与当前 `common.md` 不完全一致，或组合结果不规范（例如整段删除共享规则但本机尚未 pull）时，push 会在写仓库前拒绝导出。
+Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工修改时 sync 会报错并保留文件。Pi 在 pull 时按组合结果整份对比，内容不同才覆盖。维护命令 `export` 只把 `$PI_CODING_AGENT_DIR/AGENTS.md` 里的 Pi 专属段导出回 `config/pi/AGENTS.md`：共享规则必须在本仓库的 `common.md` 修改；本机文件缺少分隔哨兵、共享段与当前 `common.md` 不完全一致，或组合结果不规范（例如整段删除共享规则但本机尚未 pull）时，push 会在写仓库前拒绝导出。
 
 只改这台机器的规则写在 Codex/DSH 标记块外，或使用工作区/仓库自己的 `AGENTS.md`；不要直接编辑 Pi 的全局 `AGENTS.md`，它会在下次 pull 时被整份重写。配置源缺少 `config/instructions/common.md` 时 setup/sync 会直接报错，不再有整文件回退；先把配置源更新到含共享层的版本。
 
@@ -250,7 +250,7 @@ Codex/DSH 只替换标记块，块外内容保持本机所有；块内被手工�
 
 默认配置来源是这个 GitHub 仓库。使用自己的 fork 时，首次 setup 加 `--source <Git-URL>`；要复用已有仓库，则传入本地路径。让 Kitto “检查配置状态”可以看到本机使用的源目录。共享 skills 默认由 Kitto 部署到 `~/.agents/skills/`。
 
-`sync.sh` 只是 Kitto 内部的 Pi 适配器，不是公开入口，直接运行会被拒绝；共享 skills（`~/.agents/skills`）由 Kitto JS 按 hash 所有权和锁管理。`AGENTS.md` 仍走共享层组合；`push` 只导出 Pi 专属段，详见上文「规则共享层与宿主 addendum」。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告，并按旧的非交互语义运行 setup（不会启动向导）。
+Pi 适配器是 Kitto 进程内的 JavaScript 模块（`lib/pi-adapter.mjs`），没有单独的 shell 入口；共享 skills（`~/.agents/skills`）由 Kitto JS 按 hash 所有权和锁管理。`AGENTS.md` 仍走共享层组合；`push` 只导出 Pi 专属段，详见上文「规则共享层与宿主 addendum」。需要同步时使用 `setup`，或在会话里让 Kitto 维护 skill 执行 sync。`setup.sh --force` 同样已废弃：它只打印一次警告，并按旧的非交互语义运行 setup（不会启动向导）。
 
 ## 换机与更新
 
@@ -264,7 +264,7 @@ npx --yes @phyzess/kitto@latest update --apply  # 拉取配置、刷新 runtime�
 `update` 默认只预览（`--check` 是同一预览的显式写法），不写任何文件；`--apply` 依次做三件事：
 
 1. **配置源**：只对干净的分支执行 `git fetch` + `git pull --ff-only`；本地与远端只要有一方是另一方的祖先就继续（本地领先时等同于 Already up to date），只有真正分叉（互不为祖先）才拒绝且不合并。本地修改会中止且不会 stash 或 reset；detached 或 tag 固定的 checkout 会提示改用 `setup --ref TAG`。Kitto 创建的 checkout 会记录 `sourceUrl` 和 `sourceRef`（分支名或 tag 名），checkout 丢失时按记录的 ref 重新 clone；tag 固定、ref 无法确定或远端已无该分支时不会猜测，而是提示在原地重建 checkout 后重跑 `setup`，或换一个 `KITTO_HOME`。origin 变化时会同步更新 `sourceUrl`（日志中的凭据已脱敏）。旧版 `state.json` 没有这些字段也能运行，存在 bootstrap marker 时会自动回填。
-2. **已安装 runtime**：把正在执行的 Kitto 包（`bin`、`lib`、`integration`、`sync.sh`、`package.json`、`CHANGELOG.md`）替换到 `~/.local/share/kitto/runtime`。替换前把上一次验证过的版本保存为 `runtime.previous` 检查点。新 runtime 在本次部署成功前只是 `pendingRuntime`，不会成为检查点，也不会覆盖 `state.json` 里的已验证版本；部署失败时 `setup --recover` 仍回到上次成功部署的版本，重试也不会把未经验证的代码当成检查点。
+2. **已安装 runtime**：把正在执行的 Kitto 包（`bin`、`lib`、`integration`、`package.json`、`CHANGELOG.md`）替换到 `~/.local/share/kitto/runtime`。替换前把上一次验证过的版本保存为 `runtime.previous` 检查点。新 runtime 在本次部署成功前只是 `pendingRuntime`，不会成为检查点，也不会覆盖 `state.json` 里的已验证版本；部署失败时 `setup --recover` 仍回到上次成功部署的版本，重试也不会把未经验证的代码当成检查点。
 3. **部署**：规则/指令、skills、MCP 与 Pi 配置沿用原有 `sync` 逻辑；原生插件/扩展注册保持不变（仍指向 runtime 路径，无需重装）。预览不写文件。
 
 ### 宿主 CLI：只升到已验证基线，不自动更新
@@ -323,14 +323,12 @@ Kitto 也会检查已登记工作区是否对当前账号可写。只读工作�
 
 正常退出以及 `SIGINT`/`SIGTERM` 都会释放锁，只有 `SIGKILL` 或断电才会留下残留。部署中途失败时 runtime 会停在未验证状态（`state.json` 的 `pendingRuntime`）：重跑同一条 `update --apply` 完成，或用 `setup --recover` 回到上一份已验证的 runtime，命令会直接提示。
 
-Python 探测超时也不会再中止部署：pyenv、asdf、mise 这类 shim 首次调用可能超过 8 秒，Kitto 只警告并继续，真实结果由 Pi 适配器报告。缺解释器或版本低于 3.10 仍然在写入前就失败。
-
 需要解除集成时，可以在 agent 里说“用 Kitto 预览解除集成”。解除 DSH 时会同时删除 `$DSH_HOME/cordis.patch.yml` 中 Kitto 自有的 `kitto-mcp-*` 行，保留其它内容；patch 无法安全解析时保留文件并警告，不阻塞解除。解除后仍保留个人配置、共享 skills 和宿主 CLI。
 
 ## 发布新版本
 
 1. 在同一个 PR 里更新 `package.json`、`package-lock.json` 和 `integration/plugin.json` 的 `version`，并在 `CHANGELOG.md` 顶部新增对应小节，例如 `## 0.2.1`。发布脚本接受 `主版本.次版本.补丁版本` 格式的正式版本。
-2. 等 PR 合入、CI 通过，在干净的工作树上切到最新的 `origin/main`。使用与 CI 一致的 Node.js 26，版本记录在 [`.node-version`](../.node-version)。还需要 npm、Git、Bash 和 Python 3.10+。正式发布时，当前账号需要能向 `origin` 推送 tag，并能向 npm 发布 `@phyzess/kitto`。
+2. 等 PR 合入、CI 通过，在干净的工作树上切到最新的 `origin/main`。使用与 CI 一致的 Node.js 26，版本记录在 [`.node-version`](../.node-version)。还需要 npm、Git 和 Bash（检查 `setup.sh` 语法）。正式发布时，当前账号需要能向 `origin` 推送 tag，并能向 npm 发布 `@phyzess/kitto`。
 3. 在仓库根目录执行下面的命令。第一条从提交快照运行检查并生成临时 npm 包，第二条重复检查，随后推送 `v0.2.1` 并把同一份包发布到 npm `latest`。
 
    ```bash

@@ -43,7 +43,7 @@ Pi 的 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`）由 K
 - 改三个宿主都适用的规则，编辑 `common.md`；
 - 改 Pi 的 MCP 工具表、浏览器或 Plannotator 约定，编辑 `config/pi/AGENTS.md`；
 - 不要直接编辑本机生成的 `AGENTS.md`：pull 会按组合结果整份覆盖；
-- `sync.sh push` 用分隔哨兵切分本机文件，只把 Pi 专属段写回 `config/pi/AGENTS.md`。缺少哨兵、共享段与当前 `common.md` 不完全一致（包括整段删除共享规则但本机尚未 pull），或组合结果不规范时，push 会在写仓库前拒绝并提示先同步，而不是把共享规则或已删除的规则写回 addendum。
+- 维护命令 `export` 用分隔哨兵切分本机文件，只把 Pi 专属段写回 `config/pi/AGENTS.md`。缺少哨兵、共享段与当前 `common.md` 不完全一致（包括整段删除共享规则但本机尚未 pull），或组合结果不规范时，push 会在写仓库前拒绝并提示先同步，而不是把共享规则或已删除的规则写回 addendum。
 
 需要本机或项目专属规则时，使用该工作区/仓库自己的 `AGENTS.md`。`config/pi/local/` 仍只覆盖 settings、MCP 和包清单。
 
@@ -89,8 +89,8 @@ Kitto 不再替换 Pi 的编辑器。已有安装同步后，同名 `thin-cursor
 - Kitto 仍默认设置 `showHardwareCursor: true`。如需竖条光标，在终端配置中选择竖条样式；硬件光标的外观由终端决定，Kitto 不强制改形状。
 - 如希望 Pi 绘制软件光标，在 `config/pi/local/settings.json` 中设 `"showHardwareCursor": false` 后同步。只有未设置此项时，Pi 才以 `PI_HARDWARE_CURSOR=1` 作为启用硬件光标的后备方式。
 
-## sync.sh（内部适配器）
+## Pi 适配器
 
-`sync.sh` 是 `lib/kitto.mjs` 中 `syncCommand` 调用的 **Pi 私有适配器**，不是公开入口，直接运行会被拒绝。正常安装和同步请使用 `kitto setup`，或在 Kitto 会话里让维护 skill 执行 sync。共享 skills 由 Kitto JS 管理（按 hash 记录所有权，并与 setup/sync 共用锁），适配器不部署 `~/.agents/skills`。`AGENTS.md` 的规则见上文「全局规则如何组合」：pull 组合 common + addendum，push 只导出 addendum；配置源没有 `common.md` 时直接报错。
+Pi 的 settings、MCP、扩展、规则和包由 `lib/pi-adapter.mjs` 部署，`lib/kitto.mjs` 的 `syncCommand` 在进程内调用它，没有单独的 shell 或 Python 入口。正常安装和同步请使用 `kitto setup`，或在 Kitto 会话里让维护 skill 执行 sync。共享 skills 由 Kitto JS 管理（按 hash 记录所有权，并与 setup/sync 共用锁），适配器不部署 `~/.agents/skills`。`AGENTS.md` 的规则见上文「全局规则如何组合」：pull 组合 common + addendum，push 只导出 addendum；配置源没有 `common.md` 时直接报错。
 
-这里的 `push` 指把 Pi 配置导出到本地仓库。检查 Git 差异后，才执行 Git 的提交和推送。导出只写入仓库已经声明的 settings 键、MCP server、skills 和扩展；本机新增但未声明的项会在预览中点名并跳过，避免把临时 token 或实验配置带进仓库。凭据用 `${VAR}` 引用，写出字面 secret 时导出会拒绝。要在所有机器上移除扩展包，直接修改仓库的 `settings.json`。
+这里的导出（维护命令 `export`，即适配器的 push）指把 Pi 配置导出到本地仓库。检查 Git 差异后，才执行 Git 的提交和推送。导出只写入仓库已经声明的 settings 键、MCP server、skills 和扩展；本机新增但未声明的项会在预览中点名并跳过，避免把临时 token 或实验配置带进仓库。凭据用 `${VAR}` 引用，写出字面 secret 时导出会拒绝。要在所有机器上移除扩展包，直接修改仓库的 `settings.json`。

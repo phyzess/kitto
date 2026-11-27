@@ -12,7 +12,7 @@ npx --yes @phyzess/kitto@latest setup
 
 用 ↑↓ 移动、空格勾选宿主、Enter 确认。随后从菜单选择配置来源，指定本地路径或 Git URL 时直接输入。选「使用默认 Kitto 配置」即可部署仓库里的规则、skills 和各宿主的 Kitto 集成。选择 Pi 时还会同步 Pi 包、扩展和 MCP 设置。已有自己的配置仓库时，可以填 Git URL 或本地路径。向导会询问是否补装缺少的 CLI 和辅助依赖，也可以在同一次运行里先预览，再确认安装。
 
-这是新机器唯一的安装入口。已经有 Kitto 源码时，在源码根目录运行 `./setup.sh --source .`；如果这台机器已经完成过 setup，直接 `./setup.sh` 会复用 state 里记录的配置源（没有 state 时会 clone 默认的 GitHub 仓库）。两种方式最终都执行 `kitto setup`。不要再直接运行 `sync.sh`：它只是 Kitto 内部的 Pi 适配器，见 [Pi 配置参考](docs/pi.md#syncsh内部适配器)。
+这是新机器唯一的安装入口。已经有 Kitto 源码时，在源码根目录运行 `./setup.sh --source .`；如果这台机器已经完成过 setup，直接 `./setup.sh` 会复用 state 里记录的配置源（没有 state 时会 clone 默认的 GitHub 仓库）。两种方式最终都执行 `kitto setup`。Pi 适配器是 Kitto 内部模块，见 [Pi 配置参考](docs/pi.md#pi-适配器)。
 
 ## 以后才建工作区怎么办？
 
@@ -40,7 +40,7 @@ npx --yes @phyzess/kitto setup --agents dsh --dsh-profile desktop
 
 ## 规则共享层
 
-三个宿主的共同工作规则集中在 [config/instructions/common.md](config/instructions/common.md)，各宿主的 `config/<宿主>/AGENTS.md` 只保留自己的 addendum（Pi 的 MCP 工具表、浏览器与评审约定；Codex/DSH 的 skill 回退路径等）。Kitto 部署时直接拼接两者（中间有一行 `<!-- kitto:host-addendum -->` 分隔哨兵），不使用模板：Pi 组合后整份写入 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`）；Codex 和 DSH 写入各自全局 `AGENTS.md` 的 Kitto 标记块，块外内容保持本机所有。改共享规则只改 `common.md`；Pi 的 `sync.sh push` 只导出 Pi 专属段，不会把共享规则写回 addendum。细节见[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#规则共享层与宿主-addendum)。
+三个宿主的共同工作规则集中在 [config/instructions/common.md](config/instructions/common.md)，各宿主的 `config/<宿主>/AGENTS.md` 只保留自己的 addendum（Pi 的 MCP 工具表、浏览器与评审约定；Codex/DSH 的 skill 回退路径等）。Kitto 部署时直接拼接两者（中间有一行 `<!-- kitto:host-addendum -->` 分隔哨兵），不使用模板：Pi 组合后整份写入 `$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`）；Codex 和 DSH 写入各自全局 `AGENTS.md` 的 Kitto 标记块，块外内容保持本机所有。改共享规则只改 `common.md`；Pi 的 维护命令 `export` 只导出 Pi 专属段，不会把共享规则写回 addendum。细节见[配置与同步指南](https://github.com/phyzess/kitto/blob/main/docs/usage.md#规则共享层与宿主-addendum)。
 
 ## 把改动带到下一台机器
 

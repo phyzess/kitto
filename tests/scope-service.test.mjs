@@ -58,8 +58,8 @@ test('guided service staging includes the full runtime assets and excludes the p
   const source = join(fixture, 'source');
   const stage = join(fixture, 'stage');
   const packaged = [
-    'package.json', 'sync.sh', 'CHANGELOG.md', 'bin/kitto.mjs', 'bin/maintain.mjs',
-    'lib/scopes.mjs', 'lib/pi_config.py', 'integration/scoped-dsh/index.mjs',
+    'package.json', 'CHANGELOG.md', 'bin/kitto.mjs', 'bin/maintain.mjs',
+    'lib/scopes.mjs', 'integration/scoped-dsh/index.mjs',
     'integration/cordis.patch.yml', 'integration/skills/kitto/SKILL.md',
   ];
   for (const file of [...packaged, 'config/pi/mcp.private.json', '.git/config', 'skills/private/SKILL.md', '.env']) {
@@ -70,5 +70,5 @@ test('guided service staging includes the full runtime assets and excludes the p
   await mkdir(stage);
   await stageServicePackage(source, stage, true);
   for (const file of packaged) assert.equal(await readFile(join(stage, file), 'utf8'), file);
-  assert.deepEqual((await readdir(stage)).sort(), ['CHANGELOG.md', 'bin', 'integration', 'lib', 'package.json', 'sync.sh']);
+  assert.deepEqual((await readdir(stage)).sort(), ['CHANGELOG.md', 'bin', 'integration', 'lib', 'package.json']);
 });
