@@ -5,6 +5,25 @@ import type { State } from '../types/kitto.d.ts';
 
 type Json = Record<string, any>;
 
+interface GoCatalogItem {
+  id: string;
+  canonical_id: string;
+  type: 'chat';
+  go: { monthly_usage: Record<string, number>; training: false };
+  cost: { text: { input: { price: number }; output: { price: number } }; multipliers: Array<{ factor: number }> };
+}
+
+interface GoCatalog {
+  object: 'list';
+  data: GoCatalogItem[];
+}
+
+interface GoUsageWindow {
+  status: 'ok' | 'rate-limited';
+  percent: number;
+  resetsAt: string;
+}
+
 export interface GoBinding {
   account: string;
   plan: string;
@@ -17,7 +36,7 @@ interface MetadataRead {
   status?: string;
   reason?: string;
   statusCode?: number;
-  value?: any;
+  value?: unknown;
 }
 
 type Stopped = { status: 'stop'; reason: string; statusCode?: number };
@@ -60,69 +79,87 @@ async function readMetadata(fetcher: Fetcher, name: string, headers: Record<stri
   }
 }
 
-function catalogProjection(response: Json | null | undefined, binding: GoBinding & { plan: string }) {
-  if (response?.object !== 'list' || !Array.isArray(response.data)) return null;
-  const seen = new Set<string>();
-  for (const item of response.data) {
-    if (!routeId(item?.id) || seen.has(item.id)) return null;
-    seen.add(item.id);
+const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+
+function at(value: unknown, ...keys: string[]): unknown {
+  let current = value;
+  for (const key of keys) {
+    const record = asRecord(current);
+    if (!record) return undefined;
+    current = record[key];
   }
-  const data = response.data.flatMap((item: Json) => {
+  return current;
+}
+
+const positiveNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+function catalogProjection(response: unknown, binding: GoBinding & { plan: string }): GoCatalog | null {
+  const rows = at(response, 'data');
+  if (at(response, 'object') !== 'list' || !Array.isArray(rows)) return null;
+  const seen = new Set<string>();
+  for (const item of rows) {
+    const id = at(item, 'id');
+    if (!routeId(id) || seen.has(id)) return null;
+    seen.add(id);
+  }
+  const data = rows.flatMap((item: unknown) => {
     const verified = projectModel(item, binding.plan);
     return verified ? [verified] : [];
   });
-  return data.some((item: Json) => item.id === binding.model && item.canonical_id === binding.canonicalModel)
-    ? { object: 'list', data }
-    : null;
+  return data.some((item) => item.id === binding.model && item.canonical_id === binding.canonicalModel) ? { object: 'list', data } : null;
 }
 
-function projectModel(item: Json, plan: string): Json | null {
-  const canonical = knownGoCanonical(item.id),
-    cap = item.go?.monthly_usage?.[plan];
+function projectModel(item: unknown, plan: string): GoCatalogItem | null {
+  const id = at(item, 'id'),
+    canonicalId = at(item, 'canonical_id'),
+    cap = at(item, 'go', 'monthly_usage', plan);
+  const canonical = typeof id === 'string' ? knownGoCanonical(id) : undefined;
   if (
     !canonical ||
-    item.type !== 'chat' ||
-    typeof item.canonical_id !== 'string' ||
-    item.canonical_id.toLowerCase() !== canonical ||
-    item.go?.training !== false ||
-    !Number.isFinite(cap) ||
-    cap <= 0
+    typeof id !== 'string' ||
+    at(item, 'type') !== 'chat' ||
+    typeof canonicalId !== 'string' ||
+    canonicalId.toLowerCase() !== canonical ||
+    at(item, 'go', 'training') !== false ||
+    !positiveNumber(cap)
   )
     return null;
-  const input = maxPrice(item.cost?.text?.input),
-    output = maxPrice(item.cost?.text?.output);
-  const multipliers = item.cost?.multipliers === undefined ? [] : item.cost.multipliers;
-  if (
-    !Number.isFinite(input) ||
-    !Number.isFinite(output) ||
-    input + output <= 0 ||
-    !Array.isArray(multipliers) ||
-    !multipliers.every((row: Json) => Number.isFinite(row?.factor) && row.factor > 0) ||
-    !Number.isFinite(multipliers.reduce((product: number, row: Json) => product * Math.max(1, row.factor), 1))
-  )
+  const input = maxPrice(asRecord(at(item, 'cost', 'text', 'input'))),
+    output = maxPrice(asRecord(at(item, 'cost', 'text', 'output')));
+  const rawMultipliers = at(item, 'cost', 'multipliers');
+  const multipliers = rawMultipliers === undefined ? [] : rawMultipliers;
+  if (!Number.isFinite(input) || !Number.isFinite(output) || input + output <= 0 || !Array.isArray(multipliers)) return null;
+  const factors = multipliers.map((row: unknown) => at(row, 'factor'));
+  if (!factors.every(positiveNumber) || !Number.isFinite(factors.reduce((product: number, factor) => product * Math.max(1, factor), 1)))
     return null;
   return {
-    id: item.id,
+    id,
     canonical_id: canonical,
     type: 'chat',
     go: { monthly_usage: { [plan]: cap }, training: false },
-    cost: { text: { input: { price: input }, output: { price: output } }, multipliers: multipliers.map(({ factor }) => ({ factor })) },
+    cost: { text: { input: { price: input }, output: { price: output } }, multipliers: factors.map((factor) => ({ factor })) },
   };
 }
 
-function usageProjection(response: Json | null | undefined, now: number): Json | null {
-  const windows: Array<[string, Json]> = [];
+function usageProjection(response: unknown, now: number): Record<string, GoUsageWindow> | null {
+  const windows: Array<[string, GoUsageWindow]> = [];
   for (const name of WINDOW_NAMES) {
-    const item = response?.usage?.[name];
+    const item = at(response, 'usage', name);
+    const status = at(item, 'status'),
+      percent = at(item, 'percent'),
+      resetsAt = at(item, 'resetsAt');
     if (
-      !['ok', 'rate-limited'].includes(item?.status) ||
-      !Number.isInteger(item.percent) ||
-      item.percent < 0 ||
-      item.percent > 100 ||
-      !(timestamp(item.resetsAt) > now)
+      (status !== 'ok' && status !== 'rate-limited') ||
+      typeof percent !== 'number' ||
+      !Number.isInteger(percent) ||
+      percent < 0 ||
+      percent > 100 ||
+      typeof resetsAt !== 'string' ||
+      !(timestamp(resetsAt) > now)
     )
       return null;
-    windows.push([name, { status: item.status, percent: item.percent, resetsAt: item.resetsAt }]);
+    windows.push([name, { status, percent, resetsAt }]);
   }
   return Object.fromEntries(windows);
 }

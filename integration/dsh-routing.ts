@@ -8,7 +8,7 @@ import { kittoHome } from '../lib/kitto-home.ts';
 import { adviseRoute } from '../lib/model-routing.ts';
 import { activeRoutingBoundary, routeId } from '../lib/routing-policy.ts';
 import { createRoutingStore, newTicketId } from '../lib/routing-state.ts';
-import type { Json, State } from '../types/kitto.d.ts';
+import type { Json, State, DshPluginContext } from '../types/kitto.d.ts';
 
 export const ROUTING_HOST_VERSION = routingHostVersion;
 const TTL = 120_000;
@@ -217,7 +217,7 @@ export function createDispatchGate({
   };
 }
 
-export function registerDshRouting(ctx: Json): void {
+export function registerDshRouting(ctx: DshPluginContext): void {
   ctx.inject(['profileContext', 'tools', 'workingDirectory'], (host: Json) => {
     const { name, home, installAnchor } = host.profileContext;
     if (name !== 'web' || !isAbsolute(installAnchor ?? '') || !isAbsolute(home ?? '')) return;

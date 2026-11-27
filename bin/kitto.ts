@@ -102,7 +102,7 @@ function formatScopeList(registry: ScopeRegistry): string {
     'Workspaces:',
     ...section(registry.workspaces),
     'Workspace parents:',
-    ...section(registry.workspaceParents),
+    ...section(registry.workspaceParents ?? []),
   ].join('\n');
 }
 

@@ -3,7 +3,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, sep } from 'node:path';
 import { resolveScopes, scopeHome } from '../../lib/scopes.ts';
 import { importFromRunningDsh } from './native.ts';
-import type { Json } from '../../types/kitto.d.ts';
+import type { Json, DshPluginContext } from '../../types/kitto.d.ts';
 
 export const name = 'phyzess-kitto-scopes';
 export const inject = ['skills', 'workingDirectory', 'systemPrompt', 'profileContext'];
@@ -23,7 +23,7 @@ function covers(parent: string, child: string): boolean {
 }
 
 function registerScopes(
-  ctx: Json,
+  ctx: DshPluginContext,
   FileSystemSkillProvider: any,
   discoverBaselineInstructionFiles: any,
   nativeConfigByPreset: Map<unknown, Json | undefined>,
@@ -47,12 +47,13 @@ function registerScopes(
           signal?.throwIfAborted();
           let provider = providers.get(skills);
           if (!provider) {
-            provider = new FileSystemSkillProvider(ctx, control, {
+            const created: Json = new FileSystemSkillProvider(ctx, control, {
               providerName: name,
               includeDefaultRoots: false,
               bundledSkillDir: skills,
             });
-            providers.set(skills, provider);
+            providers.set(skills, created);
+            provider = created;
           }
           const result = await provider.list({ cwd, signal });
           complete &&= Array.isArray(result) || result.complete;
@@ -114,7 +115,7 @@ function nativeInstructionConfig(rows: Json[]) {
   return Array.from(activeRows(rows)).find((row: Json) => row.id === 'agent-instructions')?.config;
 }
 
-export async function apply(ctx: Json): Promise<void> {
+export async function apply(ctx: DshPluginContext): Promise<void> {
   const [{ FileSystemSkillProvider }, { discoverBaselineInstructionFiles }, { readProfilePatches, composeEntries }] = await Promise.all([
     importFromRunningDsh('@deepseek-ai/dsh-skill-filesystem'),
     importFromRunningDsh('@deepseek-ai/dsh-agent-instructions'),

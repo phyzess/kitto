@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
-import type { Json } from '../types/kitto.d.ts';
+import type { Json, DshPluginContext } from '../types/kitto.d.ts';
 
 const messages: Record<string, string> = {
   'review-pending':
@@ -9,7 +9,7 @@ const messages: Record<string, string> = {
   unavailable: 'No verified local binding or authoritative DSH archive state is available. Leave the worktree and its claim alone.',
 };
 
-export function registerArchiveReview(ctx: Json, enabled: unknown): void {
+export function registerArchiveReview(ctx: DshPluginContext, enabled: unknown): void {
   if (enabled !== true) return;
   ctx.inject(['profileContext', 'tools', 'workspaceRegistry', 'sessionPersistence'], (host: Json) => {
     const { name, installAnchor } = host.profileContext;

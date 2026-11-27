@@ -101,3 +101,28 @@ export interface HostAdapterDeps {
   codex?: CodexAdapterDeps;
   dsh?: DshWebAdapterDeps;
 }
+
+export interface DshPluginContext {
+  inject(names: string[], factory: (host: Json) => unknown): void;
+  on(event: string, handler: (...args: never[]) => unknown): void;
+  get(name: string): Json | undefined;
+  skills: { registerProvider(factory: (control: Json) => unknown): void };
+  logger: { warn(message: string): void };
+  workingDirectory: { ensure(agent: unknown, signal?: AbortSignal): Promise<string> };
+  profileContext: Json;
+}
+
+export interface PiSessionContext {
+  hasUI?: boolean;
+  cwd: string;
+  ui: { notify(message: string, level?: string): void; select?(...args: unknown[]): Promise<unknown> };
+  sessionManager?: { getSessionId?(): string | undefined };
+  model?: unknown;
+  thinkingLevel?: unknown;
+}
+
+export interface PiExtensionApi {
+  on(event: 'session_start', handler: (event: unknown, ctx: PiSessionContext) => void): void;
+  registerCommand?(name: string, definition: { description: string; handler(args: string, ctx: PiSessionContext): Promise<void> }): void;
+  getThinkingLevel?(): unknown;
+}

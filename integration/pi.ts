@@ -2,11 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { kittoHome } from '../lib/kitto-home.ts';
 import { updateNotice } from '../lib/update-notice.ts';
 import { registerPiTaskRouting } from './pi-task-routing.ts';
-import type { Json } from '../types/kitto.d.ts';
+import type { PiExtensionApi, PiSessionContext } from '../types/kitto.d.ts';
 
-export default function kitto(pi: Json): void {
+export default function kitto(pi: PiExtensionApi): void {
   registerPiTaskRouting(pi);
-  pi.on('session_start', (_event: unknown, ctx: Json) => {
+  pi.on('session_start', (_event: unknown, ctx: PiSessionContext) => {
     if (!ctx.hasUI || process.env.KITTO_UPDATE_CHECK === '0') return;
     void readFile(new URL('../package.json', import.meta.url), 'utf8')
       .then((text: string) => updateNotice(kittoHome(), JSON.parse(text).version))
