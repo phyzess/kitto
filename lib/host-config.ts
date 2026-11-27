@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { get, record, release } from './ownership.ts';
 import { INSTRUCTIONS_NAME } from './state-schema.ts';
 import type { HostName, State } from '../types/kitto.d.ts';
+import { stateHome } from './state-homes.ts';
 
 export interface InstructionPlan {
   name: HostName;
@@ -42,7 +43,7 @@ export function hostSkillRoots(state: State): Array<{ name: HostName; source: st
   return state.agents.map((name) => ({
     name,
     source: join(state.source, 'config', name, 'skills'),
-    target: join(state[(name + 'Home') as `${HostName}Home`], 'skills'),
+    target: join(stateHome(state, `${name}Home`), 'skills'),
   }));
 }
 
@@ -56,7 +57,7 @@ export async function instructionPlan(state: State): Promise<InstructionPlan[]> 
   if (reserved.some((marker) => common?.includes(marker))) throw new Error('Reserved Kitto markers in shared instructions.');
   for (const name of state.agents.filter((name) => name !== 'pi')) {
     const addendum = await optionalText(join(state.source, 'config', name, 'AGENTS.md'));
-    const home = state[(name + 'Home') as `${HostName}Home`];
+    const home = stateHome(state, `${name}Home`);
     const target = join(home, 'AGENTS.md');
     if (reserved.some((marker) => addendum?.includes(marker))) throw new Error(`Reserved Kitto markers in ${name} instructions.`);
     const stat = await lstat(target).catch((error: NodeJS.ErrnoException): null => {

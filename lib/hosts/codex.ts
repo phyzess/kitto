@@ -10,6 +10,7 @@ import { nativeCli } from './native-cli.ts';
 import type { HostAction, PreviewOptions } from './action.ts';
 import type { HostAdapter, HostReport, State } from '../../types/kitto.d.ts';
 import type { RunFunction } from '../process.ts';
+import { stateHome } from '../state-homes.ts';
 
 export interface CodexAdapterDeps {
   home?: string;
@@ -69,7 +70,7 @@ export function createCodexAdapter({
               );
               return;
             }
-            await mkdir(state.codexHome, { recursive: true });
+            await mkdir(stateHome(state, 'codexHome'), { recursive: true });
             await atomicJson(marketplace, {
               name: marketplaceName,
               plugins: [
@@ -89,7 +90,7 @@ export function createCodexAdapter({
       ),
     ],
     async planDetach(state: State) {
-      if (!(await present(state.codexHome))) return [];
+      if (!(await present(stateHome(state, 'codexHome')))) return [];
       const env = { ...process.env, CODEX_HOME: state.codexHome };
       const markets = JSON.parse(run('codex', ['plugin', 'marketplace', 'list', '--json'], { env, capture: true }));
       const market = markets.marketplaces.find((item: { name: string; root: string }) => item.name === marketplaceName);

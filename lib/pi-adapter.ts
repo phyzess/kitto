@@ -135,7 +135,7 @@ export interface PiAdapterOptions {
   onLock?: (lock: string) => void;
   onUnlock?: (lock: string) => void;
   ownedPackages?: unknown[];
-  onPackages?: (specs: unknown[]) => void;
+  onPackages?: (specs: PiPackageSpec[]) => void;
 }
 
 export function piAdapter(command: PiCommand, options: PiAdapterOptions): void {

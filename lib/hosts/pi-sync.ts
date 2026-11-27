@@ -8,6 +8,7 @@ import { processAlive } from '../process-alive.ts';
 import type { State } from '../../types/kitto.d.ts';
 import type { PiPackageSpec } from '../package-key.ts';
 import type { PiCommand } from '../pi-adapter.ts';
+import { stateHome } from '../state-homes.ts';
 
 export function breakStaleSyncLock(state: State): void {
   const lock = join(state.source, 'config/pi/local/.sync-lock');
@@ -33,8 +34,8 @@ export function syncCommand(state: State, command: PiCommand, apply = false): vo
   if (breakStaleLocks) breakStaleSyncLock(state);
   piAdapter(command, {
     source: state.source,
-    piHome: state.piHome,
-    agentsHome: state.agentsHome,
+    piHome: stateHome(state, 'piHome'),
+    agentsHome: stateHome(state, 'agentsHome'),
     dryRun: !apply && command !== 'status',
     ownedPackages: ownedPiPackages(state),
     onPackages: (specs: PiPackageSpec[]) => recordPiPackages(state, specs),
