@@ -435,6 +435,49 @@ class SyncTests(unittest.TestCase):
         self.assertTrue(lock.exists())
         self.assertFalse(self.machine.exists())
 
+    def lock_with_pid(self, pid):
+        lock = self.local / '.sync-lock'
+        lock.mkdir(parents=True)
+        (lock / 'pid').write_text(f'{pid}\n')
+        return lock
+
+    def exited_pid(self):
+        child = subprocess.Popen(['true'])
+        child.wait()
+        return child.pid
+
+    def test_lock_held_by_other_uid_is_live(self):
+        self.lock_with_pid(1)
+        result = self.run_sync('pull', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('仍在运行', result.stderr + result.stdout)
+        self.assertNotIn('rm -rf', result.stderr + result.stdout)
+
+    def test_lock_probe_denied_but_visible_to_ps_is_live(self):
+        self.lock_with_pid(self.exited_pid())
+        self.fake('ps', 'exit 0')
+        result = self.run_sync('pull', check=False)
+        self.assertIn('仍在运行', result.stderr + result.stdout)
+        self.assertNotIn('rm -rf', result.stderr + result.stdout)
+
+    def test_lock_with_exited_owner_is_reported_stale(self):
+        lock = self.lock_with_pid(self.exited_pid())
+        self.fake('ps', 'exit 1')
+        result = self.run_sync('pull', check=False)
+        self.assertIn('已退出', result.stderr + result.stdout)
+        self.assertTrue(lock.exists())
+
+    def test_lock_with_unverifiable_owner_never_suggests_removal(self):
+        lock = self.lock_with_pid(self.exited_pid())
+        self.fake('ps', 'exit 2')
+        result = self.run_sync('pull', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        output = result.stderr + result.stdout
+        self.assertIn('无法确认', output)
+        self.assertNotIn('--break-lock', output)
+        self.assertNotIn('rm -rf', output)
+        self.assertTrue(lock.exists())
+
     def test_failed_package_install_stops_deploy(self):
         self.fake('pi', 'if [ "$1" = list ]; then exit 0; fi\nexit 7')
         result = self.run_sync('pull', check=False)
