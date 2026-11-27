@@ -196,6 +196,40 @@ test('snapshots bind the push ancestor and the two PR parents, and inspect index
   assert.throws(() => inventory('worktree'), /Only regular files/u);
 });
 
+test('renames carry comments across .mjs to .ts, but copies and dissimilar rewrites do not', t => {
+  const { git, blob, repo, inventory } = fixture(t);
+  const commitFiles = (files, ...parents) => {
+    const tree = git(['mktree'], Object.entries(files).map(([name, source]) => `100644 blob ${blob(source)}\t${name}\n`).join(''));
+    return git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit-tree', tree,
+      ...parents.flatMap(parent => ['-p', parent]), '-m', 'Fixture']);
+  };
+  const body = Array.from({ length: 12 }, (_, i) => `export function f${i}(a) { return a + ${i}; }\n`).join('');
+  const typed = body.replaceAll('f1(a)', 'f1(a: number): number').replaceAll('f2(a)', 'f2(a: number): number');
+  const source = `// kept note\n/* block note */\n${body}`;
+  const base = commitFiles({ 'a.mjs': source });
+  const check = (files) => {
+    const head = commitFiles(files, base);
+    return compare(inventory(base), inventory(head), repo.renames(base, head)).violations;
+  };
+  const renames = head => [...repo.renames(base, head)];
+  const same = commitFiles({ 'a.ts': `// kept note\n/* block note */\n${typed}` }, base);
+  assert.deepEqual(renames(same), [['a.ts', 'a.mjs']]);
+  assert.equal(check({ 'a.ts': `// kept note\n/* block note */\n${typed}` }).length, 0);
+  assert.equal(check({ 'a.ts': `${typed}` }).length, 0);
+  assert.deepEqual(check({ 'a.ts': `// kept note\n// extra\n/* block note */\n${typed}` }).map(v => [v.path, v.text]), [['a.ts', '// extra']]);
+  assert.deepEqual(check({ 'a.ts': `// kept note\n/* block note */\n${typed}`, 'a.mjs': source }).map(v => v.path), ['a.ts', 'a.ts']);
+  const rewritten = Array.from({ length: 12 }, (_, i) => `export const other${i}: string = 'unrelated ${i * 7919}';\n`).join('');
+  assert.deepEqual(renames(commitFiles({ 'a.ts': `// kept note\n${rewritten}` }, base)), []);
+  assert.deepEqual(check({ 'a.ts': `// kept note\n${rewritten}` }).map(v => v.path), ['a.ts']);
+  const withTypes = commitFiles({ 'b.mjs': 'export const n = 1;\n' });
+  assert.equal(compare(inventory(withTypes), inventory(commitFiles({ 'b.ts': 'export const n: number = 1;\n' }, withTypes)),
+    repo.renames(withTypes, commitFiles({ 'b.ts': 'export const n: number = 1;\n' }, withTypes))).violations.length, 0);
+  const script = commitFiles({ 's.mjs': `#!/usr/bin/env node\n${body}` });
+  const moved = commitFiles({ 's.ts': `${body}` }, script);
+  assert.equal(compare(inventory(script), inventory(moved), repo.renames(script, moved)).violations[0].reason,
+    'existing semantic directive removed or changed');
+});
+
 function ratchetStep() {
   const text = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
   const step = parse(text).jobs.test.steps.find(step => step.name === 'Check comment ratchet or report required bootstrap review');
