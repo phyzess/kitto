@@ -10,6 +10,7 @@ permissions:
   contents: read
 jobs:
   test:
+    name: unit (${{ matrix.os }})
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -66,8 +67,40 @@ jobs:
       - run: npm run lint:versions
       - run: npm run lint:invariants
       - run: npm test
+  native:
+    name: native (hosts, ${{ matrix.os }})
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        id: node
+        with:
+          node-version-file: '.node-version'
+      - name: Use a symlinked temporary directory
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/real-tmp"
+          ln -s "$RUNNER_TEMP/real-tmp" "$RUNNER_TEMP/link-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/link-tmp" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - name: Restore validated native hosts
+        id: hosts
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ runner.temp }}/kitto-hosts
+          key: kitto-hosts-${{ runner.os }}-${{ runner.arch }}-node${{ steps.node.outputs.node-version }}-${{ hashFiles('lib/host-pins.mjs', 'scripts/ci-install-native.mjs') }}
       - name: Install validated native hosts
+        if: steps.hosts.outputs.cache-hit != 'true'
         run: node scripts/ci-install-native.mjs
+      - name: Verify native host versions
+        run: node scripts/ci-install-native.mjs --verify-only
       - name: Verify native lifecycle without model credentials
         env:
           KITTO_NATIVE_BIN: ${{ runner.temp }}/kitto-hosts/node_modules/.bin

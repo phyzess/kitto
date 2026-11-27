@@ -30,6 +30,7 @@ Skip the Python line only if no Python tests remain. On a loaded machine, run th
 
 ## 3. Self-review questions
 
+- CI-only tests: When a change alters behavior or state shape, also update the tests that only run in CI with real host CLIs (`tests/native.test.mjs`, `tests/scope-codex.test.mjs`, `tests/scope-dsh.test.mjs`, `tests/dsh-routing.test.mjs`). They skip locally, so read them. Run bash snippets under macOS `/bin/bash` 3.2 and brace `${var}` before non-ASCII text. This came from rework in PRs #59 and #64.
 - R1: Do preview and apply consume the same plan? Is there a test asserting they agree?
 - R2: Are filesystem paths compared by identity (`sameLocation`), including through a symlinked `TMPDIR`?
 - R3: Is any TOML, YAML or DSH reference parsed with a regular expression instead of the structured helper?
