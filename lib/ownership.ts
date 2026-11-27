@@ -1,6 +1,6 @@
 import type { State } from '../types/kitto.d.ts';
 
-export type OwnershipKind = 'skill' | 'instructions' | 'mcp' | 'pi-package';
+export type OwnershipKind = 'skill' | 'instructions' | 'mcp' | 'pi-package' | 'launcher';
 export type OwnershipStatus = 'owned' | 'pending' | 'kept';
 
 export interface OwnershipEntry {
@@ -13,7 +13,7 @@ export interface OwnershipEntry {
 export type OwnershipScope = Record<string, OwnershipEntry>;
 export type OwnershipLedger = Partial<Record<OwnershipKind, Record<string, OwnershipScope>>>;
 
-export const KINDS: readonly OwnershipKind[] = Object.freeze(['skill', 'instructions', 'mcp', 'pi-package']);
+export const KINDS: readonly OwnershipKind[] = Object.freeze(['skill', 'instructions', 'mcp', 'pi-package', 'launcher']);
 export const STATUSES: readonly OwnershipStatus[] = Object.freeze(['owned', 'pending', 'kept']);
 
 function assertKey(label: string, value: unknown) {
