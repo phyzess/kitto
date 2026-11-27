@@ -44,7 +44,7 @@ Pi、Codex、DSH 共用这些约定；宿主的工具差异放在各自的 adden
 - **只读核查先本地聚合**：用 `grep`/`codegraph`/脚本把材料收成一份，再把那份交给模型；逐个读文件等于把内容永久钉在上下文里。
 - **团队按交付面配**：同一波任务超过 3 个就拆波。每个成员多一份完整上下文，加人比拆波贵。
 
-测量方式与 handoff 模板见 `context-budget` skill；DSH 上直接跑 `node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs`。
+测量方式与 handoff 模板见 `context-budget` skill；DSH 上直接跑 `~/.agents/bin/kitto-node ~/.agents/skills/context-budget/scripts/dsh-usage.ts`。
 
 ## 开发任务编排
 

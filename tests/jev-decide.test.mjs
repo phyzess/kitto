@@ -10,7 +10,7 @@ import { subtest } from './helpers/subtest.mjs';
 import { fileURLToPath } from 'node:url';
 import { hosts } from '../lib/host-pins.ts';
 
-const script = fileURLToPath(new URL('../skills/jev-decide/scripts/jev.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../skills/jev-decide/scripts/jev.ts', import.meta.url));
 const goEndpoint = 'https://opencode.ai/inference/go/systemone/v1/systemone';
 const questions = { decision: { type: 'noul', instructions: 'Synthetic test' } };
 const questionText = JSON.stringify(questions);

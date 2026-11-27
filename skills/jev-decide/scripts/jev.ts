@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 const KEY_NAMES = ['OPENCODE_API_KEY', 'OPENCODE_GO_API_KEY'];
 const STORE_LIMIT = 1024 * 1024;
-const USAGE = `Usage: jev.mjs --state <text|@file|@-> --questions <json|@file|@-> [--model <id>]
+const USAGE = `Usage: jev.ts --state <text|@file|@-> --questions <json|@file|@-> [--model <id>]
 
   --state      the text the model judges
   --questions  JSON object of {id: {type, instructions, criteria?}}; types: noul | choice | score

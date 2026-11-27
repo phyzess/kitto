@@ -11,7 +11,7 @@ const MODELS = {
   'xai/grok-4.7': { at: 200_000, base: [2, 0.5, 6], long: [4, 1, 12] },
 };
 
-const USAGE = `Usage: dsh-usage.mjs [--home DIR] [--project PREFIX] [--days N] [--limit N] [--json] [--price MODEL=a,b,c[,d,e,f][@THRESHOLD]]
+const USAGE = `Usage: dsh-usage.ts [--home DIR] [--project PREFIX] [--days N] [--limit N] [--json] [--price MODEL=a,b,c[,d,e,f][@THRESHOLD]]
 
   --home DIR      DSH home holding sessions/ (default $DSH_HOME or ~/.dsh)
   --project PATH  keep sessions whose working directory starts with PATH

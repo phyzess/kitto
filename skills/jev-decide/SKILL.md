@@ -21,11 +21,11 @@ JEV 是 System One 决策模型：给它一段 `state`（摘要），加一组**
 
 ```sh
 # state 用文件，问句用 JSON
-node ~/.agents/skills/jev-decide/scripts/jev.mjs \
+~/.agents/bin/kitto-node ~/.agents/skills/jev-decide/scripts/jev.ts \
   --state @/tmp/state.md --questions @/tmp/q.json
 
 # 内联
-node ~/.agents/skills/jev-decide/scripts/jev.mjs --state "只改 docs/README.md；CI 的 static-quality 步骤在提交前的同 SHA 上通过" \
+~/.agents/bin/kitto-node ~/.agents/skills/jev-decide/scripts/jev.ts --state "只改 docs/README.md；CI 的 static-quality 步骤在提交前的同 SHA 上通过" \
   --questions '{"env":{"type":"noul","instructions":"这次失败更像环境问题而不是改动引起的吗？"}}'
 ```
 

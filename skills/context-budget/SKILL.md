@@ -38,9 +38,9 @@ DSH 的触发点 = `min(thresholdRatio × contextWindow, contextWindow − maxTo
 DSH 的会话日志是唯一事实来源，`assistant/message` 记录里带 `usage`：
 
 ```sh
-node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs
-node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs --days 7 --project /home/projects/oodon
-node ~/.agents/skills/context-budget/scripts/dsh-usage.mjs --json > usage.json
+~/.agents/bin/kitto-node ~/.agents/skills/context-budget/scripts/dsh-usage.ts
+~/.agents/bin/kitto-node ~/.agents/skills/context-budget/scripts/dsh-usage.ts --days 7 --project /home/projects/oodon
+~/.agents/bin/kitto-node ~/.agents/skills/context-budget/scripts/dsh-usage.ts --json > usage.json
 ```
 
 脚本只读，按模型 / 会话 / 天输出 token 与折算成本，并给出 root/子 agent 扇出比、单请求 prompt 分位数、>200K 请求占比。未知模型显示 `-`，用 `--price provider/model=输入,缓存,输出` 补价（逗号分隔，可选第四到第六项给长上下文档）。价格来自官方页，核实后再说结论；是订阅制时把金额当"等效 API 价值"读。
