@@ -13,22 +13,14 @@ type Json = Record<string, any>;
 
 export type Transport = { type: 'stdio'; command: string; args: string[] } | { type: 'http'; url: string; bearerTokenEnvVar?: string };
 
-export interface SourceServer {
-  name: string;
-  skip?: string;
-  transport?: Transport;
-  hash?: string;
-}
+export type SourceServer = { name: string; skip: string } | { name: string; skip?: undefined; transport: Transport; hash: string };
 
 export type McpAction = 'add' | 'update' | 'same' | 'skip' | 'conflict' | 'remove' | 'adopt' | 'forget' | 'forgetPending';
 
-export interface McpOperation {
-  name: string;
-  action: McpAction;
-  reason?: string;
-  transport?: Transport;
-  hash?: string;
-}
+export type McpOperation =
+  | { name: string; action: 'add' | 'update'; transport: Transport; hash: string; reason?: string }
+  | { name: string; action: 'adopt'; hash: string; reason?: string }
+  | { name: string; action: Exclude<McpAction, 'add' | 'update' | 'adopt'>; reason?: string; hash?: string };
 
 export interface LiveEntry {
   name: string;
@@ -127,7 +119,7 @@ export function transportHash(transport: Transport): string {
   return createHash('sha256').update(canonicalJson(transport)).digest('hex');
 }
 
-export function sourceTransport(entry: unknown): { skip?: string; transport?: Transport } {
+export function sourceTransport(entry: unknown): { skip: string } | { skip?: undefined; transport: Transport } {
   if (!isObject(entry)) return { skip: 'server definition is not an object' };
   const [secret] = literalSecretsIn(entry);
   if (secret) return { skip: `contains a literal secret (${secret.label}) at ${secret.path}` };
@@ -246,7 +238,7 @@ export async function sourceServers(
       continue;
     }
     const mapped = sourceTransport(entry);
-    if (mapped.skip) servers.push({ name, skip: mapped.skip });
+    if (mapped.skip !== undefined) servers.push({ name, skip: mapped.skip });
     else servers.push({ name, transport: mapped.transport, hash: transportHash(mapped.transport) });
   }
   return servers;
@@ -314,8 +306,6 @@ export function formatOperation(operation: McpOperation): string {
       return `mcp forget: ${operation.name} (codex)`;
     case 'forgetPending':
       return `mcp forget pending: ${operation.name} (codex)`;
-    default:
-      return `mcp ${operation.action}: ${operation.name} (codex)`;
   }
 }
 
@@ -332,7 +322,7 @@ export function buildMcpPlan({
   const operations: McpOperation[] = [];
   const added = new Set<string>();
   for (const server of servers) {
-    if (server.skip) {
+    if (server.skip !== undefined) {
       operations.push({ name: server.name, action: 'skip', reason: server.skip });
       continue;
     }
@@ -566,11 +556,11 @@ async function withLive<T>({ run, env, home, list, readOnly }: CodexMcpOptions, 
 
 async function collectPlan(
   state: State,
-  { run, env, home, platform, readSource, list, readOnly = false }: CodexMcpOptions,
+  { run, env, home, platform, readSource, list, readOnly = false }: CodexMcpOptions & { readSource: ReadSource },
 ): Promise<PlanContext> {
   const owned = confirmedOf(state);
   const pending = pendingOf(state);
-  const servers = await readSource!(state.source, platform, { includePrivate: state.includePrivate === true });
+  const servers = await readSource(state.source, platform, { includePrivate: state.includePrivate === true });
   return withLive({ run, env, home, list, readOnly }, ({ live, env: liveEnv, verified }) => ({
     servers,
     owned,
@@ -616,7 +606,7 @@ function verifyLive(
   name: string,
   recorded: string | null | undefined,
   run: CodexRun,
-  env: NodeJS.ProcessEnv,
+  env?: NodeJS.ProcessEnv,
 ): { entry: LiveEntry | null | undefined; problem?: string; transport?: Transport } {
   const live = listCodexMcp({ run, env });
   const entry = live.find((item) => item.name === name);
