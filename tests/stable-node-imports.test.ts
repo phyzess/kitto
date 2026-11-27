@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { sortNodeImports } from '../scripts/stable-node-imports.mjs';
+import { sortNodeImports } from '../scripts/stable-node-imports.ts';
 
 test('node builtin import runs are sorted and everything else is untouched', () => {
   const code = [

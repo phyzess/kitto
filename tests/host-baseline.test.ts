@@ -20,6 +20,6 @@ test('the routing-validated DSH is not older than the setup baseline', () => {
 });
 
 test('no pinned version literal is repeated outside the source file', () => {
-  const result = spawnSync(process.execPath, ['scripts/check-version-literals.mjs'], { cwd: root, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, ['scripts/check-version-literals.ts'], { cwd: root, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
 });

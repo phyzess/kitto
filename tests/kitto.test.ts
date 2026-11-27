@@ -12,7 +12,7 @@ import { hosts, meetsBaseline, parseOptions, pnpmVersion, replaceDirectory, tree
 import { list } from '../lib/ownership.ts';
 import { downgradeState } from '../lib/state-schema.ts';
 import { newerStable, updateNotice } from '../lib/update-notice.ts';
-import { waitForPublish } from '../scripts/release.mjs';
+import { waitForPublish } from '../scripts/release.ts';
 
 const skillNames = (state, group, status) => list(state, 'skill', group, status).map(entry => entry.name).sort();
 const re = value => value.replace(/[.+]/g, '\\$&');

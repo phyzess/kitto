@@ -1,9 +1,9 @@
 import { parseArgs } from 'node:util';
-import { nativeParser } from './comment-ratchet.mjs';
-import { compare, repository } from './comment-ratchet/snapshots.mjs';
+import { nativeParser } from './comment-ratchet.ts';
+import { compare, repository } from './comment-ratchet/snapshots.ts';
 
-const usage = 'Usage: node scripts/check-comments.mjs --inventory <commit-sha|worktree>\n' +
-  '       node scripts/check-comments.mjs --base <trusted-commit-sha> [--head <commit-sha> [--pr-head <commit-sha>]] [--json]';
+const usage = 'Usage: node scripts/check-comments.ts --inventory <commit-sha|worktree>\n' +
+  '       node scripts/check-comments.ts --base <trusted-commit-sha> [--head <commit-sha> [--pr-head <commit-sha>]] [--json]';
 
 function main() {
   const { values } = parseArgs({ options: {

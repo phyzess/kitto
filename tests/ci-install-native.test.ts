@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import { hosts, pnpmVersion } from '../lib/host-pins.ts';
 
-const installer = new URL('../scripts/ci-install-native.mjs', import.meta.url).href;
+const installer = new URL('../scripts/ci-install-native.ts', import.meta.url).href;
 
 function fixture(t) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'kitto-ci-install-')));

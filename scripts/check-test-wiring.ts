@@ -8,7 +8,7 @@ const patterns = config.test?.include ?? [];
 const escape = text => text.replace(/[.+^${}()|[\]\\]/gu, '\\$&');
 const toRegExp = glob => new RegExp(`^${glob.split('**/').map(part => escape(part).replace(/\*/gu, '[^/]*')).join('(?:.*/)?')}$`, 'u');
 const matchers = patterns.map(toRegExp);
-const files = readdirSync(fileURLToPath(new URL('tests/', root))).filter(name => name.endsWith('.test.mjs')).map(name => `tests/${name}`);
+const files = readdirSync(fileURLToPath(new URL('tests/', root))).filter(name => name.endsWith('.test.ts')).map(name => `tests/${name}`);
 const missing = files.filter(file => !matchers.some(matcher => matcher.test(file)));
 if (missing.length) {
   console.error(`Test files not run by "npm test":\n${missing.map(file => `  ${file}`).join('\n')}`);
