@@ -209,6 +209,52 @@ test('line and region directives cannot move unchanged to a different statement'
   );
 });
 
+const padding = (bytes) => `export const pad = '${'x'.repeat(bytes)}';\n`;
+const incomplete = 'export const call = (value: number) => value;\ncall(1, 2\n';
+
+test('TypeScript full-tree check is not limited by the argv size and rejects MISSING-only recovery', () => {
+  const big = padding(120 * 1024);
+  assert.ok(big.length > 96 * 1024);
+  assert.deepEqual(
+    scan('big.ts', big + '// counted\n').tokens.map((t) => t.text),
+    ['// counted'],
+  );
+  assert.throws(() => scan('big.ts', big + incomplete), /incomplete or recovered syntax/u);
+  assert.throws(() => scan('small.ts', incomplete), /incomplete or recovered syntax/u);
+  assert.throws(() => scan('small.ts', 'export const v = ;\n'), /TypeScript parse error/u);
+  assert.throws(() => scan('huge.ts', padding(8 * 1024 * 1024)), /exceeds the supported source size/u);
+});
+
+test('hash-comment ignore files are counted like gitignore comments', () => {
+  for (const name of ['.gitignore', '.prettierignore', '.npmignore', '.dockerignore']) {
+    for (const path of [name, `sub/dir/${name}`]) {
+      assert.equal(formatFor(path), 'Gitignore');
+      assert.deepEqual(
+        scan(path, '# note\n\\#pattern\npath#part\n  # data\n').tokens.map((t) => t.text),
+        ['# note'],
+      );
+      const before = snap({ [path]: 'dist\n' });
+      assert.equal(compare(before, snap({ [path]: 'dist\n' })).violations.length, 0);
+      assert.equal(compare(before, snap({ [path]: '# added\ndist\n' })).violations.length, 1);
+    }
+  }
+  assert.throws(() => formatFor('.oxlintignore'), /Unsupported source format/u);
+});
+
+test('git-blame-ignore-revs counts full-line and trailing hash comments', () => {
+  const sha = '8da1fae0123456789abcdef0123456789abcdef0';
+  assert.equal(formatFor('.git-blame-ignore-revs'), 'GitRevs');
+  const inv = scan('.git-blame-ignore-revs', `# Oxfmt\r\n${sha} # trailing 笑\r\n${sha}\r\n`);
+  assert.deepEqual(
+    inv.tokens.map((t) => t.text),
+    ['# Oxfmt', '# trailing 笑'],
+  );
+  assert.equal(inv.tokens[1].start.column, 42);
+  const before = snap({ '.git-blame-ignore-revs': `${sha}\n` });
+  assert.equal(compare(before, snap({ '.git-blame-ignore-revs': `${sha} # added\n` })).violations.length, 1);
+  assert.equal(compare(before, snap({ '.git-blame-ignore-revs': `${sha}\n` })).violations.length, 0);
+});
+
 test('dotenv and gitignore lexical rules respect quoted and escaped hashes', () => {
   assert.deepEqual(
     scan('.gitignore', '# only comment\n\\#pattern\n  # leading spaces are part of a pattern\npath#part\n').tokens.map((t) => t.text),

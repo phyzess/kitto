@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Maintenance: the comment ratchet parses TypeScript in-process (`@ast-grep/napi`, up to 8 MiB instead of 96 KiB) and accepts `.prettierignore`, `.npmignore`, `.dockerignore` and `.git-blame-ignore-revs`; both apply to PRs based on a main that includes this change.
 - Maintenance: format code with Oxfmt through Vite+ (`npm run fmt`; `npm run fmt:check` in CI). Markdown, YAML, the lockfile and upstream-owned files are excluded. The bulk reformat is commit `8da1fae0f83b`; use `git blame --ignore-rev 8da1fae0f83b` to skip it.
 - Build: the package is now built by `npm run build` (Vite+ `vp pack`, unbundled, one output file per source file) into `dist/`, and releases publish `dist/` instead of the repository root. Running from a source checkout is unchanged; the package contents are the same except that source maps are not shipped. CI builds before `npm test`, and the native-host jobs run Codex and DSH against the built package.
 - Refactor: split host-specific setup, connect and removal into one adapter per host under `lib/hosts/` (Pi, Codex, DSH web, DSH Desktop), with deploy and removal previews and applies sharing one action plan; file, lock and process helpers moved out of `lib/kitto.mjs`. No behavior change.
