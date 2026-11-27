@@ -29,6 +29,7 @@ class SyncTests(unittest.TestCase):
         self.fake('pi', 'if [ "$1" = list ]; then exit 0; fi\nexit 0')
         self.env = {**{key: value for key, value in os.environ.items()
                        if not key.startswith('KITTO_')},
+                    'KITTO_SHARED_SKILLS_MANAGED': '1',
                     'HOME': str(self.home),
                     'PI_CODING_AGENT_DIR': str(self.home / '.pi/agent'),
                     'PI_AGENTS_DIR': str(self.home / '.agents'),
@@ -65,6 +66,21 @@ class SyncTests(unittest.TestCase):
         return {str(p.relative_to(self.base)): p.read_bytes() if p.is_file() else None
                 for p in self.base.rglob('*') if not p.is_symlink()}
 
+    def test_direct_entry_is_refused(self):
+        env = {key: value for key, value in self.env.items() if key != 'KITTO_SHARED_SKILLS_MANAGED'}
+        before = self.snapshot()
+        result = self.run_sync('pull', check=False, env=env)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('internal Pi adapter', result.stdout)
+        self.assertEqual(before, self.snapshot())
+
+    def test_source_without_shared_layer_fails_clearly(self):
+        (self.repo / 'config/instructions/common.md').unlink()
+        result = self.run_sync('pull', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('missing shared instructions', result.stderr)
+        self.assertFalse((self.home / '.pi/agent/AGENTS.md').exists())
+
     def test_preview_and_status_do_not_write(self):
         self.put(self.machine, {'packages': ['npm:personal']})
         before = self.snapshot()
@@ -76,28 +92,6 @@ class SyncTests(unittest.TestCase):
         before = self.snapshot()
         self.run_sync('pull', '--dry-run')
         self.assertEqual(before, self.snapshot())
-
-    def test_environment_has_no_inherited_kitto_toggles(self):
-        self.assertEqual([key for key in self.env if key.startswith('KITTO_')], [])
-
-    def test_direct_entry_warns_but_internal_sync_does_not(self):
-        direct = self.run_sync('status')
-        self.assertIn('deprecated direct entry; use kitto setup/sync', direct.stdout)
-        internal = self.run_sync('status', env={**self.env, 'KITTO_SHARED_SKILLS_MANAGED': '1'})
-        self.assertNotIn('deprecated direct entry', internal.stdout)
-
-    def test_direct_status_does_not_report_skipped_shared_skills(self):
-        result = self.run_sync('status')
-        self.assertIn('由 Kitto JS 管理', result.stdout)
-        self.assertNotIn('missing  skills/', result.stdout)
-        self.assertNotIn('differs  skills/', result.stdout)
-
-    def test_direct_pull_does_not_deploy_shared_skills(self):
-        result = self.run_sync('pull')
-        self.assertIn('由 Kitto JS 管理', result.stdout)
-        self.assertIn('KITTO_ALLOW_LEGACY_SKILL_SYNC=1', result.stdout)
-        self.assertFalse((self.home / '.agents/skills').exists())
-        self.assertTrue(self.machine.exists(), 'Pi settings should still deploy')
 
     def test_pi_agents_compose_shared_rules_before_the_pi_addendum(self):
         self.run_sync('pull')
@@ -204,44 +198,6 @@ class SyncTests(unittest.TestCase):
         self.assertNotIn('\r', exported)
         self.assertTrue(exported.startswith('## Pi 专属补充'))
 
-    def test_legacy_source_push_refuses_a_shared_layer_composition(self):
-        (self.repo / 'config/instructions/common.md').unlink()
-        self.put(self.machine, {'packages': [], 'theme': 'light'})
-        machine = self.home / '.pi/agent/AGENTS.md'
-        machine.write_text('# Shared\n\n<!-- kitto:host-addendum -->\n\n## Pi 专属补充\n- local\n')
-        repo_addendum = (self.repo / 'config/pi/AGENTS.md').read_text()
-        repo_settings = (self.repo / 'config/pi/settings.json').read_text()
-        result = self.run_sync('push', check=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('shared layer', result.stderr)
-        self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), repo_addendum)
-        self.assertEqual((self.repo / 'config/pi/settings.json').read_text(), repo_settings)
-
-    def test_pull_upgrades_a_pre_boundary_composition(self):
-        self.run_sync('pull')
-        machine = self.home / '.pi/agent/AGENTS.md'
-        common = (self.repo / 'config/instructions/common.md').read_text().strip()
-        addendum = (self.repo / 'config/pi/AGENTS.md').read_text().strip()
-        machine.write_text(common + '\n\n' + addendum + '\n')
-        self.assertNotIn('<!-- kitto:host-addendum -->', machine.read_text())
-        self.run_sync('pull')
-        upgraded = machine.read_text()
-        self.assertEqual(upgraded.count('<!-- kitto:host-addendum -->'), 1)
-        self.assertIn('## Pi 专属补充', upgraded)
-        self.run_sync('push')
-        self.assertNotIn('# 共享工作规则', (self.repo / 'config/pi/AGENTS.md').read_text())
-
-    def test_legacy_whole_file_pi_agents_is_replaced_without_duplication(self):
-        path = self.home / '.pi/agent/AGENTS.md'
-        path.parent.mkdir(parents=True)
-        path.write_text('# Pi Agent — 全局适配\n\n- old whole-file rule\n')
-        self.run_sync('pull')
-        text = path.read_text()
-        self.assertEqual(text.count('# 共享工作规则'), 1)
-        self.assertEqual(text.count('<!-- kitto:host-addendum -->'), 1)
-        self.assertIn('## Pi 专属补充', text)
-        self.assertNotIn('old whole-file rule', text)
-
     def test_shared_rule_change_flows_into_the_pi_agents_file(self):
         self.run_sync('pull')
         common = self.repo / 'config/instructions/common.md'
@@ -250,14 +206,6 @@ class SyncTests(unittest.TestCase):
         text = (self.home / '.pi/agent/AGENTS.md').read_text()
         self.assertEqual(text.count('new shared rule marker'), 1)
         self.assertIn('## Pi 专属补充', text)
-
-    def test_config_without_shared_layer_keeps_the_legacy_whole_file_deploy(self):
-        (self.repo / 'config/instructions/common.md').unlink()
-        self.run_sync('pull')
-        expected = (self.repo / 'config/pi/AGENTS.md').read_text()
-        self.assertEqual((self.home / '.pi/agent/AGENTS.md').read_text(), expected)
-        self.run_sync('push')
-        self.assertEqual((self.repo / 'config/pi/AGENTS.md').read_text(), expected)
 
     def test_compose_and_extract_agents_helpers(self):
         common = self.base / 'common.md'
@@ -284,24 +232,6 @@ class SyncTests(unittest.TestCase):
         out.write_text('# Shared\n\n- one\n\n## Host\n\n- two\n')
         self.assertEqual(helper.cmd_extract_agents([str(out), str(common), str(extracted)]), 1)
         self.assertEqual(extracted.read_text(), '## Host\n\n- two\n')
-        out.write_text('# Legacy\n')
-        self.assertEqual(helper.cmd_legacy_agents([str(out), str(extracted)]), 0)
-        self.assertEqual(extracted.read_text(), '# Legacy\n')
-        out.write_text('# Shared\n\n<!-- kitto:host-addendum -->\n\n## Host\n- h\n')
-        self.assertEqual(helper.cmd_legacy_agents([str(out), str(extracted)]), 1)
-        self.assertEqual(extracted.read_text(), '# Legacy\n')
-
-    def test_legacy_skill_sync_requires_explicit_opt_in(self):
-        env = {**self.env, 'KITTO_ALLOW_LEGACY_SKILL_SYNC': '1'}
-        result = self.run_sync('pull', env=env)
-        self.assertIn('legacy direct-sync', result.stdout)
-        self.assertTrue((self.home / '.agents/skills/hindsight/SKILL.md').is_file())
-
-    def test_direct_pull_legacy_opt_in_still_previews_without_writes(self):
-        env = {**self.env, 'KITTO_ALLOW_LEGACY_SKILL_SYNC': '1'}
-        before = self.snapshot()
-        self.run_sync('pull', '--dry-run', env=env)
-        self.assertEqual(before, self.snapshot())
 
     def test_removed_shared_package_stays_removed_local_survives(self):
         self.put(self.shared, {'packages': ['npm:shared']})
