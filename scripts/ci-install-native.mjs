@@ -20,16 +20,19 @@ if (platform === 'linux-x64' && !process.report.getReport().header.glibcVersionR
   throw new Error('The Linux native pnpm package requires glibc.');
 }
 
+const verifyOnly = process.argv.includes('--verify-only');
 const prefix = join(realpathSync(runner), 'kitto-hosts');
-try {
-  mkdirSync(prefix);
-} catch (error) {
-  if (error.code === 'EEXIST') throw new Error(`Native host prefix already exists: ${prefix}.`);
-  throw error;
+if (!verifyOnly) {
+  try {
+    mkdirSync(prefix);
+  } catch (error) {
+    if (error.code === 'EEXIST') throw new Error(`Native host prefix already exists: ${prefix}.`);
+    throw error;
+  }
 }
 
 const pnpmPackage = `@pnpm/exe.${platform}`;
-execFileSync('npm', ['install', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund',
+if (!verifyOnly) execFileSync('npm', ['install', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund',
   `${pnpmPackage}@${pnpmVersion}`, ...Object.values(hosts).map(host => `${host.package}@${host.version}`),
 ], { stdio: 'inherit' });
 
@@ -59,7 +62,7 @@ try {
 }
 
 if (realpathSync(bin) !== bin) throw new Error('Unexpected native host .bin directory.');
-symlinkSync(relative(bin, native), join(bin, 'pnpm'));
+if (!verifyOnly) symlinkSync(relative(bin, native), join(bin, 'pnpm'));
 for (const [name, expected] of Object.entries({
   pnpm: pnpmVersion, pi: hosts.pi.version, codex: `codex-cli ${hosts.codex.version}`, dsh: hosts.dsh.version,
 })) {
