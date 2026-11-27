@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { hosts } from '../lib/host-pins.mjs';
 
 const script = fileURLToPath(new URL('../skills/jev-decide/scripts/jev.mjs', import.meta.url));
 const goEndpoint = 'https://opencode.ai/inference/go/systemone/v1/systemone';
@@ -223,7 +224,7 @@ test('fails closed without the host interface and does not load a NODE_PATH pars
   const parser = '@deepseek-ai/dsh-credentials-local';
   const parserDir = join(unsupported, 'node_modules', parser);
   await Promise.all([mkdir(parserDir, { recursive: true }), mkdir(join(decoy, parser), { recursive: true })]);
-  await writeFile(join(unsupported, 'package.json'), '{"name":"@deepseek-ai/dsh","version":"0.2.2-rc.2"}');
+  await writeFile(join(unsupported, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: hosts.dsh.version }));
   await writeFile(join(parserDir, 'index.js'), 'module.exports = {};');
   await writeFile(join(decoy, parser, 'index.js'), 'throw Error("Synthetic parser must never execute");');
   expectNoKey(run(inline, { DSH_INSTALL_DIR: unsupported }));

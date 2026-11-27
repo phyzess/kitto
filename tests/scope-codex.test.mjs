@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { hosts } from '../lib/host-pins.mjs';
 
 const run = promisify(execFile);
 const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
@@ -83,7 +84,7 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
   assert.match(scopeContext, /workspace-skill-fixture/);
 
   const version = spawnSync('codex', ['--version'], { encoding: 'utf8', env: nativeEnv, timeout: 8000 }).stdout || '';
-  if (!/^codex-cli 0\.170\./m.test(version)) {
+  if (!version.includes(`codex-cli ${hosts.codex.version}`)) {
     t.diagnostic('Skipping model-request verification without the validated Codex CLI baseline.');
     return;
   }

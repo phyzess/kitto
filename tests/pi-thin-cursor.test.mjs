@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { hosts } from '../lib/host-pins.mjs';
 
 const extension = new URL('../config/pi/extensions/thin-cursor.ts', import.meta.url);
 const settings = new URL('../config/pi/settings.json', import.meta.url);
-const pin = '1.5.2';
+const pin = hosts.pi.version;
 const nativeBin = process.env.KITTO_NATIVE_BIN;
 const piPackage = process.env.PI_TEST_PACKAGE ?? (nativeBin && resolve(nativeBin, '../@earendil-works/pi-coding-agent'));
 const skipNative = !piPackage && 'set PI_TEST_PACKAGE to the isolated pinned Pi package';
