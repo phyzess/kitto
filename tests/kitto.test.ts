@@ -615,6 +615,18 @@ test('lock rejects concurrent mutation and dirty source rejects update', (t) => 
   assert.equal(readFileSync(join(f.source, 'uncommitted.txt'), 'utf8'), 'work');
 });
 
+test('--version and -v print the packaged version without reading state', (t) => {
+  const f = fixture(t);
+  const home = requireEnv(f.env, 'KITTO_HOME');
+  const version = readJson(join(dist, 'package.json')).version;
+  for (const flag of ['--version', '-v']) {
+    const result = f.cli(flag);
+    good(result);
+    assert.equal(result.stdout.trim(), version, flag);
+    assert.equal(existsSync(join(home, 'state.json')), false, `${flag} must not create state`);
+  }
+});
+
 test('remote bootstrap clones internally and later updates only by fast-forward', (t) => {
   const f = fixture(t),
     mirror = join(f.temp, 'remote.git');

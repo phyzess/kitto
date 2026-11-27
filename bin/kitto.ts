@@ -6,9 +6,11 @@ import { allowStaleLockBreak, setup, parseOptions, update } from '../lib/kitto.t
 import { worktreeCommand } from '../lib/worktree-audit.ts';
 import { hostsCommand } from '../lib/hosts.ts';
 import { readScopeRegistry, scopeHome, writeScopeRegistry, type ScopeRegistry } from '../lib/scopes.ts';
+import { kittoVersion } from '../lib/kitto-home.ts';
 
 const help = `Kitto — portable personal agent configuration
 
+  kitto --version             Print the Kitto version
   kitto setup                 Guided setup in an interactive terminal
   kitto setup --interactive   Start the setup wizard explicitly
   kitto setup --workspace-parent PATH [--agents pi,codex,dsh] [--dry-run]
@@ -202,6 +204,7 @@ try {
     console.log('kitto: --break-lock removes a lock only when its recorded owner is no longer running.');
   }
   if (!command || command === '--help' || command === '-h') console.log(help);
+  else if (command === '--version' || command === '-v') console.log(kittoVersion());
   else if (command === 'worktree') {
     if (['start', 'finish', 'apply'].includes(args[0])) {
       const { lifecycleCommand } = await import('../lib/worktree-lifecycle.ts');
