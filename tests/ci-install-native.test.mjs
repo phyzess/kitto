@@ -3,14 +3,14 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import { test } from 'vitest';
 import { hosts, pnpmVersion } from '../lib/host-pins.mjs';
 
 const installer = new URL('../scripts/ci-install-native.mjs', import.meta.url).href;
 
 function fixture(t) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'kitto-ci-install-')));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const bin = join(home, 'bin');
   const marker = join(home, 'npm-called');
   const prefix = join(home, 'kitto-hosts');

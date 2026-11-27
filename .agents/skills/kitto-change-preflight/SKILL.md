@@ -28,7 +28,7 @@ npm test
 python3 -m unittest discover -s tests -v
 ```
 
-Skip the Python line only if no Python tests remain. On a loaded machine, run the targeted test files for the change first, then the full suites. A failure under load is a test defect (R7): fix the hidden assumption, do not raise the timeout without a reason.
+Skip the Python line only if no Python tests remain. `npm test` runs Vitest (`vp test run`); run one file with `npx vp test run tests/<name>.test.mjs`. On a loaded machine, run the targeted test files for the change first, then the full suites. A failure under load is a test defect (R7): fix the hidden assumption, do not raise the timeout without a reason.
 
 ## 3. Self-review questions
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import test from 'node:test';
+import { test } from 'vitest';
 import {
   configureServiceScope, readServiceEnvironment, readServiceProperties, servicePnpmAvailable, stageServicePackage,
 } from '../lib/scope-service.mjs';
@@ -54,7 +54,7 @@ test('delegation copies only validated service path variables', () => {
 
 test('guided service staging includes the full runtime assets and excludes the personal source', async t => {
   const fixture = await mkdtemp(join(tmpdir(), 'kitto-service-stage-test-'));
-  t.after(() => rm(fixture, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(fixture, { recursive: true, force: true }));
   const source = join(fixture, 'source');
   const stage = join(fixture, 'stage');
   const packaged = [

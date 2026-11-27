@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -38,7 +38,7 @@ test('native DSH yaml is available when the CI job requires it', { skip: !proces
 
 async function temporary(t, prefix = 'kitto-mcp-') {
   const directory = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }
 
@@ -298,7 +298,7 @@ test('removeDshMcp removes credential template rows', { skip: !yaml }, async t =
 
 test('KITTO_NO_MCP_SYNC disables the sync', async t => {
   process.env.KITTO_NO_MCP_SYNC = '1';
-  t.after(() => { delete process.env.KITTO_NO_MCP_SYNC; });
+  t.onTestFinished(() => { delete process.env.KITTO_NO_MCP_SYNC; });
   const lines = [];
   const result = await syncDshMcp({ source: '/missing', dshHome: '/missing' }, { log: line => lines.push(line) });
   assert.equal(result.disabled, true);

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { adviseRoute } from '../lib/model-routing.mjs';
 import { estimateGoFraction, goMeter, goModel, normalizeGoCharge } from '../lib/go-allowance.mjs';
@@ -213,7 +213,7 @@ test('review independence requires actual identities', () => {
 
 test('full setup persists only an explicit local boundary and dry-run leaves state unchanged', t => {
   const root = mkdtempSync(join(tmpdir(), 'kitto-boundary-setup-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(root, { recursive: true, force: true }));
   const home = join(root, 'home'), source = join(root, 'source'), bin = join(root, 'bin'), kitto = join(home, 'kitto');
   for (const dir of [home, bin, join(source, 'config/dsh'), join(source, 'config/instructions')]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(source, 'config/dsh/AGENTS.md'), 'DSH fixture');
@@ -252,7 +252,7 @@ test('full setup persists only an explicit local boundary and dry-run leaves sta
 
 test('Go permit rejects an exact authorization split from its verified pool', t => {
   const home = mkdtempSync(join(tmpdir(), 'kitto-approval-split-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const dshHome = join(home, 'dsh');
   mkdirSync(dshHome);
   const saved = { ...state(), dshHome }, pool = 'verified-pool';

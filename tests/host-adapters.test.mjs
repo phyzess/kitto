@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import { test, vi } from 'vitest';
 import { adapterFor, planConnect, planDeploy, selectedAdapters } from '../lib/hosts/index.mjs';
 
 const pluginReady = { capabilities: { plugin: true }, actual: '1.0.0' };
 
 async function fixture(t, overrides = {}) {
   const root = await mkdtemp(join(tmpdir(), 'kitto-adapters-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }));
   const home = join(root, 'home');
   const state = { agents: ['pi', 'codex', 'dsh'], dshProfile: 'web', source: join(root, 'source'), piHome: join(root, 'pi'),
     codexHome: join(root, 'codex'), dshHome: join(root, 'dsh'), agentsHome: join(root, 'agents'), ...overrides };
@@ -86,7 +86,8 @@ test('codex connect skips registration when the CLI has no plugin command', asyn
   const { state, calls, deps } = await fixture(t, { agents: ['codex'] });
   deps.codex.inspect = () => ({ capabilities: { plugin: false } });
   const warnings = [];
-  t.mock.method(console, 'warn', message => warnings.push(message));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(message => warnings.push(message));
+  t.onTestFinished(() => warn.mockRestore());
   const [register] = adapterFor(state, 'codex', deps).planConnect(state);
   await register.apply();
   assert.deepEqual(calls, []);

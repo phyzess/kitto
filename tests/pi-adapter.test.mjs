@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -19,7 +19,7 @@ const boundary = '<!-- kitto:host-addendum -->';
 
 function fixture(t) {
   const base = mkdtempSync(join(tmpdir(), 'kitto-adapter-'));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(base, { recursive: true, force: true }));
   const repo = join(base, "repo with ' quote"), home = join(base, 'home'), bin = join(base, 'bin');
   mkdirSync(join(repo, 'skills'), { recursive: true });
   mkdirSync(home);

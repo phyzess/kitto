@@ -5,7 +5,8 @@ import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import test from 'node:test';
+import { test } from 'vitest';
+import { subtest } from './helpers/subtest.mjs';
 import { fileURLToPath } from 'node:url';
 import { hosts } from '../lib/host-pins.mjs';
 
@@ -56,7 +57,7 @@ const dshOnly = { skip: dshAvailable ? false : 'DSH parser not installed (set DS
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'kitto-jev-test-'));
   assert.ok(isAbsolute(dir));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const home = join(dir, 'home');
   const dsh = join(dir, 'dsh');
   await Promise.all([mkdir(home), mkdir(dsh)]);
@@ -184,7 +185,7 @@ test('rejects malformed, unsupported, misplaced, or oversized store data without
     alias: 'version: 1\nother: &other fake-sensitive\nrefs: {OPENCODE_API_KEY: *other}',
     oversized: 'version: 1\nrefs: {OPENCODE_API_KEY: fake-sensitive}\n#' + 'x'.repeat(1024 * 1024),
   })) {
-    await t.test(name, async () => {
+    await subtest(t, name, async () => {
       await store(text);
       expectNoKey(run(inline, env));
     });

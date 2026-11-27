@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, symlink, stat, readdir } from 'node:fs/promises';
@@ -12,7 +12,7 @@ const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
 
 async function scopeFixture(t) {
   const temp = await realpath(await mkdtemp(join(tmpdir(), 'kitto-scope-cli-')));
-  t.after(() => rm(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(temp, { recursive: true, force: true }));
   const data = join(temp, 'data');
   const env = { ...process.env, HOME: temp, KITTO_HOME: data, PI_CODING_AGENT_DIR: join(temp, 'pi') };
   return { temp, data, env };
@@ -30,7 +30,7 @@ function scopeOk(env, ...args) {
 
 test('scoped CLI preserves shared files and discovers repos created after setup', async t => {
   const temp = await realpath(await mkdtemp(join(tmpdir(), "kitto user's scope ")));
-  t.after(() => rm(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(temp, { recursive: true, force: true }));
   const data = join(temp, 'data'), workspace = join(temp, 'work'), other = workspace + '-other';
   const env = { ...process.env, HOME: temp, KITTO_HOME: data, PI_CODING_AGENT_DIR: join(temp, 'pi') };
   const setup = (...args) => execFileSync(process.execPath, [cli, 'setup', ...args, '--agents', 'pi'], { env, encoding: 'utf8' });
@@ -58,7 +58,7 @@ test('scoped CLI preserves shared files and discovers repos created after setup'
 
 test('a workspace parent opts future child workspaces in independently', async t => {
   const temp = await realpath(await mkdtemp(join(tmpdir(), 'kitto-workspace-parent-')));
-  t.after(() => rm(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(temp, { recursive: true, force: true }));
   const data = join(temp, 'data');
   const parent = join(temp, 'workspaces');
   const parentAlias = join(temp, 'alias');
@@ -272,7 +272,7 @@ test('scope remove respects the scope setup lock', async t => {
 
 test('writeScopeRegistry is atomic, mode 0600, and keeps unknown top-level fields', async t => {
   const temp = await realpath(await mkdtemp(join(tmpdir(), 'kitto-scope-write-')));
-  t.after(() => rm(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(temp, { recursive: true, force: true }));
   const home = join(temp, 'nested/data'), workspace = join(temp, 'work'), file = join(home, 'scopes.json');
   assert.deepEqual(await readScopeRegistry(home), { version: 1, global: false, workspaces: [], workspaceParents: [] });
   await writeScopeRegistry(home, { version: 1, global: true, workspaces: [workspace], future: { pinned: true } });

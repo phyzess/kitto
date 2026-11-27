@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 
 function testExecutable() {
@@ -31,7 +31,7 @@ const nativeDshAvailable = available();
 
 async function fixture(t) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'kitto-scope-dsh-')));
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(home, { recursive: true, force: true }));
   const env = {
     HOME: home,
     USERPROFILE: home,

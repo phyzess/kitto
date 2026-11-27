@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { collectGoMetadata } from '../lib/go-metadata.mjs';
 import { adviseRoute } from '../lib/model-routing.mjs';
 import { setRoutingBoundary } from '../lib/routing-policy.mjs';
@@ -52,7 +52,7 @@ test('dedicated metadata collector checks opt-in, device, task, and same account
 
 test('CLI verifies native default or explicitly selected DSH home before key and fetch', t => {
   const home = mkdtempSync(join(tmpdir(), 'kitto-go-home-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const { state, request } = fixture();
   request.host.observedAt = new Date().toISOString();
   const statePath = join(home, 'state.json'), input = join(home, 'request.json');

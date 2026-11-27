@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { pathToFileURL } from 'node:url';
 import { hosts } from '../lib/host-pins.mjs';
 
@@ -17,7 +17,7 @@ const esc = '\x1b';
 
 function sandbox(t) {
   const home = mkdtempSync(join(tmpdir(), 'kitto-thin-cursor-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const agent = join(home, 'agent');
   mkdirSync(join(agent, 'extensions'), { recursive: true });
   const synced = join(agent, 'extensions/thin-cursor.ts');

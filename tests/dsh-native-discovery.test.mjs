@@ -3,11 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 
 async function fixture(t) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'kitto-dsh-discovery-')));
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(home, { recursive: true, force: true }));
   const env = { HOME: home, PATH: join(home, 'bin'), DSH_HOME: join(home, '.dsh') };
   const run = (code, extra = {}) => spawnSync(process.execPath, ['--input-type=module', '-e', `
     import { dshExecutable, loadDshYaml } from './integration/scoped-dsh/native.mjs';

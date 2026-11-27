@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import test from 'node:test';
+import { test } from 'vitest';
 import kittoScopes from '../integration/scoped-pi/index.mjs';
 import { installPiScope } from '../lib/scope-pi.mjs';
 
 async function fixture(t) {
   const path = await realpath(await mkdtemp(join(tmpdir(), 'kitto-pi-scope-')));
-  t.after(() => rm(path, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(path, { recursive: true, force: true }));
   return path;
 }
 
@@ -18,7 +18,7 @@ test('Pi extension install is idempotent and protects a foreign target', async t
   const agent = join(root, 'custom-pi');
   const old = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agent;
-  t.after(() => {
+  t.onTestFinished(() => {
     if (old === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = old;
   });
@@ -49,7 +49,7 @@ test('Pi loads registered scope skills and augments native context without dupli
   const store = join(root, 'store');
   const old = process.env.KITTO_HOME;
   process.env.KITTO_HOME = store;
-  t.after(() => {
+  t.onTestFinished(() => {
     if (old === undefined) delete process.env.KITTO_HOME;
     else process.env.KITTO_HOME = old;
   });
@@ -101,7 +101,7 @@ test('Pi extension install recognises its link when the runtime is spelled throu
   await symlink(realRuntime, aliasRuntime);
   const old = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = join(root, 'pi');
-  t.after(() => {
+  t.onTestFinished(() => {
     if (old === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = old;
   });
