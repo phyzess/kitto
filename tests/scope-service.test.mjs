@@ -52,7 +52,7 @@ test('delegation copies only validated service path variables', () => {
   assert.throws(() => readServiceEnvironment('HOME=/srv/dsh\0PATH=/bin\0DSH_HOME=relative\0'), /DSH_HOME must contain absolute paths/);
 });
 
-test('guided service staging includes legacy runtime assets and excludes the personal source', async t => {
+test('guided service staging includes the full runtime assets and excludes the personal source', async t => {
   const fixture = await mkdtemp(join(tmpdir(), 'kitto-service-stage-test-'));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   const source = join(fixture, 'source');
