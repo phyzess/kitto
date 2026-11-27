@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Maintenance: retire the one-time comment-ratchet rollout bootstrap, closed issue drafts, the progress log and the comment audit ledgers (kept in git history at `fb9e292`).
+- Tests: `npm test` now runs every `tests/*.test.mjs`, and `npm run check:test-wiring` (also a CI step) fails if a test file is not covered.
 
 ## 0.4.0
 
