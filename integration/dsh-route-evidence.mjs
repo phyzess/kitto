@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fresh } from '../lib/go-allowance.mjs';
 import { kittoHome } from '../lib/kitto-home.mjs';
+import { sameLocation } from '../lib/paths.mjs';
 import { EVIDENCE_TTL, exactRoute, parseNativeModelResult } from '../lib/routing-evidence.mjs';
 import { activeRoutingBoundary, routeId, routeKey } from '../lib/routing-policy.mjs';
 
@@ -56,7 +57,7 @@ export function registerRouteEvidence(ctx) {
     const enabled = () => {
       try {
         const state = JSON.parse(readFileSync(join(kittoHome(), 'state.json'), 'utf8'));
-        return resolve(home) === state.dshHome && Boolean(activeRoutingBoundary(state, name));
+        return sameLocation(home, state.dshHome) && Boolean(activeRoutingBoundary(state, name));
       } catch { return false; }
     };
     const observer = createRouteObserver({ profile: name, enabled });

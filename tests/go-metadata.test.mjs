@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,9 +66,13 @@ test('CLI verifies native default or explicitly selected DSH home before key and
   `;
   const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
   const defaultHome = join(home, '.dsh'), customHome = join(home, 'custom');
+  const aliasHome = join(home, 'custom-alias');
+  mkdirSync(customHome);
+  symlinkSync(customHome, aliasHome);
   for (const [dshHome, explicit, expected] of [[defaultHome, undefined, true], [defaultHome, '  ', true],
     [customHome, customHome, true], [customHome, undefined, false], [defaultHome, customHome, false],
-    [undefined, undefined, false], ['relative-path', undefined, false], [defaultHome, 'relative-path', false]]) {
+    [undefined, undefined, false], ['relative-path', undefined, false], [defaultHome, 'relative-path', false],
+    [customHome, aliasHome, true], [aliasHome, customHome, true]]) {
     writeFileSync(statePath, JSON.stringify({ ...state, dshHome }));
     const env = { ...process.env, HOME: home, USERPROFILE: home, KITTO_HOME: home, DSH_PROFILE: 'web' };
     delete env.DSH_HOME;
@@ -80,7 +84,7 @@ test('CLI verifies native default or explicitly selected DSH home before key and
     assert.equal(JSON.parse(result.stdout).reason, expected ? 'metadata-http-error' : 'session-configuration-mismatch');
     assert.equal(result.stderr.includes('fixture-key-read'), expected);
     assert.equal(result.stderr.includes('fixture-fetch'), expected);
-    if (dshHome === customHome && explicit === undefined) {
+    if (dshHome === customHome && explicit === undefined || expected && explicit && dshHome !== defaultHome) {
       const offline = run('preflight');
       assert.equal(offline.status, 0, offline.stderr);
       assert.equal(JSON.parse(offline.stdout).route.provider, sol.provider);

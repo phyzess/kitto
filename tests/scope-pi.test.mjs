@@ -91,3 +91,20 @@ test('Pi loads registered scope skills and augments native context without dupli
   await prompt({ systemPromptOptions: { contextFiles: files } }, { cwd });
   assert.deepEqual(files, [nativeFiles[0], { path: workspaceInstructions, content: 'workspace rules' }, ...nativeFiles.slice(1)]);
 });
+
+test('Pi extension install recognises its link when the runtime is spelled through a symlink', async t => {
+  const root = await fixture(t);
+  const realRuntime = join(root, 'real-runtime');
+  const aliasRuntime = join(root, 'alias-runtime');
+  await mkdir(join(realRuntime, 'integration/scoped-pi'), { recursive: true });
+  await writeFile(join(realRuntime, 'integration/scoped-pi/index.mjs'), '');
+  await symlink(realRuntime, aliasRuntime);
+  const old = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(root, 'pi');
+  t.after(() => {
+    if (old === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = old;
+  });
+  const installed = await installPiScope({ home: root, runtime: realRuntime });
+  assert.deepEqual(await installPiScope({ home: root, runtime: aliasRuntime }), { path: installed.path, changed: false });
+});
