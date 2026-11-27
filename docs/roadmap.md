@@ -148,6 +148,14 @@ Desktop 之外还有一组未闭环的边界：凭据表达、私有 MCP、宿�
 
 **风险 / 非目标**：自动猜测 ref 可能检出错误提交；锁清理不当会引入并发写；这些是低优先可用性改进，不阻塞 A–C 或 D 的其他条目，也不改变现有错误退出码语义。
 
+### D.8 宿主 CLI 的运行时 Node
+
+**状态**：TODO。[ADR 009](adr/009-tool-node-and-launcher.md) 只固定 Kitto 自己的工具（维护 runner、`kitto route`、skill 脚本）使用的 Node；Pi、Codex、DSH 宿主 CLI 仍按各自 shebang 解析 `node`，在 mise/nvm 按目录固定版本时可能跑在项目 Node 上。
+
+**下一步 / 验收**：评估是否让 Kitto 管理的入口（native 注册的命令）也经 `kitto-node` 启动，或只在 `kitto hosts` 里报告宿主实际使用的 Node 与其 `engines` 的差距。验收：先记录各宿主在不同 shell（shims、activate、静态 `PATH`）下实际使用的 Node 版本，再决定；不改写宿主自身的安装方式。
+
+**风险 / 非目标**：改写宿主 shebang 或包装其二进制会被宿主升级覆盖，且可能破坏其签名或更新检查；本项不在 ADR 009 的范围内。
+
 ## 共同验收标准
 
 1. 默认关闭、显式 opt-in，并保留 dry-run 预览；未启用时与 v1 完全一致。
