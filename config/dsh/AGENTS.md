@@ -7,19 +7,14 @@
 ### 编排执行面（AgentTeams）
 
 - 分级与门禁按共享规则「开发任务编排」；T0 不建队，T1/T2 用 AgentTeams。
-- 选路、故障换路或独立审查时，先按 [Kitto 本机路由预检](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md) 运行 `kitto route`。用本会话 `list_subagent_models` 逐个校验候选，启用原生观察器时用 `kitto_route_evidence` 导出。Go 元数据只在操作者明确授权后单独采集；未确认设备、账号、用途或额度时停派。只在明确启用的受控 `subagent` 执行面使用一次性许可与原生审批；Teams、fork、workflow 均不受保护。
-- 建队用 `agent_teams_create({ description: <目标>, approval: "required" })`。命名模板只是参考，审批前按预检结果核对每个成员的显式 `provider` + `model`。如果不能确认成员、profile 和全局 fallback 都无效（包括内联计划的继承），停止派发；不要靠切换入口绕过。
-- 思考强度按任务选，不从角色或模型名推断。用 `list_subagent_models` 查该路由支持的档位：机械操作、已知命令和证据收集用 `low`；一般实现或需要选测试用 `medium`（有则用）或 `default`；疑难归因、高风险审查用 `high`。最高档只在强度不足且错判代价高时升级。
-- 命名模板不固定强度。队长按任务分配，在审批前用 `agent_teams_edit_plan` 的 `update_member.reasoning_effort` 选档；内联计划或普通子 agent 可在派发时直接传。AgentTeams 中，想用模型默认档时显式传 `default`，避免同路由继承队长强度。若同一角色的任务确实需要不同档位，分派给对应档位的成员，不改正在执行的成员。
-- `batch` 成员只在有独立批量任务时派发，不占默认验证或审查角色。需要 GPT 时选 `openai-codex`，不自动切到 Go GPT。
-- opencode-go 是订阅渠道（`https://opencode.ai/inference/go`）：路由不带 `models` 时直接服务其内置目录；用 `modelOverrides` 把有效预算压到 400K（压缩触发 ~206K），`hy3` 留作 120K 短上下文批量档。
-- 不走 `deepseek-official` 与 `xai` 官方渠道：两者都按量计费。需要 Grok 时用 opencode-go 的 `grok-4.7`。
-- 分级与故障归因默认用本地证据。直接 JEV 不经过门禁，保持关闭。
+- **先建草案**：项目门禁允许规划后，用 `agent_teams_create({ name: <队名>, description: <目标>, approval: "required" })` 暂存或继续同一份计划。候选路由、额度和回退尚未核实也可暂存；暂存不启动成员、不领取任务。未完成预检时标为「不可启动」，不要请求点 **Approve & Run**。
+- **再核验启动**：按[任务级模型路由](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md)核对本会话的候选。用 `kitto_task_routes` 或 `kitto` skill 绑定的 CLI 检查草案；用原生面板改选，缺的决定用一次询问补齐。Web 的 **Approve & Run** 不会调用 Kitto 检查：只请求批准与检查结果一致的可运行范围。
+- `list_subagent_models` 只证明精确候选和思考档可见，不证明账号、数据授权、团队有效 fallback 或额度。未核实的成员保留在不可启动的计划中；已启用的受控 `subagent` 继续走其原生许可。
 - provider 与 allowlist 在会话启动时快照：改完配置要新开会话才生效；旧会话里不要规划新路由的成员，也不要把“配置已改”当作可用。
 - 独立 worktree 的创建与交还按 `kitto-worktree` skill 的预览与确认流程；只在用户明确要求时执行 `apply`，不自动清理。
 - 质量任务用 `kind=requirements/implementation/verification/review/integration`；implementation/repair 必须带 `verify`；review 必须 `verdict=pass` 才解锁下游。
 - 规划与审查成员用 `tool_policy: "read-only"`（可跑 bash 验证，禁止 edit/write）；实现与批量用默认工具集。
-- 默认 `approval: "required"`；用户说「直接跑/不用审」时才用 `automatic`。
+- 草案核验通过后，在后续明确批准或 Web 审批后方可启动；「直接跑/不用审」不替代路由核验。
 - 队长不写产品代码（合并冲突、集成提交除外），也不批准自己写的实现。
 
 ### 上下文与成本（执行面）

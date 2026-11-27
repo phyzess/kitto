@@ -22,8 +22,8 @@ MCP 懒连接并通过代理按需发现工具。subagents 和 hindsight 都是�
 
 ### 编排能力
 
-- Pi 的模型路由由 `$PI_CODING_AGENT_DIR/settings.json` 与扩展决定；多 provider 时按共享规则的家族分工选模型，subagent 承担批量与验证，审查换家族。
-- 只有单一 provider 时，按 Codex 的单模型降级规则执行，并保留「待外部审查」记录。
+- [任务级模型路由](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md)：用 `/model` 改选当前会话。仅在已加载的子代理扩展支持并可核实角色路由时，才列为可直接派发。
+- 有交互时在计划中一次问清待定角色；无交互则返回待决定。角色路由不可用时保留计划或交接，不擅自启动另一个会话。
 - plannotator 的评审结论只覆盖方案质量，不等于验证通过；实现仍需命令证据。
 
 ### 浏览器默认

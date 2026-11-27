@@ -19,8 +19,10 @@ const help = `Kitto — portable personal agent configuration
               [--require-baseline]
               [--include-private|--no-include-private]
               [--routing-boundary personal|company|custom|skip] [--routing-routes PROVIDER/MODEL,...]
+  kitto route plan|check --input FILE
+                               Offline task route planning and approval checks
   kitto route preflight|reselect|audit --input FILE
-                               Offline DSH routing advice; never dispatches or reads credentials
+                               DSH route compatibility and independent-review audit
   kitto route permit|record-quota|release-pool --input FILE --operator
                                Stage a native permit or record verified shared Go evidence
   kitto route migrate --home DIRECTORY [--apply-fixture|--rollback-fixture]

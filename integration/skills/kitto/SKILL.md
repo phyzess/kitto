@@ -1,6 +1,6 @@
 ---
 name: kitto
-description: Inspect, synchronize and update personal agent configuration across machines with Kitto. Use for Kitto setup, configuration drift, dependency versions or syncing personal skills; not for ordinary project tasks.
+description: Inspect, synchronize and update personal agent configuration across machines with Kitto. Use for Kitto setup, configuration drift, dependency versions, syncing personal skills, model routing, or when the kitto command is missing or reports an unknown subcommand.
 ---
 
 Use the installed maintenance runner. Setup replaces `KITTO_RUNNER` below with its absolute, shell-quoted path. If it is still a placeholder, Kitto setup has not completed; do not guess an installation path.
@@ -8,6 +8,14 @@ Use the installed maintenance runner. Setup replaces `KITTO_RUNNER` below with i
 ```sh
 node KITTO_RUNNER status
 ```
+
+**Routing, missing `kitto`, or an unknown subcommand:** In a full local installation, use the CLI bound by this deployed skill, even if `PATH` has another copy:
+
+```sh
+node KITTO_CLI route --help
+```
+
+For other commands, use `--help` instead of `route --help`. Run this only if setup rendered an absolute path. Use the same entry for routing preflight; no maintenance `status` call is needed for routing. If the path is unrendered, the file is absent, or the installed CLI lacks `route`, report that specific blocker and leave any team plan staged. Do not substitute a checkout, an npm cache, or the maintenance runner.
 
 Keep normal work in the current native agent. Do not introduce a launcher or modify project configuration. The runner exposes only these maintenance operations:
 

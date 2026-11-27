@@ -10,12 +10,16 @@ const response = { isError: false, value: raw };
 const started = Date.parse('2026-11-25T12:00:00Z');
 
 test('bundle observer is opt-in and ignores unsupported profiles', () => {
-  const skills = { registerProvider() {} };
-  apply({ skills, inject() { assert.fail('observer must not mount by default'); } });
-  apply({ skills, inject(services, start) {
+  let injections = 0;
+  const ctx = { skills: { registerProvider() {} }, inject(services, start) {
+    injections++;
     assert.deepEqual(services, ['profileContext', 'tools']);
     start({ profileContext: { name: 'desktop' }, get tools() { assert.fail('unsupported profile'); } });
-  } }, { routeEvidence: true });
+  } };
+  apply(ctx);
+  assert.equal(injections, 1, 'only the task-route planner mounts by default');
+  apply(ctx, { routeEvidence: true });
+  assert.equal(injections, 3, 'observer mounts only when explicitly enabled');
 });
 
 test('exact native parser rejects listings, wrong IDs, duplicate efforts and fake defaults', () => {

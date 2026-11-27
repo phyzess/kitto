@@ -1,6 +1,28 @@
-# 本机模型路由
+# 任务级模型路由
 
-`kitto route preflight`、`reselect` 和 `audit` 都是**离线建议**。唯一受控派发是经操作者显式启用的 **DSH Web 0.2.2-rc.5、完整本机安装、默认独立 spawn `subagent`**。它在原生模型预检和 activation 之前加门禁，不替换 DSH 派发器，不调用推理 API。
+把路由作为任务计划的一部分：用户本次选择 → 项目/角色预设 → 单角色沿用当前模型。预设只保存偏好，不保存凭据、费用授权或批准。没有适用预设时，展示实际宿主能兑现的候选；把需决定的角色合为一次询问。无答复不启动该角色及其下游。
+
+`kitto route plan --input FILE` 计算候选和待决定项；`kitto route preflight` 收到同样的 `roles` 计划时使用同一检查。`kitto route check --input FILE` 重算并比对知情批准。只有 `ready` 列表中的角色可纳入待启动范围；每个角色实际开始仍须满足原生任务依赖。`approvalKey` 用于检测变更，不是签名、原生授权或执行凭据。
+
+### 计划输入
+
+由 agent 或调用端从当前宿主和用户已经提供的信息整理，不要求用户手写 JSON。只放脱敏标识，不放凭据、提示词、源文件或个人账号地址。
+
+- `id` 是计划稳定标识。`host` 包含 `kind`（`dsh`、`pi`、`codex`）、`surface`（DSH：`teams`、`subagent`；Pi/Codex：`current`、`subagent`）、会话 ID `session`、近五分钟的 `observedAt`、`routes`，以及单会话可选的 `current`。Codex CLI 检查另需 `host.native` 的有效 thread 信息：`thread.id`、`modelProvider`、`model`，及从当前暴露工具核实的 `spawnParameters`。它不因模型可改就声称可切换子代理 provider。
+- `roles[]` 每行包含 `id`、工作范围修订 `workRevision`、`data`（`public`/`personal`/`internal`/`restricted`）、`effects`（`read`/`write`）及 `dependencies`。可用 `choice: { provider, model, effort }` 覆盖 `presets[roleId]`，或用 `choice: "defer"` 暂缓。独立审查填 `reviewGate: "independent"` 和实际 `implementers` 的 `canonicalModel`、`family`；同模型或同家族都不会通过。
+- 每次规划和检查，调用端都必须从当前原生任务合同与待执行改动重新计算 `workRevision`，而不是复用批准时的值。例如在本地对 `JSON.stringify([contract, diff])` 取 SHA-256，把哈希写入 `workRevision`，不传合同或 diff 正文。Teams 的 `nativePlan` 必须从实时草案独立重算同一哈希。缺任何输入就暂停；检查器只比较调用端提交的修订值，不能自动发现未反映在输入中的编辑。
+- `routes[]` 每行填可核实的 `provider`、`model`、`upstream`、脱敏 `account`、`billing`（`subscription`/`go-included`/`metered`）、`efforts`、账号证据 `accountVerified` 和当前任务数据策略 `dataAllowed`。只有原生可见时填 `available: true`，能精确原生派发时填 `dispatchable: true`；子代理需要 `fallback: "none"` 的有效配置证据。Go 还需 `quotaReady`，按量还需非负 `estimateUsd`。缺证据不填 `true`。
+- 每个角色的 `authorization` 记录已经获用户或适用策略授权的 `plan`、`role`、`workRevision`、`provider`、`model`、`upstream`、`account`、`billing` 和 `data`。按量填写本任务明确同意的 `maxUsd`；检查不代表服务端成本硬上限。用户批准实际启动范围后，把对应 `{ id, approvalKey }` 放到 `approval` 数组再调用 `check`；变更后重新展示并确认。只将通过检查的角色交给原生宿主。原生面板/工具不对这份 JSON 签名。
+
+### 执行边界
+
+DSH Web 用 `kitto_task_routes` 或已绑定的 CLI 检查，再由原生团队草案承接选择。Teams 启动检查还需从原生暂存计划整理 `host.nativePlan`：`id`、`session`、`phase: "staged"`、以及全部待启动 `tasks[]` 的 `id`、`provider`、`model`、`effort`、`fallback`、`workRevision`、`dependencies`。角色以拟启动任务 ID 为单位，重复用同一成员时也逐任务核对工作范围。匹配检查拒绝额外任务、路由改动和未核实的回退。仅比较提交的快照；原生 Web 按钮并不读取该结果，不能把这个检查当成宿主拦截。
+
+DSH 候选检查器目前只支持 `teams`、`subagent`，不验证父会话 `current`。Web 工具从调用者取得真实会话 ID；CLI `check` 要求宿主提供匹配的 `DSH_SESSION_ID`。没有该变量时改用 Web 工具，不能从输入复制或手工设置变量补证据；离线 `plan` 可使用输入会话 ID。
+
+Pi 的 `/kitto-route` 读取当前会话；离线 CLI 规划和检查 `current` 都需 `host.native` 的原生状态快照。Codex CLI 使用 `host.native` 的有效 thread 快照。两端若要求非默认思考档，必须有实际档位可核对；调用端提供的快照不是签名证明。三端具体交互见 `task-model-routing` skill。
+
+以下旧格式 `preflight`、`reselect` 和 `audit` 保留兼容，都是**离线建议**。唯一受控派发是经操作者显式启用的 **DSH Web 0.2.2-rc.5、完整本机安装、默认独立 spawn `subagent`**。它在原生模型预检和 activation 之前加门禁，不替换 DSH 派发器，不调用推理 API。
 
 **未保护**：AgentTeams（含另装的 `@nanmicoder/dsh-agent-teams` 0.1.31、Web 审批、恢复、retry、reassign、邮件唤醒）、`subagent_fork`、workflow 子调用、父会话、非默认 spawn/工具别名、Pi、Codex、Desktop、服务账号、仅 scope 安装及直接 API/JEV。都不接受为受控派发；宿主上的这些入口本身不会被 Kitto 禁用。直接 JEV 不经过门禁，保持关闭，分级与归因使用本地证据。
 
@@ -29,7 +51,7 @@
 2. 复制导出的对象到输入的 `host.evidence`，将原生会话 ID 填入 `host.session`。人工方式使用 `{ "source":"operator-native-result", "profile":"web", "session":"<实际会话 ID>", "routes":[{"provider":"…", "model":"…", "observedAt":"<实际采集 UTC>", "result":"<精确调用返回的原始文本>"}] }`。无效、重复、未来、过期或会话/profile 不匹配均不可用；同一导出只用于其实际来源会话。离线 JSON 可编辑，不是签名认证。阶段一手填 `host.routes` 仍支持；一旦提供 `host.evidence`，缺证据的路由不会回退到手填可用值。
 3. 继续填写 `host.routes` 的账号、上游、规范 ID、计费及批准信息。普通 `subagent` 可由匹配的原生证据补上省略的 `available`；`false` 或非布尔值不补。对 `teams`，核对原生暂存成员计划后才手工填写 `available: true`；ordinary 证据只补实际档位，不替代成员计划或 fallback 核对。采集不验证账号，不能自动生成 `task.authorized`，也不能证明成员已启动。
 
-## 准备预检输入
+## 旧格式预检输入（兼容与一次性许可）
 
 1. DSH 当前会话调用 `list_subagent_models({})` 找 provider；再对候选逐一调用 `list_subagent_models({ provider, model })`，把实际显示的精确 ID 和 `Reasoning efforts` 下的 ID 填入 `host.routes`。成功才标 `available: true`；明确没有档位才填空数组 `[]`。缺失或失败的路由不要冒充可用。不配置原生子代理 allowlist 时，工具只看到父路由。如果做 AgentTeams，额外用原生暂存计划确认精确成员模型和所有继承层的 fallback；只在确认没有有效 fallback 时填 `"effectiveFallbacks": []`。普通工具的 allowlist 不是 AgentTeams 的底层授权。
 2. 从当前配置和批准记录核实 `upstream`、实际规范模型 ID、逻辑账号名 `account`、`accountType` 和 `billing`，再填 `accountVerified: true`。DSH 列表不能证明这些字段；没有这份证据就不填 `true`。逻辑名例如 `work-approved`，不要填 token、内部 URL 或用户标识。不把 `host.routes` 自动复制成 `task.authorized`：后者必须来自操作者对本任务精确路由、上游、账号、计费和数据级别的确认。
@@ -70,7 +92,7 @@
    }
    ```
 
-5. 运行 `kitto route preflight --input route.json`。若没有 `kitto` 命令，可运行完整安装的 `node "$KITTO_HOME/runtime/bin/kitto.mjs" route preflight --input route.json`（默认 Kitto home：`${XDG_DATA_HOME:-$HOME/.local/share}/kitto`）。只在结果为 `recommend` 且原生计划获批后传确切 `provider`、`model` 和有返回的 `reasoning_effort`；先核对实际激活模型再推进。`stop` / 非独立审查退出码为 2。
+5. 在 DSH 中先加载 `kitto` skill，用它绑定的 `node <绝对 CLI 路径> route preflight --input route.json`，不从 `PATH`、npm 缓存或项目 checkout 取入口。操作者在完整安装上也可运行 `node "$KITTO_HOME/runtime/bin/kitto.mjs" route preflight --input route.json`（默认 Kitto home：`${XDG_DATA_HOME:-$HOME/.local/share}/kitto`）。Teams 在审批前把确切 `provider`、`model` 和有返回的 `reasoning_effort` 写入草案；确认对应结果均为 `recommend` 后才请求批准。启动后先核对实际激活模型再推进。`stop` / 非独立审查退出码为 2。
 
 ### 路由字段与比较
 

@@ -451,6 +451,32 @@ test('setup persists code, keeps private assets out, and registers all native in
   assert(calls.some(c => c.command === 'dsh' && c.args.join(' ') === `plugin --profile web add ${runtime}`));
 });
 
+test('deployed routing help uses the bound CLI without relying on PATH', t => {
+  const f = fixture(t);
+  good(f.cli('setup', '--agents', 'dsh', '--source', f.source));
+  const runtime = join(f.env.KITTO_HOME, 'runtime');
+  const skill = readFileSync(join(runtime, 'integration/skills/kitto/SKILL.md'), 'utf8');
+  const help = skill.match(/^node .* route --help$/m)?.[0];
+  assert.ok(help && !help.includes('KITTO_CLI'), 'The deployed skill must show the bound routing command.');
+
+  const bin = join(f.temp, 'bin');
+  assert.equal(existsSync(join(bin, 'kitto')), false);
+  symlinkSync(process.execPath, join(bin, 'node'));
+  const probe = () => command('/bin/sh', ['-c', help], { ...f.env, PATH: bin });
+  const offline = probe();
+  good(offline);
+  assert.match(offline.stdout, /kitto route preflight/);
+
+  writeFileSync(join(bin, 'kitto'), '#!/bin/sh\nexit 77\n', { mode: 0o755 });
+  good(probe());
+  const entry = join(runtime, 'bin/kitto.mjs');
+  assert.equal(resolve(entry), join(resolve(f.temp), 'home/kitto/runtime/bin/kitto.mjs'));
+  rmSync(entry);
+  const missing = probe();
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /MODULE_NOT_FOUND/);
+});
+
 test('a conflicting existing shared skill stops setup before runtime or host changes', t => {
   const f = fixture(t), target = join(f.env.PI_AGENTS_DIR, 'skills/example');
   mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'SKILL.md'), 'local work');
