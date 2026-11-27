@@ -66,6 +66,8 @@ jobs:
       - run: npm run check:test-wiring
       - run: npm run lint:versions
       - run: npm run lint:invariants
+      - run: npm run typecheck
+      - run: npm run lint:ox
       - run: npm test
   native:
     name: native (hosts, ${{ matrix.os }})
