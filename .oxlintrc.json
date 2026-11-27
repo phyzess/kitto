@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [],
+  "categories": { "correctness": "error" },
+  "env": { "node": true, "es2024": true },
+  "rules": {
+    "no-control-regex": "off",
+    "no-unused-vars": ["error", { "ignoreRestSiblings": true }]
+  },
+  "overrides": [{ "files": ["tests/**"], "rules": { "getter-return": "off" } }],
+  "ignorePatterns": ["node_modules", "config", "skills", ".agents"]
+}

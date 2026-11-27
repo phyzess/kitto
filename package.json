@@ -9,10 +9,12 @@
   "repository": { "type": "git", "url": "git+https://github.com/phyzess/kitto.git" },
   "files": ["bin/*.mjs", "lib/*.mjs", "lib/hosts/*.mjs", "integration/", "CHANGELOG.md"],
   "dependencies": { "@clack/prompts": "1.9.0" },
-  "devDependencies": { "@ast-grep/cli": "0.43.0", "yaml": "2.9.1" },
+  "devDependencies": { "@ast-grep/cli": "0.43.0", "@types/node": "26.6.11", "oxlint": "1.95.0", "typescript": "7.0.2", "yaml": "2.9.1" },
   "scripts": {
     "check:test-wiring": "node scripts/check-test-wiring.mjs",
     "lint:invariants": "node scripts/check-invariants.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint:ox": "oxlint",
     "lint:comments": "node scripts/check-comments.mjs",
     "lint:versions": "node scripts/check-version-literals.mjs",
     "test": "node --test \"tests/*.test.mjs\"",
