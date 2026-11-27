@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { kittoHome } from '../lib/kitto.mjs';
+import { kittoHome } from '../lib/kitto-home.mjs';
 import { updateNotice } from '../lib/update-notice.mjs';
 import { registerPiTaskRouting } from './pi-task-routing.mjs';
 
