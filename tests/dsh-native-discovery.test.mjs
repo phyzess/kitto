@@ -10,8 +10,8 @@ async function fixture(t) {
   t.onTestFinished(() => rm(home, { recursive: true, force: true }));
   const env = { HOME: home, PATH: join(home, 'bin'), DSH_HOME: join(home, '.dsh') };
   const run = (code, extra = {}) => spawnSync(process.execPath, ['--input-type=module', '-e', `
-    import { dshExecutable, loadDshYaml } from './integration/scoped-dsh/native.mjs';
-    import { installDshScope } from './lib/scope-dsh.mjs';
+    import { dshExecutable, loadDshYaml } from './integration/scoped-dsh/native.ts';
+    import { installDshScope } from './lib/scope-dsh.ts';
     ${code}`], { env: { ...env, ...extra }, encoding: 'utf8', timeout: 15000 });
   async function file(path, content, mode) {
     await mkdir(dirname(path), { recursive: true });

@@ -224,7 +224,7 @@ test('full setup persists only an explicit local boundary and dry-run leaves sta
   const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 10_000 });
   const good = result => assert.equal(result.status, 0, result.stderr + result.stdout);
   for (const args of [['init'], ['add', '.'], ['-c', 'user.name=Kitto', '-c', 'user.email=kitto@example.invalid', 'commit', '-m', 'test']]) good(run('git', args, source));
-  const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
+  const cli = fileURLToPath(new URL('../dist/bin/kitto.mjs', import.meta.url));
   const setup = (...args) => run(process.execPath, [cli, 'setup', '--agents', 'dsh', '--source', source, ...args]);
   const path = join(kitto, 'state.json');
   good(setup('--routing-boundary', 'company', '--dry-run'));
