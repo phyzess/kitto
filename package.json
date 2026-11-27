@@ -1,6 +1,6 @@
 {
   "name": "@phyzess/kitto",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Portable personal configuration for Pi, Codex and DeepSeek Harness",
   "repository": {
