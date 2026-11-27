@@ -4,12 +4,15 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from '@ast-grep/napi';
 import { Lexer, parseAllDocuments, visit } from 'yaml';
 
 const version = '0.43.0';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const limit = 32 * 1024 * 1024;
+const maxTypeScriptBytes = 8 * 1024 * 1024;
+const maxFragmentBytes = 96 * 1024;
 
 export function decode(bytes) {
   return utf8.decode(bytes);
@@ -129,7 +132,7 @@ function location(text, start) {
 }
 
 function completeTree(bin, language, bytes) {
-  if (bytes.length > 96 * 1024) throw new Error(`${language} full-tree check exceeds the supported source size`);
+  if (bytes.length > maxFragmentBytes) throw new Error(`${language} full-tree check exceeds the supported source size`);
   const result = spawnSync(bin, ['run', '--stdin', '--lang', language, '--debug-query=sexp', `--pattern=${decode(bytes)}`], {
     cwd: dirname(bin),
     input: '',
@@ -141,6 +144,20 @@ function completeTree(bin, language, bytes) {
   if (result.error || ![0, 1, 8].includes(result.status) || !tree) throw new Error(`${language} full-tree check failed`);
   if (/\((?:ERROR|MISSING)(?=[\s)])/u.test(tree)) throw new Error(`${language} parse error: incomplete or recovered syntax`);
   return tree;
+}
+
+function completeTypeScript(bytes) {
+  if (bytes.length > maxTypeScriptBytes) throw new Error('TypeScript full-tree check exceeds the supported source size');
+  const root = parse('TypeScript', decode(bytes)).root();
+  const rootId = root.id();
+  const stack = [root];
+  for (let node = stack.pop(); node; node = stack.pop()) {
+    const { start, end } = node.range();
+    if (node.kind() === 'ERROR' || (node.id() !== rootId && node.isLeaf() && start.index === end.index)) {
+      throw new Error('TypeScript parse error: incomplete or recovered syntax');
+    }
+    stack.push(...node.children());
+  }
 }
 
 function guardYaml(text) {
@@ -231,10 +248,25 @@ function gitignoreComments(bytes) {
   );
 }
 
+function gitRevsComments(bytes) {
+  return lines(bytes).flatMap((row) => {
+    const hash = row.text.indexOf('#');
+    if (hash < 0) return [];
+    return [
+      {
+        start: row.start + Buffer.byteLength(row.text.slice(0, hash)),
+        end: row.end - Number(row.text.endsWith('\r')),
+        text: row.text.slice(hash).replace(/\r$/u, ''),
+      },
+    ];
+  });
+}
+
 function parseSource(bin, language, bytes, moduleKind, checkWholeTree) {
   if (language === 'Env') return envComments(bytes);
   if (language === 'Gitignore') return gitignoreComments(bytes);
-  if (language === 'TypeScript') completeTree(bin, language, bytes);
+  if (language === 'GitRevs') return gitRevsComments(bytes);
+  if (language === 'TypeScript') completeTypeScript(bytes);
   guardSyntax(language, bytes, moduleKind);
   const invalid = ast(bin, language, 'ERROR', bytes);
   if (invalid.length) throw new Error(`${language} parse error at byte ${invalid[0].start}`);
@@ -498,9 +530,12 @@ export function inspect(bin, path, language, bytes) {
   return { path, language, physicalLines: rows.length, tokens, ...countsByLine };
 }
 
+const hashCommentIgnoreFiles = new Set(['.gitignore', '.prettierignore', '.npmignore', '.dockerignore']);
+
 export function formatFor(path) {
   const name = path.split('/').at(-1);
-  if (name === '.gitignore') return 'Gitignore';
+  if (hashCommentIgnoreFiles.has(name)) return 'Gitignore';
+  if (name === '.git-blame-ignore-revs') return 'GitRevs';
   if (name === '.node-version') return 'NodeVersion';
   if (path === 'config/pi/i-have-adhd-always') return 'Json';
   if (name === '.env' || name === 'env.example' || /^\.env\.[\w.-]+$/u.test(name)) return 'Env';
