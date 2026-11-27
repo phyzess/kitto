@@ -15,7 +15,7 @@ node KITTO_RUNNER status
 node KITTO_CLI route --help
 ```
 
-For other commands, use `--help` instead of `route --help`. Run this only if setup rendered an absolute path. Use the same entry for routing preflight; no maintenance `status` call is needed for routing. If the path is unrendered, the file is absent, or the installed CLI lacks `route`, report that specific blocker and leave any team plan staged. Do not substitute a checkout, an npm cache, or the maintenance runner.
+For other commands, use `--help` instead of `route --help`. Run this only if setup rendered an absolute path. Use the same entry for routing; no maintenance `status` call is needed for routing. If the path is unrendered, the file is absent, or the installed CLI lacks `route`, report that specific blocker and leave any team plan staged. Do not substitute a checkout, an npm cache, or the maintenance runner.
 
 Keep normal work in the current native agent. Do not introduce a launcher or modify project configuration. The runner exposes only these maintenance operations:
 

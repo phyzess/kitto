@@ -84,12 +84,6 @@ test('CLI verifies native default or explicitly selected DSH home before key and
     assert.equal(JSON.parse(result.stdout).reason, expected ? 'metadata-http-error' : 'session-configuration-mismatch');
     assert.equal(result.stderr.includes('fixture-key-read'), expected);
     assert.equal(result.stderr.includes('fixture-fetch'), expected);
-    if (dshHome === customHome && explicit === undefined || expected && explicit && dshHome !== defaultHome) {
-      const offline = run('preflight');
-      assert.equal(offline.status, 0, offline.stderr);
-      assert.equal(JSON.parse(offline.stdout).route.provider, sol.provider);
-      assert.doesNotMatch(offline.stderr, /fixture-key-read|fixture-fetch/);
-    }
   }
 });
 

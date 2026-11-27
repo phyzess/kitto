@@ -101,7 +101,7 @@ test('Codex model override does not imply an upstream override', () => {
   assert.equal(evaluateCodexTaskRoutes(request, now).rows[0].options[0].reason, 'host-cannot-select-route');
 });
 
-test('public CLI preflight and check accept only the approved official DSH task and matching staged scope', t => {
+test('public CLI plan and check accept only the approved official DSH task and matching staged scope', t => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-task-cli-'));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const fixture = join(temp, 'plan.json');
@@ -118,7 +118,7 @@ test('public CLI preflight and check accept only the approved official DSH task 
     assert.equal(result.stderr, '');
     return [result.status, JSON.parse(result.stdout)];
   };
-  const [code, planned] = run('preflight');
+  const [code, planned] = run('plan');
   assert.equal(code, 0);
   const [{ id, route: selected }] = planned.rows;
   assert.equal(selected.provider, 'deepseek-official');
@@ -133,6 +133,9 @@ test('public CLI preflight and check accept only the approved official DSH task 
     assert.equal(result.reason, 'native-session-mismatch');
   }
   assert.equal(run('plan', null)[0], 0);
+  const removed = spawnSync(process.execPath, [cli, 'route', 'preflight', '--input', fixture], { encoding: 'utf8', timeout: 5000 });
+  assert.notEqual(removed.status, 0);
+  assert.match(removed.stderr, /Usage: kitto route plan\|check/);
   request.host.nativePlan.tasks[0].model = 'other';
   assert.equal(run('check')[0], 2);
 });

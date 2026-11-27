@@ -8,6 +8,11 @@
 - Locks: `sync.sh` now tells a live, provably exited and unverifiable lock owner apart, so a process owned by another user is reported as running and no manual removal is suggested when ownership cannot be verified.
 - Maintenance: keep every host baseline, the routing-validated DSH version and pnpm in `lib/host-pins.mjs`, and add `npm run lint:versions` to reject repeated literals. CI installs read the same source.
 
+### Breaking
+
+- Remove `kitto route preflight`, `kitto route reselect` and `kitto route audit`. Use `kitto route plan` and `kitto route check` for task routing, and `kitto route permit` for the controlled DSH `subagent` path.
+- Remove `kitto route migrate --apply-fixture` and `--rollback-fixture`. `kitto route migrate --home DIRECTORY` remains a read-only preview.
+
 ## 0.4.0
 
 - Task routing: choose models and reasoning effort per task across DSH, Pi, and Codex. Reuse role preferences, group unresolved choices, and defer work without launching its dependants. Metered routes require explicit task authorization. (#56)
