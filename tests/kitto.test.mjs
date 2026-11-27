@@ -1036,7 +1036,7 @@ test('packed npm artifact excludes personal configuration and all undeclared ass
   const paths = JSON.parse(result.stdout)[0].files.map(file => file.path);
   assert(paths.includes('integration/skills/kitto/SKILL.md'));
   assert(paths.includes('bin/kitto.mjs'));
-  for (const path of paths) assert.match(path, /^(bin\/[^/]+\.mjs|lib\/[^/]+\.(mjs|py)|integration\/|sync\.sh$|package\.json$|README\.md$|CHANGELOG\.md$)/);
+  for (const path of paths) assert.match(path, /^(bin\/[^/]+\.mjs|lib\/(hosts\/)?[^/]+\.(mjs|py)|integration\/|sync\.sh$|package\.json$|README\.md$|CHANGELOG\.md$)/);
   assert(!paths.some(path => /^(config|skills|lists|tests)\//.test(path)));
 });
 
