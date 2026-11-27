@@ -478,7 +478,7 @@ test('guided setup keeps divergent unowned skills through later Pi syncs', t => 
   symlinkSync(local, hostLocal, 'dir');
 
   const setup = command(process.execPath, ['--input-type=module', '-e',
-    `import { setup } from './lib/kitto.ts';
+    `import { setup } from './dist/lib/kitto.mjs';
      await setup(${JSON.stringify({ source: f.source, agents: ['pi'], keepExistingSkills: true })});`,
   ], f.env);
   good(setup);

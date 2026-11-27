@@ -57,7 +57,10 @@ if [ -f "$SCRIPT_DIR/bin/kitto.ts" ]; then
     if [ ! -d "$SCRIPT_DIR/node_modules/vite-plus" ]; then
         npm ci --prefix "$SCRIPT_DIR" --ignore-scripts --no-audit --no-fund
     fi
-    npm run --prefix "$SCRIPT_DIR" build --silent
+    built="$SCRIPT_DIR/dist/bin/kitto.mjs"
+    if [ ! -f "$built" ] || [ -n "$(find "$SCRIPT_DIR/bin" "$SCRIPT_DIR/lib" "$SCRIPT_DIR/integration" "$SCRIPT_DIR/package.json" -newer "$built" -type f -print -quit)" ]; then
+        npm run --prefix "$SCRIPT_DIR" build --silent
+    fi
     KITTO_ENTRY="$SCRIPT_DIR/dist/bin/kitto.mjs"
 fi
 
