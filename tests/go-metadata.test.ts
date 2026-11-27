@@ -8,7 +8,9 @@ import { test } from 'vitest';
 import { collectGoMetadata } from '../lib/go-metadata.ts';
 import { adviseRoute } from '../lib/model-routing.ts';
 import { setRoutingBoundary } from '../lib/routing-policy.ts';
-import type { Json, State } from '../types/kitto.d.ts';
+import type { State } from '../types/kitto.d.ts';
+
+type Json = Record<string, any>;
 
 const recommend = (result: ReturnType<typeof adviseRoute>) =>
   result.status === 'recommend' ? result : assert.fail(`routing stopped: ${result.reason}`);
@@ -247,7 +249,7 @@ test('redirects, transport failures, bad or oversized content and body deadline 
         return reply();
       }),
     });
-    assert.equal(result.reason, expected);
+    assert.equal(result.status === 'stop' ? result.reason : undefined, expected);
     assert.equal(requests, 1);
     assert.doesNotMatch(JSON.stringify(result), /secret|elsewhere|synthetic-key/);
   }
@@ -266,7 +268,7 @@ test('failed or mismatched meter evidence disables Go without overriding non-Go 
       return response(missing);
     }),
   });
-  assert.equal(denied.reason, 'metadata-meter-unverified');
+  assert.equal(denied.status === 'stop' ? denied.reason : undefined, 'metadata-meter-unverified');
   for (const metadata of [denied, { status: 'collected', account: 'other', plan: 'go' }, null]) {
     args.request.go.metadata = metadata;
     assert.equal(recommend(adviseRoute({ ...args, now })).route.provider, sol.provider);

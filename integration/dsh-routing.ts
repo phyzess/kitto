@@ -286,7 +286,7 @@ export function createDispatchGate({
 
 export function registerDshRouting(ctx: DshPluginContext): void {
   ctx.inject(['profileContext', 'tools', 'workingDirectory'], (injected) => {
-    const host = injected as DshPluginHost;
+    const host = injected as unknown as DshPluginHost;
     const { name, home, installAnchor } = host.profileContext;
     if (name !== 'web' || !installAnchor || !isAbsolute(installAnchor) || !home || !isAbsolute(home)) return;
     try {

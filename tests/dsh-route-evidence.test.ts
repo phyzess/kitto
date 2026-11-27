@@ -3,7 +3,9 @@ import { test } from 'vitest';
 import { createRouteObserver } from '../integration/dsh-route-evidence.ts';
 import { apply } from '../integration/dsh.ts';
 import { applyCapabilityEvidence, parseNativeModelResult } from '../lib/routing-evidence.ts';
-import type { DshPluginContext, Json } from '../types/kitto.d.ts';
+import type { DshPluginContext } from '../types/kitto.d.ts';
+
+type Json = Record<string, any>;
 
 const route = { provider: 'test', model: 'model' };
 const raw = 'test/model — Example\nReasoning efforts:\nlow (default) — Low\nhigh — High';

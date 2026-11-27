@@ -20,12 +20,12 @@ import { stateHome } from './state-homes.ts';
 
 export { loadDshYaml };
 
-type Json = Record<string, any>;
+type ConfigObject = Record<string, unknown>;
 
 export interface DshRow {
   id: string;
   name: string;
-  config: Json;
+  config: ConfigObject;
 }
 
 export interface DshServer {
@@ -71,7 +71,7 @@ const serverNamePattern = /^[A-Za-z0-9_-]{1,32}$/;
 const optOut = 'KITTO_NO_MCP_SYNC';
 const yamlOptions = { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: unknown) => value }] };
 
-const isObject = (value: unknown): value is Json => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isObject = (value: unknown): value is ConfigObject => value !== null && typeof value === 'object' && !Array.isArray(value);
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${(value as unknown[]).map(canonical).join(',')}]`;
   if (isObject(value))
@@ -127,12 +127,12 @@ async function readPatch(path: string): Promise<{ content: string | null; mode: 
 
 function merge(base: unknown, over: unknown): any {
   if (!isObject(base) || !isObject(over)) return over;
-  const result: Json = { ...base };
+  const result: ConfigObject = { ...base };
   for (const [key, value] of Object.entries(over)) result[key] = key in result ? merge(result[key], value) : value;
   return result;
 }
 
-function mcpServers(value: unknown, path: string): Json {
+function mcpServers(value: unknown, path: string): ConfigObject {
   if (value === null) return {};
   if (!isObject(value) || (value.mcpServers !== undefined && !isObject(value.mcpServers))) {
     throw new Error(`${path} must contain an mcpServers object.`);
@@ -188,7 +188,7 @@ export async function piMcpServers(
     sources.push(join(source, 'config/pi/local/mcp.json'));
     sources.push(join(source, 'config/pi/mcp.private.json'));
   }
-  const merged: Json = {};
+  const merged: ConfigObject = {};
   for (const path of sources) {
     const declared = mcpServers(await readJson(path), path);
     for (const [name, entry] of Object.entries(declared)) merged[name] = merge(merged[name], entry);
@@ -220,7 +220,7 @@ export async function piMcpServers(
         skip('url is not a string');
         continue;
       }
-      if (entry.type !== undefined && !['http', 'streamable-http'].includes(entry.type)) {
+      if (typeof entry.type !== 'undefined' && (typeof entry.type !== 'string' || !['http', 'streamable-http'].includes(entry.type))) {
         skip(`Pi transport ${entry.type} is not supported by DSH`);
         continue;
       }
@@ -331,8 +331,10 @@ function collectDeclared(value: unknown, declared: Map<string, string>, location
     return;
   }
   if (!isObject(value)) return;
-  if ((value.name === managerName || value.id === managerId) && isObject(value.config?.servers)) {
-    for (const [name, entry] of Object.entries(value.config.servers)) {
+  const config = isObject(value.config) ? value.config : undefined,
+    managerServers = isObject(config?.servers) ? config.servers : undefined;
+  if ((value.name === managerName || value.id === managerId) && managerServers) {
+    for (const [name, entry] of Object.entries(managerServers)) {
       if (!isObject(entry) || entry.enabled !== false) remember(declared, name, `${location} (mcp-manager)`);
     }
   }
@@ -491,7 +493,8 @@ export function planDshMcp({
   const preservedIds = new Set(preserved.map((row) => row.id));
   const desired = rows.filter((row: DshRow) => {
     if (preservedIds.has(row.id)) return false;
-    const where = found.get(row.config.serverName);
+    const serverName = row.config.serverName,
+      where = typeof serverName === 'string' ? found.get(serverName) : undefined;
     if (where === undefined) return true;
     conflicts.push({ row, location: where });
     return false;

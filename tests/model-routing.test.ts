@@ -13,7 +13,9 @@ import { setRoutingBoundary } from '../lib/routing-policy.ts';
 import { parseOptions } from '../lib/kitto.ts';
 import { issueRoutePermit, ROUTING_HOST_VERSION } from '../integration/dsh-routing.ts';
 import { createRoutingStore } from '../lib/routing-state.ts';
-import type { Json, State } from '../types/kitto.d.ts';
+import type { State } from '../types/kitto.d.ts';
+
+type Json = Record<string, any>;
 
 const now = Date.parse('2026-11-25T12:00:00Z');
 const stamp = new Date(now).toISOString();
@@ -237,8 +239,11 @@ test('request allowance overrides list cost; official monthly caps and conservat
   assert.deepEqual(normalizeGoCharge(usage, model, go.plan), { fraction: 0.03, source: 'list-cost-estimate' });
   usage.opencode.billing_source = 'balance';
   assert.equal(normalizeGoCharge(usage, model, go.plan), null);
-  model.item.cost.multipliers = [{ factor: 2 }];
-  model.item.cost.text.input.overrides = [{ price: 0.3, cache: { write: { '5m': 0.5 } } }];
+  const cost = model.item.cost,
+    priced = cost?.text?.input;
+  assert.ok(cost && priced, 'Go model entry has no cost');
+  cost.multipliers = [{ factor: 2 }];
+  priced.overrides = [{ price: 0.3, cache: { write: { '5m': 0.5 } } }];
   const fraction = estimateGoFraction(model, { input: 1e6, output: 1e6 });
   assert.ok(fraction !== null);
   assert.ok(Math.abs(fraction - 2.2 / 105) < 1e-12);

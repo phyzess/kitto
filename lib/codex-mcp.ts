@@ -9,7 +9,7 @@ import { forgetPending as forgetPendingEntry, get, list as ledgerList, markPendi
 import { platformOverlay } from './platform.ts';
 import type { State } from '../types/kitto.d.ts';
 
-type Json = Record<string, any>;
+type ConfigObject = Record<string, unknown>;
 
 export type Transport = { type: 'stdio'; command: string; args: string[] } | { type: 'http'; url: string; bearerTokenEnvVar?: string };
 
@@ -62,12 +62,12 @@ interface PlanContext {
   owned?: Record<string, string>;
   pending?: Record<string, string>;
   live?: LiveEntry[];
-  details?: Map<string, Json>;
+  details?: Map<string, ConfigObject>;
   liveVerified?: boolean;
 }
 const acceptedName = /^[A-Za-z0-9_:@/.-]+$/;
 
-const isObject = (value: unknown): value is Json => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isObject = (value: unknown): value is ConfigObject => value !== null && typeof value === 'object' && !Array.isArray(value);
 const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
 const confirmedOf = (state: State): Record<string, string> =>
   Object.fromEntries(
@@ -90,7 +90,7 @@ const empty = (value: unknown) =>
 
 function deepMerge(base: unknown, over: unknown): any {
   if (!isObject(base) || !isObject(over)) return over;
-  const merged: Json = { ...base };
+  const merged: ConfigObject = { ...base };
   for (const [key, value] of Object.entries(over)) {
     merged[key] = hasOwn(merged, key) ? deepMerge(merged[key], value) : value;
   }
@@ -219,7 +219,7 @@ export async function sourceServers(
       sources.push([path, await optionalJson(path)]);
     }
   }
-  const merged = new Map<string, Json>();
+  const merged = new Map<string, ConfigObject>();
   for (const [label, config] of sources) {
     if (config == null) continue;
     if (!isObject(config) || (config.mcpServers !== undefined && !isObject(config.mcpServers))) {
@@ -493,7 +493,7 @@ export function listCodexMcp({
 export function getCodexMcp(
   name: string,
   { run = defaultCodexRun, env = process.env }: { run?: CodexRun; env?: NodeJS.ProcessEnv } = {},
-): Json {
+): ConfigObject {
   const parsed = parseResponse(run(['mcp', 'get', name, '--json'], { env }), `codex mcp get ${name} --json`);
   if (!isObject(parsed)) throw new Error(`codex mcp get ${name} --json did not return an object.`);
   return parsed;
@@ -515,9 +515,9 @@ function liveDetails({
   live: LiveEntry[];
   run?: CodexRun;
   env?: NodeJS.ProcessEnv;
-}): Map<string, Json> {
+}): Map<string, ConfigObject> {
   const tracked = new Set([...Object.keys(owned), ...Object.keys(pending)]);
-  const details = new Map<string, Json>();
+  const details = new Map<string, ConfigObject>();
   for (const entry of live) {
     if (tracked.has(entry?.name)) details.set(entry.name, getCodexMcp(entry.name, { run, env }));
   }

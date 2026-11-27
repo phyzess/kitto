@@ -2,8 +2,7 @@ import { authorizeGoRead, knownGoCanonical } from './model-routing.ts';
 import { maxPrice, timestamp } from './go-allowance.ts';
 import { routeId } from './routing-policy.ts';
 import type { State } from '../types/kitto.d.ts';
-
-type Json = Record<string, any>;
+import type { RoutingRequest } from './model-routing.ts';
 
 interface GoCatalogItem {
   id: string;
@@ -32,14 +31,22 @@ export interface GoBinding {
   canonicalModel: string;
 }
 
-interface MetadataRead {
-  status?: string;
-  reason?: string;
-  statusCode?: number;
-  value?: unknown;
-}
+type MetadataRead = { status: 'stop'; reason: string; statusCode?: number } | { status: 'ok'; value: unknown };
 
 type Stopped = { status: 'stop'; reason: string; statusCode?: number };
+
+interface Collected {
+  status: 'collected';
+  source: 'opencode-go-metadata';
+  account: string;
+  plan: string;
+  profile: string;
+  catalogObservedAt: string;
+  observedAt: string;
+  catalog: GoCatalog;
+  usage: Record<string, GoUsageWindow>;
+}
+
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
 const BASE = 'https://opencode.ai/inference/go/v1';
@@ -73,7 +80,7 @@ async function readMetadata(fetcher: Fetcher, name: string, headers: Record<stri
     }
   }
   try {
-    return { value: JSON.parse(text + decoder.decode()) };
+    return { status: 'ok' as const, value: JSON.parse(text + decoder.decode()) };
   } catch {
     return stopped('metadata-invalid');
   }
@@ -174,13 +181,13 @@ export async function collectGoMetadata({
   timeoutMs = 10_000,
 }: {
   state: State;
-  request: Json;
+  request: RoutingRequest;
   optedIn?: boolean;
   fetcher?: Fetcher;
   readKey?: () => string | undefined;
   clock?: () => number;
   timeoutMs?: number;
-}): Promise<Json> {
+}): Promise<Collected | Stopped> {
   if (optedIn !== true) return stopped('metadata-opt-in-required');
   const binding = authorizeGoRead(state, request, clock());
   if (!binding) return stopped('metadata-account-or-policy-unverified');
@@ -203,7 +210,7 @@ export async function collectGoMetadata({
         Math.min(10_000, timeoutMs),
       );
     });
-    const collection = async () => {
+    const collection = async (): Promise<Collected | Stopped> => {
       const headers: Record<string, string> = { Accept: 'application/json' };
       const models = await readMetadata(fetcher, 'models', headers, controller.signal);
       if (models.status === 'stop') return models;

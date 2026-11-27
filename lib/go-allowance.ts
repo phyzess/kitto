@@ -1,4 +1,25 @@
-type Json = Record<string, any>;
+import type { GoEvidence } from '../types/kitto.d.ts';
+
+interface PriceShape {
+  price?: unknown;
+  cache?: { read?: unknown; write?: unknown };
+  overrides?: unknown;
+}
+
+interface GoMultiplier {
+  factor?: number;
+}
+
+interface GoCatalogEntry {
+  id?: string;
+  canonical_id?: string;
+  type?: string;
+  go?: { training?: unknown; monthly_usage?: Record<string, unknown> };
+  cost?: { text?: { input?: PriceShape; output?: PriceShape }; multipliers?: GoMultiplier[] };
+  price?: unknown;
+  cache?: { read?: unknown; write?: unknown };
+  overrides?: unknown;
+}
 
 export type GoMeter =
   | { status: 'missing' | 'stale' | 'invalid' }
@@ -26,11 +47,12 @@ interface GoWindow {
   remaining: number;
 }
 
-export function goMeter(go: Json | null | undefined, now: number): GoMeter {
-  if (!go?.usage) return { status: 'missing' };
+export function goMeter(go: GoEvidence | null | undefined, now: number): GoMeter {
+  const usage = go?.usage;
+  if (!usage) return { status: 'missing' };
   if (!fresh(go.observedAt, now, SNAPSHOT_TTL)) return { status: 'stale' };
   const windows = Object.entries(WINDOWS).map(([name, share]): GoWindow | null => {
-    const item = go.usage[name];
+    const item = usage[name];
     if (
       !item ||
       !['ok', 'rate-limited'].includes(item.status) ||
@@ -58,7 +80,7 @@ export function goMeter(go: Json | null | undefined, now: number): GoMeter {
   return { status: 'available', remaining: tightest.remaining, limitingWindow: tightest.name, resetsAt: tightest.resetsAt };
 }
 
-export function maxPrice(side: Json | null | undefined): number {
+export function maxPrice(side: PriceShape | null | undefined): number {
   if (side?.overrides !== undefined && !Array.isArray(side.overrides)) return NaN;
   const prices: unknown[] = [];
   for (const entry of [side, ...(side?.overrides ?? [])]) {
@@ -73,18 +95,20 @@ export function maxPrice(side: Json | null | undefined): number {
   return prices.every(nonnegative) ? Math.max(...(prices as number[])) : NaN;
 }
 
-export function goModel(go: Json | null | undefined, model: string, now: number): { item: Json; cap: number } | null {
-  if (!go || !PLANS.includes(go.plan) || !fresh(go.catalogObservedAt, now, CATALOG_TTL) || !Array.isArray(go.catalog?.data)) return null;
-  const matches = go.catalog.data.filter((item: Json) => item?.id === model);
+export function goModel(go: GoEvidence | null | undefined, model: string, now: number): { item: GoCatalogEntry; cap: number } | null {
+  const catalog = go?.catalog as { data?: unknown } | undefined;
+  if (!go || !go.plan || !PLANS.includes(go.plan) || !fresh(go.catalogObservedAt, now, CATALOG_TTL) || !Array.isArray(catalog?.data))
+    return null;
+  const matches = (catalog.data as GoCatalogEntry[]).filter((item) => item?.id === model);
   if (matches.length !== 1 || matches[0].type !== 'chat' || matches[0].go?.training !== false) return null;
   const item = matches[0],
-    cap = item.go.monthly_usage?.[go.plan];
-  if (!Number.isFinite(cap) || cap <= 0) return null;
+    cap = item.go?.monthly_usage?.[go.plan ?? ''];
+  if (typeof cap !== 'number' || !Number.isFinite(cap) || cap <= 0) return null;
   return { item, cap };
 }
 
 export function estimateGoFraction(
-  { item, cap }: { item: Json; cap: number },
+  { item, cap }: { item: GoCatalogEntry; cap: number },
   tokens: { input?: number; output?: number } | null | undefined,
 ): number | null {
   const inputTokens = tokens?.input,
@@ -106,28 +130,29 @@ export function estimateGoFraction(
     !nonnegative(output) ||
     input + output === 0 ||
     (multipliers !== undefined &&
-      (!Array.isArray(multipliers) || !multipliers.every((item: Json) => Number.isFinite(item?.factor) && item.factor > 0)))
+      (!Array.isArray(multipliers) || !multipliers.every((item: GoMultiplier) => Number.isFinite(item?.factor) && (item.factor ?? 0) > 0)))
   )
     return null;
-  const factor = (multipliers ?? []).reduce((product: number, item: Json) => product * Math.max(1, item.factor), 1);
+  const factor = (multipliers ?? []).reduce((product: number, item: GoMultiplier) => product * Math.max(1, item.factor ?? 1), 1);
   const fraction = ((input * inputTokens + output * outputTokens) * factor) / (1_000_000 * cap);
   return Number.isFinite(fraction) && fraction > 0 ? fraction : null;
 }
 
 export function normalizeGoCharge(
-  usage: Json | null | undefined,
+  usage: { opencode?: { billing_source?: unknown; allowance?: unknown; list_cost?: unknown } } | null | undefined,
   { cap }: { cap: number },
   plan: string,
 ): { fraction: number; source: string } | null {
   if (!PLANS.includes(plan) || !Number.isFinite(cap) || cap <= 0) return null;
-  const cost = usage?.opencode;
-  const billing = cost?.billing_source;
+  const cost = usage?.opencode,
+    billing = cost?.billing_source;
   if (
     (plan === 'go-plus' && billing !== 'go-plus') ||
     (plan === 'go' && billing !== 'go') ||
-    (plan === 'go-teams' && !['go', 'go-teams'].includes(billing))
+    (plan === 'go-teams' && !['go', 'go-teams'].includes(billing as string))
   )
     return null;
+  if (!cost) return null;
   if (Object.hasOwn(cost, 'allowance')) return nonnegative(cost.allowance) ? { fraction: cost.allowance / cap, source: 'allowance' } : null;
   return nonnegative(cost.list_cost) ? { fraction: cost.list_cost / cap, source: 'list-cost-estimate' } : null;
 }

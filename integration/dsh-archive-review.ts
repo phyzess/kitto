@@ -12,7 +12,7 @@ const messages: Record<string, string> = {
 export function registerArchiveReview(ctx: DshPluginContext, enabled: unknown): void {
   if (enabled !== true) return;
   ctx.inject(['profileContext', 'tools', 'workspaceRegistry', 'sessionPersistence'], (injected) => {
-    const host = injected as DshPluginHost;
+    const host = injected as unknown as DshPluginHost;
     const { name, installAnchor } = host.profileContext;
     if (name !== 'web' || typeof installAnchor !== 'string' || !isAbsolute(installAnchor)) return;
     const require = createRequire(installAnchor);

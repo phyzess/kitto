@@ -70,7 +70,7 @@ export function evaluateDshTaskRoutes(input: PlanInput, session: string | undefi
 
 export function registerDshTaskRouting(ctx: DshPluginContext): void {
   ctx.inject(['profileContext', 'tools'], (injected) => {
-    const host = injected as DshPluginHost;
+    const host = injected as unknown as DshPluginHost;
     const { installAnchor, name } = host.profileContext;
     if (name !== 'web' || !installAnchor || !isAbsolute(installAnchor)) return;
     let defineTool: any;

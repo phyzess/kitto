@@ -8,8 +8,6 @@ import type { MigrationRecord } from '../lib/state-schema.ts';
 
 export type HostName = 'pi' | 'codex' | 'dsh';
 
-export type Json = Record<string, any>;
-
 export interface RouteRef {
   provider: string;
   model: string;
@@ -96,9 +94,9 @@ export interface GoMetadataEvidence {
 }
 
 export interface GoUsageWindow {
-  status?: string;
-  percent?: number;
-  resetsAt?: string;
+  status: string;
+  percent: number;
+  resetsAt: string;
 }
 
 export type GoUsage = Record<string, GoUsageWindow | undefined>;
@@ -252,13 +250,13 @@ export interface DshPluginHost {
 }
 
 export interface DshPluginContext {
-  inject(names: string[], factory: (host: Json) => unknown): void;
+  inject(names: string[], factory: (host: Record<string, unknown>) => unknown): void;
   on(event: string, handler: (...args: never[]) => unknown): void;
   get(name: string): unknown;
   skills: { registerProvider(factory: (control: unknown) => unknown): void };
   logger: { warn(message: string): void };
   workingDirectory: { ensure(agent: unknown, signal?: AbortSignal): Promise<string> };
-  profileContext: Json;
+  profileContext: Record<string, unknown>;
 }
 
 export interface PiSessionContext {
