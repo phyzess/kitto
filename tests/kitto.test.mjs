@@ -17,6 +17,7 @@ import { waitForPublish } from '../scripts/release.mjs';
 const skillNames = (state, group, status) => list(state, 'skill', group, status).map(entry => entry.name).sort();
 const re = value => value.replace(/[.+]/g, '\\$&');
 const root = fileURLToPath(new URL('../', import.meta.url));
+const publishRoot = existsSync(join(root, 'dist/package.json')) ? join(root, 'dist') : root;
 const cliTimeout = 180_000;
 function command(cmd, args, env, cwd = root) {
   return spawnSync(cmd, args, { env, cwd, encoding: 'utf8', timeout: cliTimeout });
@@ -1023,7 +1024,7 @@ test('kitto update refuses dirty worktrees and pinned tag checkouts before writi
 
 test('packed installation survives removal of the npm execution directory', t => {
   const f = fixture(t);
-  const packed = command('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', f.temp], f.env);
+  const packed = command('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', f.temp], f.env, publishRoot);
   good(packed);
   const archive = join(f.temp, JSON.parse(packed.stdout)[0].filename), extracted = join(f.temp, 'extracted');
   mkdirSync(extracted);
@@ -1036,13 +1037,14 @@ test('packed installation survives removal of the npm execution directory', t =>
 
 test('packed npm artifact excludes personal configuration and all undeclared assets', t => {
   const f = fixture(t);
-  const result = command('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], f.env);
+  const result = command('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], f.env, publishRoot);
   good(result);
   const paths = JSON.parse(result.stdout)[0].files.map(file => file.path);
   assert(paths.includes('integration/skills/kitto/SKILL.md'));
   assert(paths.includes('bin/kitto.mjs'));
   for (const path of paths) assert.match(path, /^(bin\/[^/]+\.mjs|lib\/(hosts\/)?[^/]+\.(mjs|py)|integration\/|sync\.sh$|package\.json$|README\.md$|CHANGELOG\.md$)/);
   assert(!paths.some(path => /^(config|skills|lists|tests)\//.test(path)));
+  assert(!paths.some(path => path.endsWith('.map')));
 });
 
 test('failed upgrade retries preserve the working checkpoint, and external setup recovers broken code', t => {
