@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, readdir, rename, rm, writeFile, lstat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-export const readJson = async path => JSON.parse(await readFile(path, 'utf8'));
-export const present = async path => { try { await lstat(path); return true; } catch (e) { if (e.code === 'ENOENT') return false; throw e; } };
+export const readJson = async (path: string): Promise<any> => JSON.parse(await readFile(path, 'utf8'));
+export const present = async (path: string): Promise<boolean> => { try { await lstat(path); return true; } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false; throw e; } };
 
-export async function replaceDirectory(source, target) {
+export async function replaceDirectory(source: string, target: string): Promise<void> {
   const temporary = `${target}.kitto-tmp-${process.pid}`;
   const backup = `${target}.kitto-old-${process.pid}`;
   await rm(temporary, { recursive: true, force: true });
@@ -21,7 +21,7 @@ export async function replaceDirectory(source, target) {
   if (existed) await rm(backup, { recursive: true, force: true });
 }
 
-export async function atomicJson(path, value) {
+export async function atomicJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.tmp`;
   try {
@@ -30,9 +30,9 @@ export async function atomicJson(path, value) {
   } finally { await rm(temporary, { force: true }); }
 }
 
-export async function treeHash(path) {
+export async function treeHash(path: string): Promise<string> {
   const hash = createHash('sha256');
-  async function walk(directory, relative = '') {
+  async function walk(directory: string, relative = ''): Promise<void> {
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       const name = join(relative, entry.name), full = join(directory, entry.name);
       if (entry.isDirectory()) { hash.update(`dir:${name}\0`); await walk(full, name); }

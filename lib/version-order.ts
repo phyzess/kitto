@@ -1,7 +1,13 @@
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const numeric = /^\d+$/;
 
-function parseVersion(value) {
+interface ParsedVersion {
+  core: string[];
+  prerelease: string[];
+  build: string | undefined;
+}
+
+function parseVersion(value: unknown): ParsedVersion | null {
   if (typeof value !== 'string') return null;
   const match = versionPattern.exec(value);
   if (!match || match[0] !== value) return null;
@@ -11,20 +17,20 @@ function parseVersion(value) {
   return { core: [major, minor, patch], prerelease, build };
 }
 
-export function isExactPin(value) {
+export function isExactPin(value: unknown): boolean {
   const parsed = parseVersion(value);
   return parsed !== null && parsed.build === undefined;
 }
 
-export function readVersion(output) {
+export function readVersion(output: string | null | undefined): string | null {
   const candidate = output?.match(/(?:^|[\s(])v?(\d+\.\d+\.\d+[^\s)]*)/)?.[1];
   return parseVersion(candidate) ? candidate : null;
 }
 
-const compareText = (a, b) => a === b ? 0 : a < b ? -1 : 1;
-const compareNumeric = (a, b) => compareText(a.length, b.length) || compareText(a, b);
+const compareText = (a: string | number, b: string | number) => a === b ? 0 : a < b ? -1 : 1;
+const compareNumeric = (a: string, b: string) => compareText(a.length, b.length) || compareText(a, b);
 
-export function compareVersions(a, b) {
+export function compareVersions(a: unknown, b: unknown): number | null {
   const left = parseVersion(a), right = parseVersion(b);
   if (!left || !right) return null;
   for (let i = 0; i < 3; i++) {
@@ -45,8 +51,8 @@ export function compareVersions(a, b) {
   return compareText(left.prerelease.length, right.prerelease.length);
 }
 
-export function meetsBaseline(actual, baseline) {
-  const normalize = value => typeof value === 'string' ? value.trim().replace(/^v/, '') : value;
+export function meetsBaseline(actual: unknown, baseline: unknown): boolean {
+  const normalize = (value: unknown) => typeof value === 'string' ? value.trim().replace(/^v/, '') : value;
   const order = compareVersions(normalize(actual), normalize(baseline));
   return order !== null && order >= 0;
 }

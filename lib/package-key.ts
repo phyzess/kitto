@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 
-export function packageKey(item) {
-  let source = typeof item === 'string' ? item : item?.source ?? '';
+export type PiPackageSpec = string | { source?: string; [key: string]: unknown };
+
+export function packageKey(item: PiPackageSpec | null | undefined): string {
+  let source: string = typeof item === 'string' ? item : item?.source ?? '';
   if (source.startsWith('npm:')) {
     const spec = source.slice(4);
     if (spec.lastIndexOf('@') > 0) source = `npm:${spec.slice(0, spec.lastIndexOf('@'))}`;
@@ -12,4 +14,4 @@ export function packageKey(item) {
   return source;
 }
 
-export const packageHash = spec => createHash('sha256').update(JSON.stringify(spec)).digest('hex');
+export const packageHash = (spec: unknown): string => createHash('sha256').update(JSON.stringify(spec)).digest('hex');
