@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Maintenance: format code with Oxfmt through Vite+ (`npm run fmt`; `npm run fmt:check` in CI). Markdown, YAML, the lockfile and upstream-owned files are excluded. The bulk reformat commit is listed in `.git-blame-ignore-revs`.
+- Maintenance: format code with Oxfmt through Vite+ (`npm run fmt`; `npm run fmt:check` in CI). Markdown, YAML, the lockfile and upstream-owned files are excluded. The bulk reformat is commit `8da1fae0f83b`; use `git blame --ignore-rev 8da1fae0f83b` to skip it.
 - Build: the package is now built by `npm run build` (Vite+ `vp pack`, unbundled, one output file per source file) into `dist/`, and releases publish `dist/` instead of the repository root. Running from a source checkout is unchanged; the package contents are the same except that source maps are not shipped. CI builds before `npm test`, and the native-host jobs run Codex and DSH against the built package.
 - Refactor: split host-specific setup, connect and removal into one adapter per host under `lib/hosts/` (Pi, Codex, DSH web, DSH Desktop), with deploy and removal previews and applies sharing one action plan; file, lock and process helpers moved out of `lib/kitto.mjs`. No behavior change.
 - Maintenance: add `npm run typecheck` (TypeScript checks the `.mjs` sources without a build, with shared shapes in `types/`) and `npm run lint:ox` (oxlint correctness rules); both run in the unit CI job. No runtime change.
