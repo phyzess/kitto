@@ -7,7 +7,7 @@
   "engines": { "node": ">=22.0.0", "dsh": ">=0.2.2-rc.2 <0.3.0" },
   "publishConfig": { "access": "public" },
   "repository": { "type": "git", "url": "git+https://github.com/phyzess/kitto.git" },
-  "files": ["bin/*.mjs", "lib/*.mjs", "integration/", "CHANGELOG.md"],
+  "files": ["bin/*.mjs", "lib/*.mjs", "lib/hosts/*.mjs", "integration/", "CHANGELOG.md"],
   "dependencies": { "@clack/prompts": "1.9.0" },
   "devDependencies": { "@ast-grep/cli": "0.43.0", "yaml": "2.9.1" },
   "scripts": {

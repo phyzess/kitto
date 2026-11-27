@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Refactor: split host-specific setup, connect and removal into one adapter per host under `lib/hosts/` (Pi, Codex, DSH web, DSH Desktop), with deploy and removal previews and applies sharing one action plan; file, lock and process helpers moved out of `lib/kitto.mjs`. No behavior change.
 - Maintenance: add contributor rules (`AGENTS.md`), ast-grep invariant checks (`npm run lint:invariants`, also a CI step), a PR template, repo-local preflight and rule-eval skills, and the proposed threat-model ADR 007.
 - Internal: add an ownership ledger module and a state schema 2 migration with rollback ([ADR 008](docs/adr/008-ownership-ledger.md)). Nothing uses them yet and no state is migrated.
 - Maintenance: retire the one-time comment-ratchet rollout bootstrap, closed issue drafts, the progress log and the comment audit ledgers (kept in git history at `fb9e292`).
