@@ -3,12 +3,21 @@ import type { State } from '../types/kitto.d.ts';
 export type OwnershipKind = 'skill' | 'instructions' | 'mcp' | 'pi-package' | 'launcher';
 export type OwnershipStatus = 'owned' | 'pending' | 'kept';
 
-export interface OwnershipEntry {
-  hash: string | null;
-  status: OwnershipStatus;
+export interface HeldOwnershipEntry {
+  hash: string;
+  status: 'owned' | 'pending';
   previous?: string;
   spec?: unknown;
 }
+
+export interface KeptOwnershipEntry {
+  hash: null;
+  status: 'kept';
+  previous?: string;
+  spec?: unknown;
+}
+
+export type OwnershipEntry = HeldOwnershipEntry | KeptOwnershipEntry;
 
 export type OwnershipScope = Record<string, OwnershipEntry>;
 export type OwnershipLedger = Partial<Record<OwnershipKind, Record<string, OwnershipScope>>>;
@@ -38,10 +47,15 @@ function address(kind: unknown, scope: unknown, name: unknown) {
 
 function scopeOf(state: State, kind: OwnershipKind, scope: string, create: boolean): OwnershipScope | undefined {
   if (!create) return state.owned?.[kind]?.[scope];
-  state.owned ||= {};
-  state.owned[kind] ||= {};
-  state.owned[kind][scope] ||= {};
-  return state.owned[kind][scope];
+  const owned = (state.owned ||= {});
+  const scopes = (owned[kind] ||= {});
+  return (scopes[scope] ||= {});
+}
+
+function ensureScope(state: State, kind: OwnershipKind, scope: string): OwnershipScope {
+  const created = scopeOf(state, kind, scope, true);
+  if (!created) throw new Error(`Ownership scope ${kind}/${scope} was not created.`);
+  return created;
 }
 
 function entryOf(state: State, kind: OwnershipKind, scope: string, name: string): OwnershipEntry | undefined {
@@ -55,6 +69,13 @@ export function get(state: State, kind: OwnershipKind, scope: string, name: stri
   return entry && { ...entry };
 }
 
+export function list(
+  state: State,
+  kind: OwnershipKind,
+  scope: string,
+  status: 'owned' | 'pending',
+): Array<HeldOwnershipEntry & { name: string }>;
+export function list(state: State, kind: OwnershipKind, scope: string, status?: OwnershipStatus): Array<OwnershipEntry & { name: string }>;
 export function list(state: State, kind: OwnershipKind, scope: string, status?: OwnershipStatus): Array<OwnershipEntry & { name: string }> {
   assertKind(kind);
   assertKey('scope', scope);
@@ -79,7 +100,7 @@ export function record(
 ): void {
   address(kind, scope, name);
   assertHash(hash);
-  scopeOf(state, kind, scope, true)[name] = { hash, status: 'owned', ...(spec === undefined ? {} : { spec }) };
+  ensureScope(state, kind, scope)[name] = { hash, status: 'owned', ...(spec === undefined ? {} : { spec }) };
 }
 
 export function markPending(state: State, kind: OwnershipKind, scope: string, name: string, hash: string): void {
@@ -89,7 +110,7 @@ export function markPending(state: State, kind: OwnershipKind, scope: string, na
   const entry: OwnershipEntry = { hash, status: 'pending' };
   if (existing?.status === 'owned') entry.previous = existing.hash;
   else if (existing?.status === 'pending' && existing.previous !== undefined) entry.previous = existing.previous;
-  scopeOf(state, kind, scope, true)[name] = entry;
+  ensureScope(state, kind, scope)[name] = entry;
 }
 
 export function promote(state: State, kind: OwnershipKind, scope: string, name: string, hash?: string): void {
@@ -97,14 +118,14 @@ export function promote(state: State, kind: OwnershipKind, scope: string, name: 
   const existing = entryOf(state, kind, scope, name);
   const next = hash ?? (existing?.status === 'pending' ? existing.hash : undefined);
   assertHash(next);
-  scopeOf(state, kind, scope, true)[name] = { hash: next, status: 'owned' };
+  ensureScope(state, kind, scope)[name] = { hash: next, status: 'owned' };
 }
 
 export function forgetPending(state: State, kind: OwnershipKind, scope: string, name: string): boolean {
   address(kind, scope, name);
   const existing = entryOf(state, kind, scope, name);
   if (existing?.status !== 'pending') return false;
-  const scoped = scopeOf(state, kind, scope, false);
+  const scoped = ensureScope(state, kind, scope);
   if (existing.previous === undefined) delete scoped[name];
   else scoped[name] = { hash: existing.previous, status: 'owned' };
   return true;
@@ -116,13 +137,14 @@ export function markKept(state: State, kind: OwnershipKind, scope: string, name:
   if (existing && existing.status !== 'kept') {
     throw new Error(`Cannot keep ${kind} ${scope}/${name}: Kitto already ${existing.status === 'owned' ? 'owns' : 'is writing'} it.`);
   }
-  scopeOf(state, kind, scope, true)[name] = { hash: null, status: 'kept' };
+  ensureScope(state, kind, scope)[name] = { hash: null, status: 'kept' };
 }
 
 export function release(state: State, kind: OwnershipKind, scope: string, name: string): boolean {
   address(kind, scope, name);
   if (!entryOf(state, kind, scope, name)) return false;
-  delete scopeOf(state, kind, scope, false)[name];
+  const scoped = scopeOf(state, kind, scope, false);
+  if (scoped) delete scoped[name];
   return true;
 }
 
@@ -144,8 +166,9 @@ export function replaceScope(
     assertKey('name', name);
     if (!Object.hasOwn(next, name)) next[name] = { hash: null, status: 'kept' };
   }
-  scopeOf(state, kind, scope, true);
-  state.owned[kind][scope] = next;
+  ensureScope(state, kind, scope);
+  const ledger = state.owned?.[kind];
+  if (ledger) ledger[scope] = next;
 }
 
 export function recordedHash(state: State, kind: OwnershipKind, scope: string, name: string): string | null | undefined {

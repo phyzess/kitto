@@ -60,7 +60,7 @@ function put(owned: OwnershipLedger, kind: OwnershipKind, scope: string, name: s
   owned[kind][scope][name] = entry;
 }
 
-function importPiPackages(owned: OwnershipLedger, piLocalDir: string): { imported: boolean; path?: string } {
+function importPiPackages(owned: OwnershipLedger, piLocalDir: string): { imported: false } | { imported: true; path: string } {
   const path = join(piLocalDir, MANAGED_PACKAGES_FILE);
   if (!existsSync(path)) return { imported: false };
   let specs: unknown;
@@ -137,7 +137,7 @@ export function migrateState(input: AnyState, { piLocalDir = undefined }: { piLo
     delete state.mcp.codexPending;
     if (!Object.keys(state.mcp).length) delete state.mcp;
   }
-  const pi = piLocalDir ? importPiPackages(owned, piLocalDir) : { imported: false };
+  const pi = piLocalDir ? importPiPackages(owned, piLocalDir) : { imported: false as const };
   state.schema = CURRENT_SCHEMA;
   state.owned = owned;
   state.migration = { from: 1, present, pi: { imported: pi.imported } };
