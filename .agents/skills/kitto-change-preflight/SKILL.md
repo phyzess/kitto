@@ -22,8 +22,7 @@ node scripts/check-comments.ts --base <base> --head <head>
 npm run lint:versions
 npm run check:test-wiring
 npm run lint:invariants
-npm run typecheck
-npm run lint:ox
+npm run check
 npm test
 python3 -m unittest discover -s tests -v
 ```

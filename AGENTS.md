@@ -43,8 +43,8 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 
 ## Types and lint
 
-- `npm run typecheck` runs `tsc` with `noImplicitAny` over `bin/`, `lib/`, `integration/` and `types/` (including `types/conformance.ts`). Annotate every parameter; put module-owned types in the module that owns them and keep only cross-cutting shapes in `types/kitto.d.ts`. Use `import type`/`export type` and erasable syntax only (`erasableSyntaxOnly` and `verbatimModuleSyntax` are on). Comments are ratcheted, so do not add JSDoc, `@ts-check`, `@ts-nocheck` or `@ts-expect-error`.
-- `npm run lint:ox` runs oxlint (correctness rules). Fix the finding or turn the rule off in `.oxlintrc.json` with a reason in the PR.
+- `npm run typecheck` runs the Vite+ type check (tsrs) over `bin/`, `lib/`, `integration/`, `types/`, `tests/` and `scripts/` as `tsconfig.json` declares, honouring `strict`, `noImplicitAny`, `erasableSyntaxOnly` and `verbatimModuleSyntax`. Annotate every parameter; put module-owned types in the module that owns them and keep only cross-cutting shapes in `types/kitto.d.ts`. Use `import type`/`export type` and erasable syntax only (`erasableSyntaxOnly` and `verbatimModuleSyntax` are on). Comments are ratcheted, so do not add JSDoc, `@ts-check`, `@ts-nocheck` or `@ts-expect-error`.
+- `npm run lint:ox` runs oxlint through Vite+ (`vp lint`, the version bundled with `vite-plus`). The rules live in `.oxlintrc.json`, which `vite.config.mjs` imports; fix the finding or turn the rule off there with a reason in the PR. `npm run check` runs the format, lint and type steps together, and is what CI gates on.
 
 ## Verify before PR
 
@@ -55,9 +55,7 @@ node scripts/check-comments.ts --base <base> --head <head>
 npm run lint:versions
 npm run check:test-wiring
 npm run lint:invariants
-npm run typecheck
-npm run lint:ox
-npm run fmt:check   # npm run fmt to fix
+npm run check       # fmt + lint + type check; npm run fmt to fix formatting
 npm run build
 npm test
 python3 -m unittest discover -s tests -v   # while Python tests exist

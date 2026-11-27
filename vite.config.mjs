@@ -1,8 +1,12 @@
 import { availableParallelism } from 'node:os';
 import { defineConfig } from 'vite-plus';
 import { stableNodeImports } from './scripts/stable-node-imports.ts';
+import oxlint from './.oxlintrc.json' with { type: 'json' };
+
+const { $schema: _schema, ...lintRules } = oxlint;
 
 export default defineConfig({
+  lint: { ...lintRules, options: { typeAware: true, typeCheck: true } },
   fmt: {
     singleQuote: true,
     printWidth: 140,
