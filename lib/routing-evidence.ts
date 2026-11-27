@@ -4,8 +4,11 @@ import type { HostEvidence, HostRoute, RouteRef } from '../types/kitto.d.ts';
 
 export const EVIDENCE_TTL = 300_000;
 const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-export const exactRoute = (row: RouteRef | null | undefined): boolean =>
-  routeId(row?.provider) && !row.provider.includes('/') && routeId(row.model);
+export const exactRoute = (row: unknown): row is RouteRef => {
+  if (row === null || typeof row !== 'object') return false;
+  const { provider, model } = row as { provider?: unknown; model?: unknown };
+  return routeId(provider) && !provider.includes('/') && routeId(model);
+};
 const uniqueEfforts = (list: unknown): boolean =>
   Array.isArray(list) && list.every((item: string) => EFFORTS.has(item)) && new Set(list).size === list.length;
 

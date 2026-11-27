@@ -3,7 +3,41 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, sep } from 'node:path';
 import { resolveScopes, scopeHome } from '../../lib/scopes.ts';
 import { importFromRunningDsh } from './native.ts';
-import type { Json, DshPluginContext } from '../../types/kitto.d.ts';
+import type { DshPluginContext } from '../../types/kitto.d.ts';
+
+type SkillCandidate = Record<string, unknown>;
+
+interface SkillControl {
+  signal: AbortSignal;
+  invalidate(): void;
+}
+
+interface SkillLocator {
+  skills: string;
+  candidate: SkillCandidate;
+}
+
+interface ExternalSkillProvider {
+  list(input: { cwd?: string; signal?: AbortSignal }): Promise<SkillCandidate[] | { candidates: SkillCandidate[]; complete: boolean }>;
+  get(candidate: SkillCandidate, input: { cwd?: string; signal?: AbortSignal }): Promise<Record<string, unknown> | undefined>;
+}
+
+interface PatchRow {
+  disabled?: unknown;
+  group?: unknown;
+  config?: unknown;
+  id?: unknown;
+  name?: unknown;
+}
+
+interface PromptAssembly {
+  contexts: Array<{ name: string; text: string; interpolate: boolean }>;
+}
+
+interface PromptContext {
+  agent?: { ctx?: unknown };
+  signal?: AbortSignal;
+}
 
 export const name = 'phyzess-kitto-scopes';
 export const inject = ['skills', 'workingDirectory', 'systemPrompt', 'profileContext'];
@@ -26,32 +60,39 @@ function registerScopes(
   ctx: DshPluginContext,
   FileSystemSkillProvider: any,
   discoverBaselineInstructionFiles: any,
-  nativeConfigByPreset: Map<unknown, Json | undefined>,
+  nativeConfigByPreset: Map<unknown, Record<string, unknown> | undefined>,
 ) {
-  ctx.skills.registerProvider((control: Json) => {
-    const providers = new Map<string, Json>();
+  ctx.skills.registerProvider((rawControl) => {
+    const control = rawControl as SkillControl;
+    const providers = new Map<string, ExternalSkillProvider>();
     const watcher = watch(scopeHome(), { persistent: false, signal: control.signal }, (_event: string, file: string | null) => {
       if (file === null || file === 'scopes.json') control.invalidate();
     });
     watcher.on('error', (error: Error) => ctx.logger.warn(`Kitto scope registry watcher: ${error.message}`));
     return {
       name,
-      async list({ cwd, signal }: { cwd?: string; signal?: AbortSignal }): Promise<Json[] | { candidates: Json[]; complete: boolean }> {
+      async list({
+        cwd,
+        signal,
+      }: {
+        cwd?: string;
+        signal?: AbortSignal;
+      }): Promise<SkillCandidate[] | { candidates: SkillCandidate[]; complete: boolean }> {
         if (!cwd) return [];
         const directory = await realpath(cwd);
         const scopes = await resolveScopes(directory);
-        const candidates: Json[] = [];
+        const candidates: SkillCandidate[] = [];
         let complete = true;
         for (const { skills, root } of scopes.toReversed()) {
           if (!skills) continue;
           signal?.throwIfAborted();
           let provider = providers.get(skills);
           if (!provider) {
-            const created: Json = new FileSystemSkillProvider(ctx, control, {
+            const created = new FileSystemSkillProvider(ctx, control, {
               providerName: name,
               includeDefaultRoots: false,
               bundledSkillDir: skills,
-            });
+            }) as ExternalSkillProvider;
             providers.set(skills, created);
             provider = created;
           }
@@ -68,7 +109,7 @@ function registerScopes(
         }
         return { candidates, complete };
       },
-      async get({ locator }: Json, { cwd, signal }: { cwd?: string; signal?: AbortSignal }) {
+      async get({ locator }: { locator: SkillLocator }, { cwd, signal }: { cwd?: string; signal?: AbortSignal }) {
         if (!cwd || !(await resolveScopes(cwd)).some((scope: { skills: string }) => scope.skills === locator.skills)) return;
         const skill = await providers.get(locator.skills)?.get(locator.candidate, { cwd, signal });
         if (skill) return { ...skill, source: 'custom' };
@@ -76,19 +117,20 @@ function registerScopes(
     };
   });
 
-  ctx.on('system-prompt/assemble', async (_assembly: unknown, context: Json, next: () => Promise<Json>) => {
+  ctx.on('system-prompt/assemble', async (_assembly: unknown, context: PromptContext, next: () => Promise<PromptAssembly>) => {
     const assembly = await next();
     if (!context.agent) return assembly;
     const { signal } = context;
     const cwd = await ctx.workingDirectory.ensure(context.agent, signal);
     const scopes = await resolveScopes(cwd);
     if (!scopes.length) return assembly;
-    const preset = ctx.get('agentPresets')?.composedPreset(context.agent.ctx);
+    const presets = ctx.get('agentPresets') as { composedPreset(agent: unknown): unknown } | undefined;
+    const preset = presets?.composedPreset(context.agent.ctx);
     const nativeConfig = nativeConfigByPreset.get(preset) ?? nativeConfigByPreset.get(undefined);
     const nativePaths = new Set(
-      ctx.get('fs') && nativeConfig?.maxBytes > 0
+      ctx.get('fs') && Number(nativeConfig?.maxBytes) > 0
         ? (await discoverBaselineInstructionFiles({ ...nativeConfig, cwd: await realpath(cwd), signal })).map(
-            (file: Json) => file.absolutePath,
+            (file: { absolutePath?: string }) => file.absolutePath,
           )
         : [],
     );
@@ -103,16 +145,23 @@ function registerScopes(
   });
 }
 
-function* activeRows(rows: Json[]): Generator<Json, void, undefined> {
+function configOf(row: PatchRow): Record<string, unknown> | undefined {
+  return typeof row.config === 'object' && row.config !== null && !Array.isArray(row.config)
+    ? (row.config as Record<string, unknown>)
+    : undefined;
+}
+
+function* activeRows(rows: PatchRow[]): Generator<PatchRow, void, undefined> {
   for (const row of rows) {
     if (row.disabled) continue;
     yield row;
-    if (row.group && Array.isArray(row.config)) yield* activeRows(row.config);
+    if (row.group && Array.isArray(row.config)) yield* activeRows(row.config as PatchRow[]);
   }
 }
 
-function nativeInstructionConfig(rows: Json[]) {
-  return Array.from(activeRows(rows)).find((row: Json) => row.id === 'agent-instructions')?.config;
+function nativeInstructionConfig(rows: PatchRow[]): Record<string, unknown> | undefined {
+  const row = Array.from(activeRows(rows)).find((candidate) => candidate.id === 'agent-instructions');
+  return row && configOf(row);
 }
 
 export async function apply(ctx: DshPluginContext): Promise<void> {
@@ -122,10 +171,11 @@ export async function apply(ctx: DshPluginContext): Promise<void> {
     importFromRunningDsh('@deepseek-ai/dsh-app-boot'),
   ]);
   const rows = composeEntries([readProfilePatches('dsh', ctx.profileContext)]);
-  const nativeConfigByPreset = new Map([[undefined, nativeInstructionConfig(rows)]]);
+  const nativeConfigByPreset = new Map<unknown, Record<string, unknown> | undefined>([[undefined, nativeInstructionConfig(rows)]]);
   for (const row of activeRows(rows)) {
-    if (row.name !== '@deepseek-ai/dsh-agent-preset' || !Array.isArray(row.config?.plugins)) continue;
-    nativeConfigByPreset.set(row.config.id, nativeInstructionConfig(row.config.plugins));
+    const config = configOf(row);
+    if (row.name !== '@deepseek-ai/dsh-agent-preset' || !Array.isArray(config?.plugins)) continue;
+    nativeConfigByPreset.set(config.id, nativeInstructionConfig(config.plugins as PatchRow[]));
   }
   registerScopes(ctx, FileSystemSkillProvider, discoverBaselineInstructionFiles, nativeConfigByPreset);
 }

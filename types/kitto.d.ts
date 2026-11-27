@@ -92,8 +92,16 @@ export interface GoMetadataEvidence {
   catalogObservedAt?: string;
   observedAt?: string;
   catalog?: unknown;
-  usage?: unknown;
+  usage?: GoUsage;
 }
+
+export interface GoUsageWindow {
+  status?: string;
+  percent?: number;
+  resetsAt?: string;
+}
+
+export type GoUsage = Record<string, GoUsageWindow | undefined>;
 
 export interface GoEvidence {
   account?: string;
@@ -105,7 +113,7 @@ export interface GoEvidence {
   lastRequest?: { model?: string; usage?: Record<string, unknown> };
   catalogObservedAt?: string;
   catalog?: unknown;
-  usage?: unknown;
+  usage?: GoUsage;
 }
 
 export interface RoutingBoundary {
@@ -200,11 +208,54 @@ export interface HostAdapterDeps {
   dsh?: DshWebAdapterDeps;
 }
 
+export interface DshToolArguments extends Record<string, unknown> {
+  name?: string;
+  cwd?: string;
+  prompt?: string;
+}
+
+export interface DshToolExecution {
+  name?: string;
+  token?: symbol;
+  parent?: unknown;
+  signal?: { aborted?: boolean };
+  arguments?: DshToolArguments;
+  agent?: { id?: string; session?: { id?: string; header?: { cwd?: string } } };
+}
+
+export interface DshToolResult {
+  isError?: boolean;
+  value?: unknown;
+}
+
+export interface DshToolDecision {
+  kind: 'deny' | 'allow' | 'ask';
+  reason?: string;
+  info?: { code: string };
+}
+
+export interface DshTools {
+  register(tool: unknown): void;
+  guard(handler: unknown): void;
+}
+
+export interface DshPluginHost {
+  profileContext: { name: string; home?: string; installAnchor?: string };
+  tools: DshTools;
+  workingDirectory: { get(session: unknown): unknown };
+  on(event: string, handler: (...args: never[]) => unknown, options?: { prepend?: boolean }): void;
+  get(name: string): unknown;
+  skills: { registerProvider(factory: (control: unknown) => unknown): void };
+  logger: { warn(message: string): void };
+  workspaceRegistry: { archivedSessionIds?: string[] };
+  sessionPersistence: { list(): Promise<Array<{ header?: { id?: string } }>> };
+}
+
 export interface DshPluginContext {
   inject(names: string[], factory: (host: Json) => unknown): void;
   on(event: string, handler: (...args: never[]) => unknown): void;
-  get(name: string): Json | undefined;
-  skills: { registerProvider(factory: (control: Json) => unknown): void };
+  get(name: string): unknown;
+  skills: { registerProvider(factory: (control: unknown) => unknown): void };
   logger: { warn(message: string): void };
   workingDirectory: { ensure(agent: unknown, signal?: AbortSignal): Promise<string> };
   profileContext: Json;

@@ -9,7 +9,7 @@ import { createDispatchGate, issueRoutePermit, registerDshRouting, ROUTING_HOST_
 import { createRouteObserver } from '../integration/dsh-route-evidence.ts';
 import { setRoutingBoundary } from '../lib/routing-policy.ts';
 import { createRoutingStore } from '../lib/routing-state.ts';
-import type { Json, State } from '../types/kitto.d.ts';
+import type { DshToolDecision, Json, State } from '../types/kitto.d.ts';
 
 const route = {
   provider: 'openai-codex',
@@ -103,7 +103,7 @@ function fixture(t: TestContext, boundary = 'personal') {
     },
   };
 }
-const allow = async () => ({ kind: 'allow' });
+const allow = async () => ({ kind: 'allow' }) as DshToolDecision;
 function guarded(gate: ReturnType<typeof fixture>['gate'], exec: Json) {
   const decision = gate.guard(exec);
   assert.ok(decision);

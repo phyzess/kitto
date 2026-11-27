@@ -2,9 +2,27 @@ import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 import { routeQuestions } from '../lib/task-route-questions.ts';
-import type { Json, DshPluginContext } from '../types/kitto.d.ts';
+import type { DshPluginContext, DshPluginHost, DshToolExecution } from '../types/kitto.d.ts';
+import type { PlanInput, TaskRouteEvaluation } from '../lib/task-route-plan.ts';
 
-export function evaluateDshTaskRoutes(input: Json, session: string | undefined, now: number = Date.now()): Json {
+interface NativePlanTask {
+  id?: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
+  fallback?: string;
+  workRevision?: string;
+  dependencies?: string[];
+}
+
+interface NativePlan {
+  phase?: string;
+  session?: string;
+  id?: string;
+  tasks?: NativePlanTask[];
+}
+
+export function evaluateDshTaskRoutes(input: PlanInput, session: string | undefined, now: number = Date.now()): TaskRouteEvaluation {
   if (input?.host?.kind !== 'dsh' || input.host.session !== session || !session) {
     return { status: 'unavailable', reason: 'native-session-mismatch' };
   }
@@ -17,31 +35,32 @@ export function evaluateDshTaskRoutes(input: Json, session: string | undefined, 
   }
   const result = checkTaskRouteApproval(input, input.approval, now);
   if (result.status !== 'approved' || input.host.surface !== 'teams') return result;
-  const native = input.host.nativePlan;
+  const native = (input.host as { nativePlan?: NativePlan }).nativePlan;
   if (
-    native?.phase !== 'staged' ||
+    !native ||
+    native.phase !== 'staged' ||
     native.session !== session ||
     native.id !== input.id ||
     !Array.isArray(native.tasks) ||
     native.tasks.length !== result.routes.length ||
-    new Set(native.tasks.map((row: Json) => row?.id)).size !== native.tasks.length
+    new Set(native.tasks.map((row) => row?.id)).size !== native.tasks.length
   ) {
     return { status: 'stop', reason: 'team-launch-scope-mismatch' };
   }
   for (const { id, route } of result.routes) {
-    const task = native.tasks.find((row: Json) => row?.id === id);
-    const role = input.roles.find((row: Json) => row.id === id);
+    const task = native.tasks.find((row) => row?.id === id);
+    const role = input.roles?.find((row) => row.id === id);
     if (
       !task ||
       task.provider !== route.provider ||
       task.model !== route.model ||
       task.effort !== route.effort ||
       task.fallback !== 'none' ||
-      task.workRevision !== role.workRevision ||
+      task.workRevision !== role?.workRevision ||
       !Array.isArray(task.dependencies) ||
-      task.dependencies.length !== role.dependencies.length ||
+      task.dependencies.length !== (role?.dependencies ?? []).length ||
       new Set(task.dependencies).size !== task.dependencies.length ||
-      !task.dependencies.every((dep: string) => role.dependencies.includes(dep))
+      !task.dependencies.every((dep: string) => (role?.dependencies ?? []).includes(dep))
     ) {
       return { status: 'stop', reason: 'team-launch-scope-mismatch', role: id };
     }
@@ -50,9 +69,10 @@ export function evaluateDshTaskRoutes(input: Json, session: string | undefined, 
 }
 
 export function registerDshTaskRouting(ctx: DshPluginContext): void {
-  ctx.inject(['profileContext', 'tools'], (host: Json) => {
+  ctx.inject(['profileContext', 'tools'], (injected) => {
+    const host = injected as DshPluginHost;
     const { installAnchor, name } = host.profileContext;
-    if (name !== 'web' || !isAbsolute(installAnchor ?? '')) return;
+    if (name !== 'web' || !installAnchor || !isAbsolute(installAnchor)) return;
     let defineTool: any;
     try {
       const require = createRequire(installAnchor);
@@ -75,8 +95,8 @@ export function registerDshTaskRouting(ctx: DshPluginContext): void {
           },
         },
         output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text', text: value }] },
-        execute({ input_json }: { input_json: string }, exec: Json) {
-          if (exec.signal.aborted || input_json.length > 64_000)
+        execute({ input_json }: { input_json: string }, exec: DshToolExecution) {
+          if (exec.signal?.aborted || input_json.length > 64_000)
             return JSON.stringify({ status: 'unavailable', reason: 'input-unavailable' });
           try {
             return JSON.stringify(evaluateDshTaskRoutes(JSON.parse(input_json), exec.agent?.session?.id));

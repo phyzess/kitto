@@ -1,7 +1,11 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { resolveScopes } from '../../lib/scopes.ts';
-import type { Json } from '../../types/kitto.d.ts';
+interface SkillEntry {
+  name: string;
+  description?: string;
+  path: string;
+}
 
 async function optional<T, F>(operation: () => Promise<T>, fallback: F): Promise<T | F> {
   try {
@@ -14,7 +18,7 @@ async function optional<T, F>(operation: () => Promise<T>, fallback: F): Promise
 
 async function skillCatalog(directory: string) {
   const entries = await optional(() => readdir(directory, { withFileTypes: true }), []);
-  const skills: Json[] = [];
+  const skills: SkillEntry[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith('.') || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
     const path = join(directory, entry.name, 'SKILL.md');
@@ -32,7 +36,7 @@ async function skillCatalog(directory: string) {
         .trim()
         .replace(/\s+/g, ' ')
         .replace(/^(['"])(.*)\1$/, '$2');
-    if (name) skills.push({ name, description, path });
+    if (name) skills.push({ name, description: description ?? undefined, path });
   }
   return skills.sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -40,11 +44,11 @@ async function skillCatalog(directory: string) {
 process.stdin.setEncoding('utf8');
 let input = '';
 for await (const chunk of process.stdin) input += chunk;
-const { cwd } = JSON.parse(input);
+const { cwd } = JSON.parse(input) as { cwd?: unknown };
 if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw new Error('Codex SessionStart requires an absolute cwd.');
 
 const context: string[] = [];
-const skills = new Map<string, Json>();
+const skills = new Map<string, SkillEntry>();
 for (const scope of await resolveScopes(cwd)) {
   const instructions = await optional(() => readFile(scope.instructions, 'utf8'), '');
   if (instructions.trim()) context.push(`# Shared instructions from ${scope.instructions}\n\n${instructions.trim()}`);
