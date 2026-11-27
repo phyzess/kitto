@@ -73,7 +73,7 @@ export function createRouteObserver({
 
 export function registerRouteEvidence(ctx: DshPluginContext): void {
   ctx.inject(['profileContext', 'tools'], (injected) => {
-    const host = injected as DshPluginHost;
+    const host = injected as unknown as DshPluginHost;
     const { name, home, installAnchor } = host.profileContext;
     if (name !== 'web' || !installAnchor || !isAbsolute(installAnchor) || !home || !isAbsolute(home)) return;
     let defineTool: any;

@@ -21,7 +21,7 @@ import { processAlive } from './process-alive.ts';
 import { platformOverlay } from './platform.ts';
 import type { PiPackageSpec } from './package-key.ts';
 import {
-  type JsonObject,
+  type ConfigObject,
   composeAgents,
   exportMcp,
   extractAgents,
@@ -478,7 +478,7 @@ export function piAdapter(command: PiCommand, options: PiAdapterOptions): void {
     info('MCP');
     const servers = (jsonOrNull(mcp) ?? {}).mcpServers ?? {};
     if (!Object.keys(servers).length) console.log('  (无)');
-    for (const [name, entry] of Object.entries(servers as Record<string, JsonObject>)) {
+    for (const [name, entry] of Object.entries(servers as Record<string, ConfigObject>)) {
       const state = (entry.enabled ?? true) ? 'on ' : 'off';
       console.log(`  ${state} ${name.padEnd(22)} ${entry.enabled === false ? 'platform/local' : 'shared'}`);
     }

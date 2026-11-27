@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
-import type { Json } from '../types/kitto.d.ts';
+type Json = Record<string, any>;
 
 type Plan = ReturnType<typeof planTaskRoutes>;
 

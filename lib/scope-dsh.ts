@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { desktopScopeError, isDesktopProfile, validateDshProfile } from './dsh-profile.ts';
 import { DshNotInstalledError, dshExecutable, importFromDsh } from '../integration/scoped-dsh/native.ts';
-import type { Json } from '../types/kitto.d.ts';
+
 import type { ScopeInstallOptions } from './scope-pi.ts';
 
 const pluginId = 'phyzess-kitto-scopes';
@@ -57,10 +57,12 @@ export async function installDshScope({
   if (document.errors.length) throw document.errors[0];
   if (!isSeq(document.contents)) throw new Error(`DSH profile patch must be a YAML sequence: ${path}`);
 
-  const rows = document
-    .toJS()
-    .flatMap((item: Json) => item?.insert ?? [])
-    .filter((row: Json) => row?.id === pluginId);
+  const rows = (document.toJS() as Array<{ insert?: unknown }>)
+    .flatMap((item) => (item?.insert ?? []) as unknown[])
+    .filter(
+      (row): row is { id?: unknown; name?: unknown } =>
+        typeof row === 'object' && row !== null && (row as { id?: unknown }).id === pluginId,
+    );
   if (rows.length) {
     if (rows.length === 1 && rows[0].name === plugin) {
       if (dryRun) console.log(`DSH scoped configuration already registered: ${path}`);

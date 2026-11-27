@@ -34,7 +34,9 @@ const decisionPrompt = (evaluation: ReturnType<typeof evaluateCodexTaskRoutes>) 
 };
 import { evaluatePiTaskRoutes, registerPiTaskRouting } from '../integration/pi-task-routing.ts';
 import { evaluateCodexTaskRoutes } from '../integration/codex-task-routing.ts';
-import type { DshPluginContext, Json, PiExtensionApi, PiSessionContext } from '../types/kitto.d.ts';
+import type { DshPluginContext, PiExtensionApi, PiSessionContext } from '../types/kitto.d.ts';
+
+type Json = Record<string, any>;
 
 const now = Date.now();
 const session = 'native-session';

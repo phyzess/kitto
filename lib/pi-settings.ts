@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { composeInstructions, normalizeInstructions } from './host-config.ts';
 import { packageKey, type PiPackageSpec } from './package-key.ts';
 
-export type JsonObject = Record<string, any>;
+export type ConfigObject = Record<string, unknown>;
 
 export { packageKey };
 
@@ -35,7 +35,7 @@ const SECRET_VALUE_PATTERNS = new Map([
   ['private key', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
 ]);
 
-const isObject = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isObject = (value: unknown): value is ConfigObject => value !== null && typeof value === 'object' && !Array.isArray(value);
 const own = (object: object, key: string) => Object.hasOwn(object, key);
 const contains = (list: unknown[], item: unknown) => list.some((entry) => isDeepStrictEqual(entry, item));
 const truthy = (value: unknown) =>
@@ -72,7 +72,7 @@ export function scanSecrets(value: unknown, path = ''): { cleaned: any; removed:
   const removed: string[] = [],
     found: Array<[string, string]> = [];
   if (isObject(value)) {
-    const out: JsonObject = {};
+    const out: ConfigObject = {};
     for (const [key, item] of Object.entries(value)) {
       const child = path ? `${path}.${key}` : key;
       if (SECRET_KEY_NAMES.has(key.toLowerCase())) {
@@ -191,7 +191,7 @@ export function mergeSettings(
     ...machinePackages.filter((item: unknown) => !contains(repoPackages, item) && !contains(previous, item)),
   ]);
   const overrides = loadJson(join(localDir, 'settings.json'), {}) || {};
-  let result: JsonObject = { ...machineConfig, ...repoConfig };
+  let result: ConfigObject = { ...machineConfig, ...repoConfig };
   result = deepMerge(result, overrides);
   const packages = unique([...repoPackages, ...extra].filter((item) => !skip.has(packageKey(item))));
   result.packages = packages;
@@ -217,12 +217,14 @@ export function recordSettings(repoPath: string, machinePath: string, localDir: 
   return repo;
 }
 
-function restoreOverrides(out: JsonObject, repo: JsonObject, overrides: JsonObject): JsonObject {
+function restoreOverrides(out: ConfigObject, repo: ConfigObject, overrides: ConfigObject): ConfigObject {
   const result = { ...out };
   for (const [key, value] of Object.entries(overrides)) {
-    if (isObject(value) && isObject(result[key])) {
-      result[key] = restoreOverrides(result[key], isObject(repo[key]) ? repo[key] : {}, value);
-      if (!Object.keys(result[key]).length && !own(repo, key)) delete result[key];
+    const current = result[key];
+    if (isObject(value) && isObject(current)) {
+      const restored = restoreOverrides(current, isObject(repo[key]) ? (repo[key] as ConfigObject) : {}, value);
+      result[key] = restored;
+      if (!Object.keys(restored).length && !own(repo, key)) delete result[key];
     } else if (own(repo, key)) result[key] = repo[key];
     else delete result[key];
   }
@@ -241,7 +243,7 @@ export function sanitizeSettings(machinePath: string, repoPath: string, localDir
     (item: string) => !contains(repoPackages, item) && !extra.includes(item) && !skip.includes(item),
   );
   const packages = unique([...repoPackages, ...additions]);
-  let out: JsonObject = {};
+  let out: ConfigObject = {};
   for (const key of Object.keys(repo)) {
     if (VOLATILE_KEYS.includes(key)) continue;
     out[key] = key === 'packages' ? packages : own(machine, key) ? machine[key] : repo[key];
@@ -260,10 +262,10 @@ export function sanitizeSettings(machinePath: string, repoPath: string, localDir
   return lines;
 }
 
-const servers = (path: string): JsonObject => (loadJson(path, {}) || {}).mcpServers || {};
+const servers = (path: string): ConfigObject => (loadJson(path, {}) || {}).mcpServers || {};
 
 export function mergeMcp(repoPath: string, platformPath: string, localPath: string, machinePath: string, outPath: string): string[] {
-  const merged: JsonObject = {};
+  const merged: ConfigObject = {};
   for (const path of [machinePath, repoPath, platformPath, localPath]) {
     for (const [name, entry] of Object.entries(servers(path))) {
       if (name.startsWith('_') || !isObject(entry)) continue;
@@ -273,14 +275,19 @@ export function mergeMcp(repoPath: string, platformPath: string, localPath: stri
   const machine = loadJson(machinePath, {}) || {};
   const local = servers(localPath);
   for (const [name, entry] of Object.entries(machine.mcpServers ?? {})) {
-    if (!own(merged, name) || !isObject(entry)) continue;
+    const target = merged[name],
+      localEntry = local[name];
+    if (!own(merged, name) || !isObject(entry) || !isObject(target)) continue;
     for (const key of ['enabled', 'exposure', 'toolExposure']) {
-      if (own(entry, key) && !(isObject(local[name]) && own(local[name], key))) merged[name][key] = entry[key];
+      if (own(entry, key) && !(isObject(localEntry) && own(localEntry, key))) target[key] = entry[key];
     }
   }
   const changed = dumpJson(outPath, { ...machine, mcpServers: merged });
   const names = Object.keys(merged);
-  const on = names.filter((name) => truthy(own(merged[name], 'enabled') ? merged[name].enabled : true));
+  const on = names.filter((name) => {
+    const entry = merged[name];
+    return truthy(isObject(entry) && own(entry, 'enabled') ? entry.enabled : true);
+  });
   const off = names.filter((name) => !on.includes(name));
   const lines = [`mcp: ${changed ? 'updated' : 'unchanged'} (${names.length} servers)`];
   if (on.length) lines.push(`  enabled: ${on.join(', ')}`);
@@ -301,7 +308,7 @@ export function exportMcp(
     platform = servers(platformPath);
   const local = servers(localPath),
     privateServers = servers(privatePath);
-  const out: JsonObject = {},
+  const out: ConfigObject = {},
     replaced: string[] = [],
     dropped: string[] = [];
   for (const [name, entry] of Object.entries(machine)) {

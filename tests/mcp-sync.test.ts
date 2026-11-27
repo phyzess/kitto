@@ -10,7 +10,9 @@ import { dshMcpNames } from '../lib/parity.ts';
 import * as localYaml from 'yaml';
 import { get, list } from '../lib/ownership.ts';
 import { dshMcpRows, piMcpServers, removeDshMcp, syncDshMcp } from '../lib/mcp-sync.ts';
-import type { Json, State } from '../types/kitto.d.ts';
+import type { State } from '../types/kitto.d.ts';
+
+type Json = Record<string, any>;
 
 interface YamlModule {
   parseDocument(text: string): { errors: unknown[]; toJS(): Json[] };

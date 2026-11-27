@@ -9,7 +9,9 @@ import { createDispatchGate, issueRoutePermit, registerDshRouting, ROUTING_HOST_
 import { createRouteObserver } from '../integration/dsh-route-evidence.ts';
 import { setRoutingBoundary } from '../lib/routing-policy.ts';
 import { createRoutingStore } from '../lib/routing-state.ts';
-import type { DshToolDecision, Json, State } from '../types/kitto.d.ts';
+import type { DshToolDecision, State } from '../types/kitto.d.ts';
+
+type Json = Record<string, any>;
 
 const route = {
   provider: 'openai-codex',

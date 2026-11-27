@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sameLocation } from './paths.ts';
-import type { Json } from '../types/kitto.d.ts';
+type ConfigObject = Record<string, unknown>;
 import type { ScopeInstallOptions } from './scope-pi.ts';
 
 const packageDir = fileURLToPath(new URL('../', import.meta.url));
@@ -21,7 +21,7 @@ async function inspectHooks(path: string) {
   return { info, text: info ? await readFile(path, 'utf8') : null };
 }
 
-function isObject(value: unknown): value is Json {
+function isObject(value: unknown): value is ConfigObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -34,20 +34,24 @@ export async function installCodexScope({
 }: ScopeInstallOptions = {}) {
   const path = join(resolve(process.env.CODEX_HOME || join(home, '.codex')), 'hooks.json');
   const { info, text } = await inspectHooks(path);
-  const config: Json = text === null ? {} : JSON.parse(text);
+  const config: ConfigObject = text === null ? {} : JSON.parse(text);
   if (!isObject(config) || (config.hooks !== undefined && !isObject(config.hooks))) {
     throw new Error(`Invalid Codex hooks file: ${path}`);
   }
-  config.hooks ??= {};
-  const groups: Json[] = config.hooks.SessionStart ?? [];
-  if (!Array.isArray(groups)) throw new Error(`Invalid SessionStart hooks in ${path}`);
+  const hooks = isObject(config.hooks) ? config.hooks : {};
+  config.hooks = hooks;
+  const rawGroups = hooks.SessionStart;
+  if (rawGroups !== undefined && !Array.isArray(rawGroups)) throw new Error(`Invalid SessionStart hooks in ${path}`);
+  const groups: ConfigObject[] = Array.isArray(rawGroups) ? (rawGroups as ConfigObject[]) : [];
 
   const adapter = join(runtime, 'integration/scoped-codex/session-start.mjs');
   const command = [process.execPath, adapter].map(shellQuote).join(' ');
-  const needsHook = !groups.some(
-    (group: Json) =>
-      Array.isArray(group?.hooks) && group.hooks.some((handler: Json) => handler?.type === 'command' && handler.command === command),
-  );
+  const needsHook = !groups.some((group) => {
+    const handlers = group?.hooks;
+    return (
+      Array.isArray(handlers) && handlers.some((handler) => isObject(handler) && handler.type === 'command' && handler.command === command)
+    );
+  });
 
   if (global && root === undefined) throw new Error('A global Codex scope install needs the scope root.');
   const skillsLink =
@@ -62,7 +66,7 @@ export async function installCodexScope({
   }
   const link = await needsLink();
   if (!dryRun && needsHook) {
-    config.hooks.SessionStart = [
+    hooks.SessionStart = [
       ...groups,
       {
         hooks: [{ type: 'command', command, statusMessage: 'Loading Kitto scopes' }],

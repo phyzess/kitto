@@ -1,11 +1,38 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
+import type { BigIntStats } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { homedir, hostname } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { readScopeRegistry } from './scopes.ts';
 import { checkoutGitDir, cleanExit, commonDir, git, inspect, output, registrations, type WorktreeRegistration } from './worktree-audit.ts';
-import type { Json } from '../types/kitto.d.ts';
+type NodeStat = BigIntStats;
+
+interface PreviewFacts {
+  head?: string;
+  delivered?: string;
+  snapshot?: unknown;
+  sessions: string[];
+}
+
+interface Preview extends PreviewFacts {
+  action: string;
+  task: string;
+  session: string;
+  repo: string;
+  path: string;
+  branch: string;
+  baseBranch?: string;
+  baseHead: string;
+  scope: [string, string];
+  blockers: string[];
+  confirm: string | null;
+}
+
+interface LifecycleResult extends Preview {
+  handoffHints?: Record<string, unknown>;
+  applied?: boolean;
+}
 
 interface LifecycleArgs {
   repo: string;
@@ -39,8 +66,6 @@ interface RepoContext {
   branch: string;
   file: string;
 }
-
-type Preview = Json & { confirm: string | null };
 
 export const lifecycleUsage = `kitto worktree start --repo PATH --task ID --session ID [--confirm TOKEN]
 kitto worktree finish --repo PATH --task ID --session ID --quiescent (--release | --delivered SHA)
@@ -266,7 +291,7 @@ function plan(
   args: LifecycleArgs,
   row: LedgerRow | null | undefined,
   action: string,
-  facts: Json,
+  facts: PreviewFacts,
   blockers: string[] = [],
 ): Preview {
   const info = {
@@ -316,7 +341,7 @@ async function handoffHints(ctx: RepoContext) {
   return result;
 }
 
-async function start(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | null): Promise<Json> {
+async function start(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | null): Promise<LifecycleResult> {
   let preview: Preview;
   if (row?.phase === 'ready') {
     const { identity, entry } = await binding(ctx);
@@ -382,14 +407,14 @@ function verifyConversionPolicy(path: string, names: Iterable<string>) {
   if (batch.length) checkBatch();
 }
 
-const observation = (node: Json) => [node.dev, node.ino, node.mode, node.size, node.mtimeNs, node.ctimeNs].map(String);
-function sameObservation(left: Json, right: Json | null): boolean {
+const observation = (node: NodeStat) => [node.dev, node.ino, node.mode, node.size, node.mtimeNs, node.ctimeNs].map(String);
+function sameObservation(left: NodeStat, right: NodeStat | null): boolean {
   if (!right) return false;
   const values = observation(right);
   return observation(left).every((value, i) => value === values[i]);
 }
 
-async function rawBlobId(path: string, node: Json, algorithm: string): Promise<string> {
+async function rawBlobId(path: string, node: NodeStat, algorithm: string): Promise<string> {
   const blob = createHash(algorithm);
   if (node.isSymbolicLink()) {
     const target = await readlink(path, { encoding: 'buffer' });
@@ -453,7 +478,7 @@ async function checkoutSnapshot(ctx: RepoContext, head: string): Promise<string>
   requireFact(root !== null && root.isDirectory(), 'Unknown checkout root.');
   const rootDevice = root.dev;
   const hash = createHash('sha256');
-  function record(name: string, node: Json) {
+  function record(name: string, node: NodeStat) {
     hash.update(JSON.stringify([name, ...observation(node)]));
   }
   async function walk(path: string, parent: string): Promise<void> {
@@ -488,7 +513,7 @@ async function checkoutSnapshot(ctx: RepoContext, head: string): Promise<string>
   return hash.digest('hex');
 }
 
-async function finish(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | null): Promise<Json> {
+async function finish(ctx: RepoContext, args: LifecycleArgs, row: LedgerRow | null): Promise<LifecycleResult> {
   requireFact(row && ['ready', 'removing'].includes(row.phase), 'No owned, active worktree for this task.');
   requireFact(row.sessions.includes(args.session), 'This session has no claim on the task.');
   let preview: Preview;
@@ -563,7 +588,7 @@ function stateRoot() {
 
 export async function matchesArchiveClaim(
   { repo, task, session }: { repo: unknown; task: unknown; session: unknown },
-  header: Json | null | undefined,
+  header: { id?: unknown; cwd?: unknown } | null | undefined,
 ): Promise<boolean> {
   if (
     typeof repo !== 'string' ||

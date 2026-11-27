@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import type { TestContext } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import type { DshPluginContext, Json } from '../types/kitto.d.ts';
+import type { DshPluginContext } from '../types/kitto.d.ts';
+
+type Json = Record<string, any>;
 
 const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
 
