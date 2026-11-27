@@ -21,4 +21,4 @@ Kitto switches its bundled runtime, deploys to native hosts, and can operate on 
 
 ## Consequences
 
-Recovery can be retried without turning a failed update into the new recovery target. Some configurations intentionally yield unknown/blocked worktree results rather than a best guess. Verify changes against the [runtime failure tests](../../tests/kitto.test.mjs), [audit tests](../../tests/worktree-audit.test.mjs) and [lifecycle tests](../../tests/worktree-lifecycle.test.mjs).
+Recovery can be retried without turning a failed update into the new recovery target. Some configurations intentionally yield unknown/blocked worktree results rather than a best guess. Verify changes against the [runtime failure tests](../../tests/kitto.test.ts), [audit tests](../../tests/worktree-audit.test.ts) and [lifecycle tests](../../tests/worktree-lifecycle.test.ts).

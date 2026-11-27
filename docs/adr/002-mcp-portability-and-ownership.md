@@ -14,4 +14,4 @@ Pi, Codex, and DSH represent MCP transports and secrets differently. Blind trans
 
 ## Consequences
 
-An honestly incomplete sync is safer than an apparently successful lossy conversion. Expanding the supported subset requires an explicit mapping and tests with dummy credential references. Extending ownership or relaxing fingerprints requires interrupted-operation and user-edit scenarios in the [Codex suite](../../tests/codex-mcp.test.mjs) or equivalent [DSH sync tests](../../tests/mcp-sync.test.mjs).
+An honestly incomplete sync is safer than an apparently successful lossy conversion. Expanding the supported subset requires an explicit mapping and tests with dummy credential references. Extending ownership or relaxing fingerprints requires interrupted-operation and user-edit scenarios in the [Codex suite](../../tests/codex-mcp.test.ts) or equivalent [DSH sync tests](../../tests/mcp-sync.test.ts).
