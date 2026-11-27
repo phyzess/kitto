@@ -84,11 +84,21 @@ async function replaceRuntime(home, next) {
   await rm(replacing, { recursive: true, force: true });
 }
 
+async function assertBuiltPackage() {
+  for (const name of ['bin', 'lib', 'integration']) {
+    const entries = await readdir(join(packageRoot, name), { recursive: true });
+    if (entries.some(entry => entry.endsWith('.ts'))) {
+      throw new Error(`Cannot install a runtime from TypeScript sources at ${packageRoot}. Run \`npm ci --ignore-scripts && npm run build\`, then run \`node dist/bin/kitto.mjs\` (or ./setup.sh from the checkout).`);
+    }
+  }
+}
+
 async function installRuntime(home, old) {
   const next = join(home, 'runtime.next');
   const runtime = join(home, 'runtime');
   const previous = join(home, 'runtime.previous');
   if (sameLocation(packageRoot, runtime)) return runtime;
+  await assertBuiltPackage();
   await rm(next, { recursive: true, force: true });
   await mkdir(next);
   for (const name of ['package.json', 'bin', 'lib', 'integration', 'CHANGELOG.md']) {

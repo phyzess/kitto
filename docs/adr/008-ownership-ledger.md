@@ -35,8 +35,8 @@ state.owned[kind][scope][name] = { hash, status, previous?, spec? }
 - `spec`: the original Pi package entry, kept only for `pi-package`.
 - Instructions use the fixed name `agents-md`; its `hash` is the managed block text itself, because the planner compares the live block with it verbatim.
 - `state.keepExistingSkills` stays a top-level policy flag. It records intent, not ownership.
-- `lib/ownership.mjs` holds pure functions over a state object: `get`, `list`, `scopes`, `record`, `markPending`, `promote`, `forgetPending`, `markKept`, `release`, `replaceScope`, `recordedHash`, `isOwnedWith`. Reads never create state; invalid kinds, scopes, names (including `__proto__`) and empty hashes throw.
-- `lib/state-schema.mjs` holds `CURRENT_SCHEMA = 2`, `migrateState`, `downgradeState`, `loadState`, `saveState`, `rollbackState`.
+- `lib/ownership.ts` holds pure functions over a state object: `get`, `list`, `scopes`, `record`, `markPending`, `promote`, `forgetPending`, `markKept`, `release`, `replaceScope`, `recordedHash`, `isOwnedWith`. Reads never create state; invalid kinds, scopes, names (including `__proto__`) and empty hashes throw.
+- `lib/state-schema.ts` holds `CURRENT_SCHEMA = 2`, `migrateState`, `downgradeState`, `loadState`, `saveState`, `rollbackState`.
 
 An entry that is both owned and kept in v1 (not produced by current code) becomes owned.
 
@@ -68,16 +68,16 @@ An entry that is both owned and kept in v1 (not produced by current code) become
 
 `migrateState(v1, { piLocalDir })` is pure and idempotent: it clones the input, moves every record into `state.owned`, deletes `skills`, `hostSkills`, `keptSkills`, `instructions`, `mcp.codex`, `mcp.codexPending` (and `mcp` when empty), sets `schema: 2` and writes `state.migration = { from: 1, present, pi: { imported } }`. `present` names which v1 containers existed, including empty ones, so that rollback is exact. A missing `schema` is read as 1. Any other schema than 1 or 2 is refused with an upgrade message and nothing is written. When `piLocalDir` holds `managed-packages.json` its entries are imported and its path is returned in `removable`; the file is never deleted by the migration.
 
-`loadState(path, { dryRun, piLocalDir })` reads and migrates. On the first real migration it writes `state.v1.json` next to `state.json` with the original bytes (exclusive create, never overwritten, so the first v1 snapshot survives later rollbacks and re-migrations) and then replaces `state.json` atomically (temporary file and rename, as `atomicJson` in `lib/kitto.mjs`). With `dryRun` it migrates in memory only. `saveState` refuses non-v2 state.
+`loadState(path, { dryRun, piLocalDir })` reads and migrates. On the first real migration it writes `state.v1.json` next to `state.json` with the original bytes (exclusive create, never overwritten, so the first v1 snapshot survives later rollbacks and re-migrations) and then replaces `state.json` atomically (temporary file and rename, as `atomicJson` in `lib/kitto.ts`). With `dryRun` it migrates in memory only. `saveState` refuses non-v2 state.
 
 Rollback: `rollbackState(path)` applies `downgradeState`, the exact inverse for every v1 state Kitto writes. Pending skills, non-Codex MCP scopes and kept MCP entries have no v1 form and make the downgrade fail loudly instead of dropping ownership; `pi-package` entries are dropped because the external file is still present until Phase B removes it. The fallback is copying `state.v1.json` over `state.json`, which loses changes made since migration.
 
 ## Phase B checklist
 
-1. [x] Switch `configurationPlan`, `deploy`, `skillPlan` and `existingSkillAction` in `lib/kitto.mjs` to `list`, `get`, `recordedHash` and `replaceScope`.
-2. [x] Switch `instructionPlan` and `applyInstructions` in `lib/host-config.mjs`.
-3. [x] Switch `collectPlan`, `savePending`, `promotePending`, `forgetPending`, `applyCodexMcp`, `removeCodexMcp` and `liveDetails` in `lib/codex-mcp.mjs`; the pending semantics of `previous` are unchanged.
-4. [x] Activate the migration at one point: `lib/state-io.mjs` (`loadKittoState`, `saveKittoState`) wraps `loadState` and `saveState` with `piLocalDir` taken from the saved `source`. Setup, update, recover, remove and the maintain operations load through it; previews pass `dryRun`. Setup writes `schema: 2`. `lib/routing-policy.mjs` accepts schema 1 and 2 (`routingBoundary.schema` stays 1). Readers that only need top-level fields (`lib/routing-command.mjs`, `lib/scope-service.mjs`, `integration/*`) still read the file directly, which is valid for both schemas.
+1. [x] Switch `configurationPlan`, `deploy`, `skillPlan` and `existingSkillAction` in `lib/kitto.ts` to `list`, `get`, `recordedHash` and `replaceScope`.
+2. [x] Switch `instructionPlan` and `applyInstructions` in `lib/host-config.ts`.
+3. [x] Switch `collectPlan`, `savePending`, `promotePending`, `forgetPending`, `applyCodexMcp`, `removeCodexMcp` and `liveDetails` in `lib/codex-mcp.ts`; the pending semantics of `previous` are unchanged.
+4. [x] Activate the migration at one point: `lib/state-io.ts` (`loadKittoState`, `saveKittoState`) wraps `loadState` and `saveState` with `piLocalDir` taken from the saved `source`. Setup, update, recover, remove and the maintain operations load through it; previews pass `dryRun`. Setup writes `schema: 2`. `lib/routing-policy.ts` accepts schema 1 and 2 (`routingBoundary.schema` stays 1). Readers that only need top-level fields (`lib/routing-command.ts`, `lib/scope-service.ts`, `integration/*`) still read the file directly, which is valid for both schemas.
 5. [x] Pi ownership lives in the ledger: `mergeSettings` takes the owned specs, `recordSettings` returns the repo list and the sync records it. The imported `managed-packages.json` is removed after a successful apply.
 6. [x] `kitto setup --recover` loads through `loadKittoState`; the Codex pending semantics are untouched. An older Kitto that meets schema 2 stops with the unsupported-schema message from `migrateState`.
 7. [x] DSH rows get ledger entries (`mcp`/`dsh`/row id, hash is a canonical fingerprint of the row). Sync and removal preserve a row whose fingerprint differs from the recorded one and warn; rows without an entry keep the namespace-only behavior. Saves go through `saveState`.

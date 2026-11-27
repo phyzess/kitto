@@ -1,15 +1,15 @@
 id: no-path-string-equality
-language: JavaScript
+language: TypeScript
 severity: error
-message: Do not compare filesystem paths as strings. Use sameLocation from lib/paths.mjs so symlinked roots such as macOS /var compare by identity.
+message: Do not compare filesystem paths as strings. Use sameLocation from lib/paths.ts so symlinked roots such as macOS /var compare by identity.
 note: realpathSync(x) !== x on the same variable is the allowed symlink-rejection idiom. Only direct resolve() or realpathSync() operands are detected; paths held in variables are not.
 files:
-  - lib/**/*.mjs
+  - lib/**/*.ts
   - bin/**
   - scripts/**/*.mjs
-  - integration/**/*.mjs
+  - integration/**/*.ts
 ignores:
-  - lib/worktree-audit.mjs
+  - lib/worktree-audit.ts
   - scripts/release.mjs
 rule:
   all:

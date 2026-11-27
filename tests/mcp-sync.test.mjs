@@ -12,6 +12,7 @@ import { get, list } from '../lib/ownership.ts';
 import { dshMcpRows, piMcpServers, removeDshMcp, syncDshMcp } from '../lib/mcp-sync.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const dist = join(root, 'dist');
 
 async function executablePath() {
   try {
@@ -686,7 +687,7 @@ test('maintain remove cleans Kitto MCP rows for a DSH home', { skip: !nativeDsh,
     agentsHome: join(home, '.agents'), piHome: join(home, '.pi'), codexHome: join(home, '.codex'),
     dshHome, version: '0.2.1',
   }, null, 2) + '\n');
-  const run = (...args) => execFileSync(process.execPath, [join(root, 'bin/maintain.mjs'), 'remove', ...args], {
+  const run = (...args) => execFileSync(process.execPath, [join(dist, 'bin/maintain.mjs'), 'remove', ...args], {
     encoding: 'utf8',
     timeout: 45_000,
     env: {
@@ -731,7 +732,7 @@ test('maintain remove continues when the home patch cannot be updated', { skip: 
     agentsHome: join(home, '.agents'), piHome: join(home, '.pi'), codexHome: join(home, '.codex'),
     dshHome, version: '0.2.1',
   }, null, 2) + '\n');
-  const result = spawnSync(process.execPath, [join(root, 'bin/maintain.mjs'), 'remove', '--apply'], {
+  const result = spawnSync(process.execPath, [join(dist, 'bin/maintain.mjs'), 'remove', '--apply'], {
     encoding: 'utf8',
     timeout: 45_000,
     env: {

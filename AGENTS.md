@@ -12,7 +12,7 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 ## Design rules
 
 - Build preview and apply from one plan object. A preview that is a separate code path will drift from apply. Tests must assert that the preview output equals the plan apply executes. (R1)
-- Compare filesystem locations with `sameLocation` from `lib/paths.mjs`, never with `===` on `resolve()` or `realpathSync()` results. Tests must run with `TMPDIR` behind a symlink. Enforced by `npm run lint:invariants` (`no-path-string-equality`). (R2)
+- Compare filesystem locations with `sameLocation` from `lib/paths.ts`, never with `===` on `resolve()` or `realpathSync()` results. Tests must run with `TMPDIR` behind a symlink. Enforced by `npm run lint:invariants` (`no-path-string-equality`). (R2)
 - Parse host TOML, YAML and DSH references with the structured parser or CST helper already used in `lib/`. Do not use regular expressions on config text. Enforced in part by `npm run lint:invariants` (`no-regex-on-structured-config`, name-based, so review still applies). (R3)
 - Every defensive branch must map to an in-scope threat in [ADR 007](docs/adr/007-threat-model.md). Name the threat in the PR. Do not add error handling for cases the threat model excludes.
 
@@ -23,7 +23,7 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 
 ## Versions and tests
 
-- Keep host version baselines only in `lib/host-pins.mjs`. Do not repeat a version literal elsewhere. Enforced by `npm run lint:versions`. (R6)
+- Keep host version baselines only in `lib/host-pins.ts`. Do not repeat a version literal elsewhere. Enforced by `npm run lint:versions`. (R6)
 - Do not depend on the environment in tests or CI: no fixed timeouts that fail under parallel load, no immediate reads after npm publish (poll with a bound), no bash 4 features or `errexit` assumptions (macOS ships bash 3.2). Keep timeouts generous and name the reason. (R7)
 - When a change alters behavior or state shape, also update tests that only run in CI with real host CLIs (`tests/native.test.mjs`, `tests/scope-codex.test.mjs`, `tests/scope-dsh.test.mjs`, `tests/dsh-routing.test.mjs`); they skip locally, so read them. Run bash snippets under macOS `/bin/bash` 3.2 (brace `${var}` before non-ASCII text). Learned from rework in PRs #59 and #64. (R7)
 - Vitest runs with `isolate: false` (a worker reuses its module state across test files; this keeps the suite as fast as node:test was). Restore every process-global change a test makes — `process.env`, `console.*`, `globalThis.*`, module-level flags — in `finally` or `t.onTestFinished`. Mutate globals inside spawned child processes (preload scripts) where possible. (R7)
@@ -34,9 +34,16 @@ The R1 to R9 labels name recurring rework causes found in the repository history
 
 - New code comments are ratcheted. Put intent in names and tests, decisions in ADRs. Read `docs/comment-policy.md` before adding a comment. Enforced by `npm run lint:comments`.
 
+## Sources and build
+
+- Runtime sources in `bin/`, `lib/` and `integration/` are `.ts` files that use erasable TypeScript syntax only (no enums, namespaces or parameter properties), so Node type stripping runs them. Import siblings with the `.ts` extension. Tests, `scripts/` and `vite.config.mjs` stay `.mjs`.
+- The published package is `dist/`, built by `npm run build` with `.mjs` output. Hosts, the installed runtime and `$KITTO_HOME/runtime` only ever see `.mjs`; strings that name runtime files (for example `integration/scoped-pi/index.mjs`) stay `.mjs`. Do not run `npm pack` or `npm publish` from the repository root; `npm run release` packs `dist/`.
+- From a source checkout use `./setup.sh` (it runs `npm ci --ignore-scripts` when needed and `npm run build`, then `node dist/bin/kitto.mjs`). `node bin/kitto.ts` works for quick local runs, but installing a runtime from a directory that holds `.ts` entries is refused.
+- Tests that install a runtime or spawn the CLI use `dist/`; run `npm run build` before `npm test`.
+
 ## Types and lint
 
-- `npm run typecheck` checks the plain `.mjs` sources with `tsc` (no build). Shared shapes live in `types/kitto.d.ts`; `types/conformance.ts` asserts that the code matches them. Comments are ratcheted, so do not add JSDoc, `@ts-check` or `@ts-expect-error`; declare a module's types in a sibling `.d.mts` file instead. `tsconfig.json` lists the typed modules in `include`; widen it as more modules get typed.
+- `npm run typecheck` runs `tsc` over `types/kitto.d.ts`. The per-module `include` of the former `.mjs` setup and `types/conformance.ts` are suspended until the modules carry inline type annotations. Comments are ratcheted, so do not add JSDoc, `@ts-check`, `@ts-nocheck` or `@ts-expect-error`.
 - `npm run lint:ox` runs oxlint (correctness rules). Fix the finding or turn the rule off in `.oxlintrc.json` with a reason in the PR.
 
 ## Verify before PR

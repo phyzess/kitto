@@ -91,6 +91,6 @@ Kitto 不再替换 Pi 的编辑器。已有安装同步后，同名 `thin-cursor
 
 ## Pi 适配器
 
-Pi 的 settings、MCP、扩展、规则和包由 `lib/pi-adapter.mjs` 部署，`lib/kitto.mjs` 的 `syncCommand` 在进程内调用它，没有单独的 shell 或 Python 入口。正常安装和同步请使用 `kitto setup`，或在 Kitto 会话里让维护 skill 执行 sync。共享 skills 由 Kitto JS 管理（按 hash 记录所有权，并与 setup/sync 共用锁），适配器不部署 `~/.agents/skills`。`AGENTS.md` 的规则见上文「全局规则如何组合」：pull 组合 common + addendum，push 只导出 addendum；配置源没有 `common.md` 时直接报错。
+Pi 的 settings、MCP、扩展、规则和包由 `lib/pi-adapter.ts` 部署，`lib/kitto.ts` 的 `syncCommand` 在进程内调用它，没有单独的 shell 或 Python 入口。正常安装和同步请使用 `kitto setup`，或在 Kitto 会话里让维护 skill 执行 sync。共享 skills 由 Kitto JS 管理（按 hash 记录所有权，并与 setup/sync 共用锁），适配器不部署 `~/.agents/skills`。`AGENTS.md` 的规则见上文「全局规则如何组合」：pull 组合 common + addendum，push 只导出 addendum；配置源没有 `common.md` 时直接报错。
 
 这里的导出（维护命令 `export`，即适配器的 push）指把 Pi 配置导出到本地仓库。检查 Git 差异后，才执行 Git 的提交和推送。导出只写入仓库已经声明的 settings 键、MCP server、skills 和扩展；本机新增但未声明的项会在预览中点名并跳过，避免把临时 token 或实验配置带进仓库。凭据用 `${VAR}` 引用，写出字面 secret 时导出会拒绝。要在所有机器上移除扩展包，直接修改仓库的 `settings.json`。

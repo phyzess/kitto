@@ -52,7 +52,7 @@ class SetupEntrypointTests(unittest.TestCase):
         self.assertTrue(lines[-1].startswith('stdin_tty='), lines)
         stdin_tty = lines[-1] == 'stdin_tty=1'
         args = [line[len('arg='):] for line in lines[:-1]]
-        self.assertTrue(args and args[0].endswith('bin/kitto.mjs'), args)
+        self.assertTrue(args and args[0].endswith('dist/bin/kitto.mjs'), args)
         return args[1:], stdin_tty
 
     def node_args(self):

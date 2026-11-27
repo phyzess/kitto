@@ -38,7 +38,7 @@ Skip the Python line only if no Python tests remain. `npm test` runs Vitest (`vp
 - R3: Is any TOML, YAML or DSH reference parsed with a regular expression instead of the structured helper?
 - R4: Does any new text claim host behavior, billing or limits? Is the command and host version recorded?
 - R5: Did agent-rule text change? If so, follow `.agents/skills/rule-eval/SKILL.md`.
-- R6: Does any host version literal appear outside `lib/host-pins.mjs`, including docs and workflow files?
+- R6: Does any host version literal appear outside `lib/host-pins.ts`, including docs and workflow files?
 - R7: Do new tests or CI steps assume timing, network consistency, bash 4 or a particular home directory?
 - R8: Is every new test file under `tests/*.test.mjs`?
 - Threat model: Does each new defensive branch map to an in-scope threat in `docs/adr/007-threat-model.md`?

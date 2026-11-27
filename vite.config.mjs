@@ -4,7 +4,7 @@ import { stableNodeImports } from './scripts/stable-node-imports.mjs';
 
 export default defineConfig({
   pack: {
-    entry: ['bin/*.mjs', 'lib/**/*.mjs', 'integration/**/*.mjs'],
+    entry: ['bin/*.ts', 'lib/**/*.ts', 'integration/**/*.ts'],
     unbundle: true,
     root: '.',
     format: 'esm',

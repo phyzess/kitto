@@ -5,7 +5,7 @@ import { hosts, pnpmVersion, routingHostVersion } from '../lib/host-pins.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scanned = ['lib', 'integration', 'bin', 'scripts', '.github'];
-const allowedFiles = new Set(['lib/host-pins.mjs']);
+const allowedFiles = new Set(['lib/host-pins.ts']);
 const docs = ['docs/usage.md', 'docs/model-routing.md'];
 
 const pinned = new Map([
@@ -51,7 +51,7 @@ for (const name of docs) {
 }
 
 if (failures.length) {
-  console.error(`Version literals must be imported from lib/host-pins.mjs:\n${failures.join('\n')}`);
+  console.error(`Version literals must be imported from lib/host-pins.ts:\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log('No pinned host version literals outside lib/host-pins.mjs.');
+console.log('No pinned host version literals outside lib/host-pins.ts.');
