@@ -4,6 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { pathToFileURL } from 'node:url';
 import { hosts } from '../lib/host-pins.ts';
 
@@ -12,10 +13,10 @@ const settings = new URL('../config/pi/settings.json', import.meta.url);
 const pin = hosts.pi.version;
 const nativeBin = process.env.KITTO_NATIVE_BIN;
 const piPackage = process.env.PI_TEST_PACKAGE ?? (nativeBin && resolve(nativeBin, '../@earendil-works/pi-coding-agent'));
-const skipNative = !piPackage && 'set PI_TEST_PACKAGE to the isolated pinned Pi package';
+const skipNative = !piPackage;
 const esc = '\x1b';
 
-function sandbox(t) {
+function sandbox(t: TestContext) {
   const home = mkdtempSync(join(tmpdir(), 'kitto-thin-cursor-'));
   t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const agent = join(home, 'agent');
@@ -26,9 +27,9 @@ function sandbox(t) {
   return { home, agent, synced };
 }
 
-test('the synced migration module needs no host imports and installs no editor hook', async (t) => {
+test('the synced migration module needs no host imports and installs no editor hook', async (t: TestContext) => {
   const { synced } = sandbox(t);
-  const { default: activate } = await import(pathToFileURL(synced));
+  const { default: activate } = await import(pathToFileURL(synced).href);
   const pi = new Proxy(
     {},
     {
@@ -98,7 +99,8 @@ if (mode === 'render') {
 }
 `;
 
-function fixture(t) {
+function fixture(t: TestContext) {
+  assert.ok(piPackage);
   const { home, agent, synced } = sandbox(t);
   const actual = realpathSync(piPackage);
   const modules = dirname(dirname(actual));
@@ -144,14 +146,14 @@ finally:
 `;
 
 for (const setting of ['on', 'off']) {
-  test(`pinned Pi resolves ANSI and wide graphemes with hardware cursor ${setting}`, { skip: skipNative }, (t) => {
+  test(`pinned Pi resolves ANSI and wide graphemes with hardware cursor ${setting}`, { skip: skipNative }, (t: TestContext) => {
     const { home, helper, env } = fixture(t);
     const result = spawnSync(process.execPath, [helper, 'render', setting], { cwd: home, env, encoding: 'utf8', timeout: 10000 });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
   });
 
-  test(`pinned Pi in a PTY shows the hardware cursor only when ${setting}`, { skip: skipNative }, (t) => {
+  test(`pinned Pi in a PTY shows the hardware cursor only when ${setting}`, { skip: skipNative }, (t: TestContext) => {
     const { home, helper, env } = fixture(t);
     const result = spawnSync('python3', ['-c', pty, process.execPath, helper, 'pty', setting], {
       cwd: home,

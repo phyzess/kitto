@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import type { SpawnSyncReturns } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,11 +13,12 @@ import { setRoutingBoundary } from '../lib/routing-policy.ts';
 import { parseOptions } from '../lib/kitto.ts';
 import { issueRoutePermit, ROUTING_HOST_VERSION } from '../integration/dsh-routing.ts';
 import { createRoutingStore } from '../lib/routing-state.ts';
+import type { Json, State } from '../types/kitto.d.ts';
 
 const now = Date.parse('2026-11-25T12:00:00Z');
 const stamp = new Date(now).toISOString();
 const reset = new Date(now + 3600_000).toISOString();
-const sol = {
+const sol: Json = {
   provider: 'openai-codex',
   model: 'gpt-6.2-sol',
   canonicalModel: 'openai/gpt-6.2-sol',
@@ -28,7 +30,7 @@ const sol = {
   available: true,
   reasoningEfforts: ['low', 'medium', 'high'],
 };
-const claude = {
+const claude: Json = {
   ...sol,
   upstream: 'anthropic',
   provider: 'company-claude',
@@ -39,8 +41,8 @@ const claude = {
   tier: 1,
   premium: false,
 };
-const router = { ...claude, upstream: 'openrouter', provider: 'corp-router', account: 'corp-router-plan' };
-const makeGo = (model, canonicalModel, reasoningEfforts) => ({
+const router: Json = { ...claude, upstream: 'openrouter', provider: 'corp-router', account: 'corp-router-plan' };
+const makeGo = (model: string, canonicalModel: string, reasoningEfforts: string[]): Json => ({
   ...sol,
   provider: 'opencode-go',
   upstream: 'opencode-go',
@@ -54,14 +56,14 @@ const flash = makeGo('deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash-1017',
 const glmFlash = makeGo('glm-5.3-flash', 'zhipuai/glm-5.3-flash', ['low', 'medium']);
 const glm = makeGo('glm-5.3', 'zhipuai/glm-5.3', ['low', 'medium']);
 const grok = makeGo('grok-4.7', 'xai/grok-4.7', ['low', 'high']);
-const goEntry = (route, monthly, plus, teams, input, output) => ({
+const goEntry = (route: Json, monthly: number, plus: number, teams: number, input: number, output: number): Json => ({
   id: route.model,
   canonical_id: route.canonicalModel,
   type: 'chat',
   go: { monthly_usage: { go: monthly, 'go-plus': plus, 'go-teams': teams }, training: false },
   cost: { text: { input: { price: input }, output: { price: output } } },
 });
-const goFixture = () => ({
+const goFixture = (): Json => ({
   plan: 'go',
   account: 'my-go',
   extraUsage: 'off',
@@ -79,12 +81,23 @@ const goFixture = () => ({
   },
 });
 
-function state(mode = 'personal', custom) {
-  const value = { schema: 1, routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web', preserveMe: 42 };
+function state(mode = 'personal', custom?: string): State {
+  const value: State = {
+    schema: 1,
+    source: 'test',
+    routingInstallKind: 'local',
+    ready: true,
+    agents: ['dsh'],
+    dshProfile: 'web',
+    preserveMe: 42,
+  };
   setRoutingBoundary(value, mode, custom);
   return value;
 }
-function fixture(routes = [flash, glmFlash], options = {}) {
+function fixture(
+  routes: Json[] = [flash, glmFlash],
+  options: { role?: string; data?: string; surface?: string; effects?: string } = {},
+): Json {
   const { role = 'verify', data = 'public', surface = 'subagent', effects = 'read' } = options;
   return {
     host: {
@@ -116,8 +129,8 @@ function fixture(routes = [flash, glmFlash], options = {}) {
     go: goFixture(),
   };
 }
-const advise = (request, saved = state()) => adviseRoute({ request, state: saved, now });
-const reasons = (result) => result.rejected.map((row) => row.reason);
+const advise = (request: Json, saved: Json | null = state()) => adviseRoute({ request, state: saved as State, now });
+const reasons = (result: Json) => result.rejected.map((row: Json) => row.reason);
 
 test('missing, skipped, damaged, copied and non-local device confirmations stop', () => {
   const request = fixture();
@@ -144,6 +157,7 @@ test('company separates personal from approved custom Claude or OpenRouter upstr
   assert.equal(result.route.provider, claude.provider);
   assert.deepEqual(reasons(result), ['account-or-data-boundary']);
   assert.equal(saved.preserveMe, 42);
+  assert.ok(saved.routingBoundary);
   assert.deepEqual(Object.keys(saved.routingBoundary).sort(), ['identity', 'mode', 'profile', 'schema']);
   assert.equal(advise(fixture([router], { role: 'implement', data: 'restricted' }), saved).route.provider, router.provider);
   for (const invalid of [
@@ -179,16 +193,16 @@ test('Go ranks plan-normalized estimates and selects the tightest time window', 
 
 test('Go handles missing, expired, stale, malformed, exhausted and tiny headroom distinctly', () => {
   for (const [reason, edit] of Object.entries({
-    missing: (request) => {
+    missing: (request: Json) => {
       delete request.go.usage;
     },
-    stale: (request) => {
+    stale: (request: Json) => {
       request.go.observedAt = '2026-11-25T11:00:00Z';
     },
-    invalid: (request) => {
+    invalid: (request: Json) => {
       delete request.go.usage.monthly;
     },
-    exhausted: (request) => {
+    exhausted: (request: Json) => {
       request.go.usage.rolling = { status: 'rate-limited', percent: 99, resetsAt: reset };
     },
   })) {
@@ -212,8 +226,9 @@ test('request allowance overrides list cost; official monthly caps and conservat
   const go = goFixture();
   go.plan = 'go-teams';
   const model = goModel(go, flash.model, now);
+  assert.ok(model);
   assert.equal(model.cap, 105);
-  const usage = { cost: 0, opencode: { billing_source: 'go', allowance: 2.1, list_cost: 3.15 } };
+  const usage: Json = { cost: 0, opencode: { billing_source: 'go', allowance: 2.1, list_cost: 3.15 } };
   assert.deepEqual(normalizeGoCharge(usage, model, go.plan), { fraction: 0.02, source: 'allowance' });
   delete usage.opencode.allowance;
   assert.deepEqual(normalizeGoCharge(usage, model, go.plan), { fraction: 0.03, source: 'list-cost-estimate' });
@@ -221,7 +236,9 @@ test('request allowance overrides list cost; official monthly caps and conservat
   assert.equal(normalizeGoCharge(usage, model, go.plan), null);
   model.item.cost.multipliers = [{ factor: 2 }];
   model.item.cost.text.input.overrides = [{ price: 0.3, cache: { write: { '5m': 0.5 } } }];
-  assert.ok(Math.abs(estimateGoFraction(model, { input: 1e6, output: 1e6 }) - 2.2 / 105) < 1e-12);
+  const fraction = estimateGoFraction(model, { input: 1e6, output: 1e6 });
+  assert.ok(fraction !== null);
+  assert.ok(Math.abs(fraction - 2.2 / 105) < 1e-12);
 });
 
 test('unsupported efforts, unavailable routes, unknown models and unapproved premium do not silently pass', () => {
@@ -269,7 +286,7 @@ test('native capability imports supply exact effort without changing authorizati
   };
   request.task.effort = ['medium'];
   assert.equal(advise(request).route.reasoning_effort, 'medium');
-  request.task.authorized = request.task.authorized.filter((route) => route.provider !== sol.provider);
+  request.task.authorized = request.task.authorized.filter((route: Json) => route.provider !== sol.provider);
   assert.ok(reasons(advise(request)).includes('route-or-data-not-authorized'));
 });
 
@@ -335,12 +352,13 @@ test('full setup persists only an explicit local boundary and dry-run leaves sta
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_NOSYSTEM: '1',
   };
-  const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 10_000 });
-  const good = (result) => assert.equal(result.status, 0, result.stderr + result.stdout);
+  const run = (command: string, args: string[], cwd: string = root) =>
+    spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 10_000 });
+  const good = (result: SpawnSyncReturns<string>) => assert.equal(result.status, 0, result.stderr + result.stdout);
   for (const args of [['init'], ['add', '.'], ['-c', 'user.name=Kitto', '-c', 'user.email=kitto@example.invalid', 'commit', '-m', 'test']])
     good(run('git', args, source));
   const cli = fileURLToPath(new URL('../dist/bin/kitto.mjs', import.meta.url));
-  const setup = (...args) => run(process.execPath, [cli, 'setup', '--agents', 'dsh', '--source', source, ...args]);
+  const setup = (...args: string[]) => run(process.execPath, [cli, 'setup', '--agents', 'dsh', '--source', source, ...args]);
   const path = join(kitto, 'state.json');
   good(setup('--routing-boundary', 'company', '--dry-run'));
   assert.equal(existsSync(path), false);

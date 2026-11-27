@@ -9,6 +9,7 @@ import type { State } from '../types/kitto.d.ts';
 import { get, record, release } from './ownership.ts';
 import { packageRoot } from './kitto-home.ts';
 import { meetsBaseline, readVersion } from './version-order.ts';
+import { stateHome } from './state-homes.ts';
 
 export const LAUNCHER_NAME = 'kitto-node';
 const MISE_KEPT = ['MISE_DATA_DIR', 'MISE_CONFIG_DIR', 'MISE_CACHE_DIR', 'MISE_STATE_DIR'];
@@ -134,7 +135,7 @@ async function liveLauncher(state: State, target: string): Promise<{ stat: Stats
 
 export async function planToolNode(state: State, resolved: ToolNode | undefined = undefined): Promise<ToolNodePlan> {
   const toolNode = resolved ?? (await resolveToolNode());
-  const target = launcherPath(state.agentsHome);
+  const target = launcherPath(stateHome(state, 'agentsHome'));
   const content = launcherContent(toolNode.path);
   let action: LauncherAction = 'write';
   const { stat, live, owned } = await liveLauncher(state, target);
@@ -163,7 +164,7 @@ export async function applyToolNode(state: State, plan: ToolNodePlan): Promise<v
 }
 
 export async function planLauncherRemoval(state: State): Promise<LauncherRemovalPlan> {
-  const target = launcherPath(state.agentsHome);
+  const target = launcherPath(stateHome(state, 'agentsHome'));
   const { stat, owned } = await liveLauncher(state, target);
   return { target, action: !stat ? 'absent' : owned ? 'remove' : 'keep' };
 }

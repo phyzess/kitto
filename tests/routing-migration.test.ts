@@ -3,12 +3,13 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writ
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { migrateRouting } from '../lib/routing-migration.ts';
 
 const original = 'Custom first\r\n<!-- kitto:begin -->\r\nKitto rules\r\n<!-- kitto:end -->\r\nCustom last';
 const patch =
   '- id: agent-teams\n  config:\n    fallback: { provider: local, model: custom }\n    profiles:\n      dev-hard:\n        "fallback": { provider: local, model: other }\n';
-function fixture(t) {
+function fixture(t: TestContext) {
   const home = mkdtempSync(join(tmpdir(), 'kitto-route-fixture-'));
   t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const profile = join(home, 'profiles', 'web');

@@ -16,7 +16,7 @@ declare const state: State;
 
 export const entry: OwnershipEntry | undefined = ownership.get(state, 'skill', 'shared', 'name');
 export const entries: OwnershipEntry[] = ownership.list(state, 'mcp', 'codex');
-export const recorded: string | undefined = ownership.recordedHash(state, 'mcp', 'codex', 'name');
+export const recorded: string | null | undefined = ownership.recordedHash(state, 'mcp', 'codex', 'name');
 export const migrated: MigrationResult = migrateState(state);
 export const downgraded: State | StateV1 = downgradeState(state);
 export const loaded: Promise<State> = loadKittoState('home');

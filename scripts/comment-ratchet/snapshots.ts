@@ -4,6 +4,41 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { command, decode, formatFor, inspect } from '../comment-ratchet.ts';
 
+type Inspection = ReturnType<typeof inspect>;
+type Token = Inspection['tokens'][number];
+
+interface Entry {
+  path: string;
+  mode?: string;
+  id?: string;
+}
+
+interface InventoryFile extends Inspection {
+  blob: string;
+  mode: string | undefined;
+  exclusion?: string;
+}
+
+interface Snapshot {
+  snapshot: string;
+  files: Inspection[];
+}
+
+interface Inventory extends Snapshot {
+  totals: {
+    files: number;
+    physicalLines: number;
+    tokens: number;
+    commentOnlyLines: number;
+    ordinaryCommentOnlyLines: number;
+  };
+  files: InventoryFile[];
+}
+
+interface PathToken extends Token {
+  path: string;
+}
+
 const protectedPaths = new Map([
   ['config/pi/extensions/herdr-agent-state.ts', '276c964daf6a61f593ab3a8d3f7c1e0ed626d1b1'],
   ['skills/benchmark-checklist/LICENSE', '6b5400237fdf6545be0b8fae370d6f2fcff8fb25'],
@@ -18,16 +53,16 @@ const vendoredPath = /^skills\/(?:benchmark-checklist|writing-for-agents)(?:\/|$
 const sha = /^[0-9a-f]{40}$/u;
 const renameSimilarity = '50%';
 
-export function repository(cwd, bin) {
-  const git = (args, at = cwd) => command('git', ['--no-replace-objects', ...args], { cwd: at });
+export function repository(cwd: string, bin: string) {
+  const git = (args: string[], at = cwd) => command('git', ['--no-replace-objects', ...args], { cwd: at });
   const root = realpathSync(decode(git(['rev-parse', '--show-toplevel'])).replace(/\n$/u, ''));
-  const run = (...args) => git(args, root);
-  const list = (...args) =>
+  const run = (...args: string[]) => git(args, root);
+  const list = (...args: string[]) =>
     decode(run(...args))
       .split('\0')
       .filter(Boolean);
-  const cache = new Map();
-  function resolveCommit(value) {
+  const cache = new Map<string, Inspection>();
+  function resolveCommit(value: string) {
     if (sha.test(value) && !/^0+$/u.test(value)) {
       try {
         if (decode(run('rev-parse', '--verify', `${value}^{commit}`)).trim() === value) return value;
@@ -37,7 +72,7 @@ export function repository(cwd, bin) {
     }
     throw new Error(`Expected a full, available commit SHA: ${value}`);
   }
-  function verifyRange(base, head, prHead) {
+  function verifyRange(base: string, head: string, prHead?: string) {
     resolveCommit(base);
     resolveCommit(head);
     if (prHead) {
@@ -53,10 +88,10 @@ export function repository(cwd, bin) {
       }
     }
   }
-  function entries(snapshot) {
+  function entries(snapshot: string) {
     const staged = snapshot === 'index' || snapshot === 'worktree';
     const raw = staged ? list('ls-files', '--stage', '-z') : list('ls-tree', '-r', '-z', resolveCommit(snapshot));
-    const files = raw.map((item) => {
+    const files: Entry[] = raw.map((item) => {
       const i = item.indexOf('\t');
       const path = item.slice(i + 1);
       const fields = item.slice(0, i).split(' ');
@@ -71,17 +106,17 @@ export function repository(cwd, bin) {
     }
     return files.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
   }
-  function read(entry, snapshot) {
+  function read(entry: Entry, snapshot: string) {
     if (entry.mode && !['100644', '100755'].includes(entry.mode)) throw new Error('Only regular files are supported');
-    if (snapshot !== 'worktree') return { data: run('cat-file', 'blob', entry.id), mode: entry.mode };
+    if (snapshot !== 'worktree') return { data: run('cat-file', 'blob', entry.id!), mode: entry.mode };
     const path = resolve(root, entry.path);
     const stat = lstatSafe(path);
     if (!stat) return null;
     if (!stat.isFile() || realpathSync(path) !== path) throw new Error('Only regular files directly inside the worktree are supported');
     return { data: readFileSync(path), mode: stat.mode & 0o100 ? '100755' : '100644' };
   }
-  function inventory(snapshot, { protect = true } = {}) {
-    const files = [];
+  function inventory(snapshot: string, { protect = true } = {}): Inventory {
+    const files: InventoryFile[] = [];
     const seen = new Set();
     for (const entry of entries(snapshot)) {
       const { path } = entry;
@@ -99,9 +134,9 @@ export function repository(cwd, bin) {
         const language = protectedPath ? 'Excluded' : formatFor(path);
         const identity = JSON.stringify([path, mode, blob]);
         if (!cache.has(identity)) cache.set(identity, inspect(bin, path, language, data));
-        files.push({ ...cache.get(identity), blob, mode, ...(protectedPath ? { exclusion: 'protected third-party' } : {}) });
+        files.push({ ...cache.get(identity)!, blob, mode, ...(protectedPath ? { exclusion: 'protected third-party' } : {}) });
       } catch (error) {
-        throw new Error(`${snapshot} ${path}: ${error.message}`);
+        throw new Error(`${snapshot} ${path}: ${error instanceof Error ? error.message : error}`);
       }
     }
     if (protect) {
@@ -121,10 +156,10 @@ export function repository(cwd, bin) {
       files,
     };
   }
-  function renames(base, snapshot) {
+  function renames(base: string, snapshot: string) {
     const from = resolveCommit(base);
     const flags = ['-z', '--name-status', '--no-ext-diff', '--no-textconv', `--find-renames=${renameSimilarity}`, '--diff-filter=R'];
-    let out;
+    let out: string;
     if (snapshot === 'worktree') {
       const dir = mkdtempSync(join(tmpdir(), 'kitto-ratchet-index-'));
       try {
@@ -143,7 +178,7 @@ export function repository(cwd, bin) {
       out = decode(run('diff', ...flags, from, resolveCommit(snapshot)));
     }
     const fields = out.split('\0').filter(Boolean);
-    const pairs = new Map();
+    const pairs = new Map<string, string>();
     for (let i = 0; i + 2 < fields.length; i += 3) {
       if (fields[i].startsWith('R')) pairs.set(fields[i + 2], fields[i + 1]);
     }
@@ -152,39 +187,40 @@ export function repository(cwd, bin) {
   return { inventory, renames, resolveCommit, verifyRange };
 }
 
-function lstatSafe(path) {
+function lstatSafe(path: string) {
   try {
     return lstatSync(path);
   } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+    if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return null;
     throw error;
   }
 }
 
-function key(token) {
+function key(token: Token) {
   const language = token.language === 'TypeScript' ? 'JavaScript' : token.language;
   return JSON.stringify([language, token.fragment, token.kind, token.raw, token.occurrence, token.directiveAnchor]);
 }
 
-function allowedShebang(token) {
+function allowedShebang(token: Token) {
   if (token.kind !== 'shebang' || token.fragment.length || token.byteStart !== 0) return false;
-  return (
-    { Bash: /^#!\/usr\/bin\/env bash$/u, JavaScript: /^#!\/usr\/bin\/env node$/u, Python: /^#!\/usr\/bin\/env python3$/u }[
-      token.language
-    ]?.test(token.text) ?? false
-  );
+  const patterns: Record<string, RegExp | undefined> = {
+    Bash: /^#!\/usr\/bin\/env bash$/u,
+    JavaScript: /^#!\/usr\/bin\/env node$/u,
+    Python: /^#!\/usr\/bin\/env python3$/u,
+  };
+  return patterns[token.language]?.test(token.text) ?? false;
 }
 
-export function compare(base, head, renames = new Map()) {
-  const old = new Map(base.files.map((file) => [file.path, file]));
+export function compare(base: Snapshot, head: Snapshot, renames = new Map<string, string>()) {
+  const old = new Map(base.files.map((file): [string, Inspection] => [file.path, file]));
   const present = new Set(head.files.map((file) => file.path));
-  const grants = new Map();
+  const grants = new Map<string, string>();
   for (const [path, from] of renames) {
     if (!old.has(path) && old.has(from) && !present.has(from) && ![...grants.values()].includes(from)) grants.set(path, from);
   }
-  const added = [];
-  const removed = [];
-  const violations = [];
+  const added: PathToken[] = [];
+  const removed: PathToken[] = [];
+  const violations: (PathToken & { reason: string })[] = [];
   for (const file of head.files) {
     const source = grants.get(file.path) ?? file.path;
     const prior = old.get(source)?.tokens ?? [];

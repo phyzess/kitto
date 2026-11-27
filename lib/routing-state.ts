@@ -224,7 +224,7 @@ export function createRoutingStore(home: string) {
         if (!fresh(observedAt, now, 300_000)) throw new Error('Fresh structured Go pool failure evidence required.');
         transaction(`pool-${key}.json`, (poolPath: string) => {
           const before = readPool(poolPath, key);
-          const previous = before && lastPoolTime(before);
+          const previous = before ? lastPoolTime(before) : 0;
           if (previous > now) throw new Error('Future Go pool state.');
           writePrivate(poolPath, {
             schema: 1,

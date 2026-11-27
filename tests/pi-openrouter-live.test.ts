@@ -1,6 +1,46 @@
 import assert from 'node:assert/strict';
 import { createRequire, registerHooks } from 'node:module';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
+
+type Row = Record<string, unknown>;
+
+interface Provider {
+  getModels(): Row[];
+  getAllModels(): Row[];
+  refreshModels(context: Row): Promise<void>;
+  stream(): unknown;
+  generateImages(): unknown;
+  classify(): unknown;
+}
+
+interface Command {
+  handler(args: string, context: Row): Promise<unknown>;
+}
+
+interface Harness {
+  remote: Row[];
+  allowed: Row[];
+  calls: Array<[string, unknown]>;
+  stored: unknown;
+  publications: number;
+  catalogResponse?: () => Response;
+  userResponse?: () => Response;
+  commands: Map<string, Command>;
+  provider: Provider;
+  refresh(overrides?: Row): Promise<void>;
+  supersede(): void;
+  chat(): Row[];
+}
+
+interface FetchInit {
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}
+
+function unassigned<T>(): T {
+  return undefined as T;
+}
 
 const nativeImport = createRequire(import.meta.url)('./helpers/native-import.cjs');
 const providerModule = '@earendil-works/pi-ai/providers/';
@@ -15,7 +55,7 @@ const costs = { input: 10, output: 20, cacheRead: 1, cacheWrite: 2 };
 const date = 'Wed, 01 Jul 2026 00:00:00 GMT';
 let sequence = 0;
 
-const chat = (id, fields) => ({
+const chat = (id: string, fields: Row = {}): Row => ({
   type: 'chat',
   id,
   name: id,
@@ -34,7 +74,7 @@ const chat = (id, fields) => ({
 });
 const image = { id: known, type: 'image', api: 'openrouter-images', provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1' };
 const classifier = { id: known, type: 'classifier', api: 'typesafe-system-one', provider: 'openrouter' };
-const live = (id, fields) => ({
+const live = (id: string, fields: Row = {}): Row => ({
   id,
   architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   supported_parameters: ['tools'],
@@ -42,11 +82,11 @@ const live = (id, fields) => ({
   pricing: { prompt: '0.000002', completion: '0.000004' },
   ...fields,
 });
-const json = (value, options) => Response.json(value, options);
+const json = (value: unknown, options?: ResponseInit) => Response.json(value, options);
 
-async function fixture(t, options = {}) {
+async function fixture(t: TestContext, options: Record<string, string | undefined> = {}): Promise<Harness> {
   const savedFetch = globalThis.fetch;
-  const oldEnv = new Map();
+  const oldEnv = new Map<string, string | undefined>();
   const env = {
     DISABLE: undefined,
     SYNTH: undefined,
@@ -61,12 +101,39 @@ async function fixture(t, options = {}) {
     if (value === undefined) delete process.env[name];
     else process.env[name] = value;
   }
-  const fixture = {
+  let generation = 0;
+  const fixture: Harness = {
     remote: [chat(newer)],
     allowed: [live(known), live(newer), live(unknown)],
     calls: [],
     stored: undefined,
     publications: 0,
+    commands: new Map(),
+    provider: unassigned<Provider>(),
+    refresh: async (overrides: Row = {}) => {
+      const issued = ++generation;
+      const context = {
+        stored: fixture.stored,
+        allowNetwork: true,
+        credential: { type: 'api_key', key: 'fake-key' },
+        signal: new AbortController().signal,
+        ...overrides,
+      };
+      await fixture.provider.refreshModels({
+        ...context,
+        publish: async ({ persist, update }: { persist?: unknown; update?: () => void }) => {
+          if (issued !== generation || (context.signal as AbortSignal).aborted) return false;
+          fixture.publications++;
+          if (persist !== undefined) fixture.stored = persist;
+          update?.();
+          return true;
+        },
+      });
+    },
+    supersede: () => {
+      generation++;
+    },
+    chat: () => fixture.provider.getModels(),
   };
   const base = {
     id: 'openrouter',
@@ -78,8 +145,8 @@ async function fixture(t, options = {}) {
     generateImages: () => 'image',
     classify: () => 'classifier',
   };
-  globalThis[fixtureKey] = { base, chat: [chat(known)], image: [image], classifier: [classifier] };
-  const imports = {
+  Reflect.set(globalThis, fixtureKey, { base, chat: [chat(known)], image: [image], classifier: [classifier] });
+  const imports: Record<string, string> = {
     all: `const f = globalThis[Symbol.for('kitto.openrouter.fixture')];
       export const builtinProviders = () => [f.base];
       export const getBuiltinModels = () => f.chat;
@@ -103,7 +170,7 @@ async function fixture(t, options = {}) {
       return { shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(`// fixture ${sequence}\n${source}`)}` };
     },
   });
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = (async (input: string | URL, init?: FetchInit) => {
     const url = new URL(input);
     fixture.calls.push([url.href, init?.headers?.authorization]);
     init?.signal?.throwIfAborted();
@@ -112,54 +179,38 @@ async function fixture(t, options = {}) {
     }
     assert.ok([`${userBase}/models/user`, 'https://regional.invalid/v1/models/user'].includes(url.href), `unexpected fetch ${url.href}`);
     return fixture.userResponse?.() ?? json({ data: fixture.allowed });
-  };
+  }) as typeof fetch;
   t.onTestFinished(() => {
     hooks.deregister();
     globalThis.fetch = savedFetch;
-    delete globalThis[fixtureKey];
+    Reflect.deleteProperty(globalThis, fixtureKey);
     for (const [key, value] of oldEnv)
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
   });
-  fixture.commands = new Map();
   const { default: initialize } = await nativeImport(`${extension.href}?fixture=${++sequence}`);
   await initialize({
-    registerProvider: (value) => {
+    registerProvider: (value: Provider) => {
       fixture.provider = value;
     },
-    registerCommand: (name, value) => fixture.commands.set(name, value),
+    registerCommand: (name: string, value: Command) => fixture.commands.set(name, value),
   });
-  let generation = 0;
-  fixture.refresh = async (overrides = {}) => {
-    const issued = ++generation;
-    const context = {
-      stored: fixture.stored,
-      allowNetwork: true,
-      credential: { type: 'api_key', key: 'fake-key' },
-      signal: new AbortController().signal,
-      ...overrides,
-    };
-    await fixture.provider.refreshModels({
-      ...context,
-      publish: async ({ persist, update }) => {
-        if (issued !== generation || context.signal.aborted) return false;
-        fixture.publications++;
-        if (persist !== undefined) fixture.stored = persist;
-        update?.();
-        return true;
-      },
-    });
-  };
-  fixture.supersede = () => {
-    generation++;
-  };
-  fixture.chat = () => fixture.provider.getModels();
   return fixture;
 }
 
-const ids = (f) => f.chat().map((model) => model.id);
+const ids = (f: Harness) => f.chat().map((model) => model.id);
+const handlerOf = (f: Harness, name: string): Command => {
+  const command = f.commands.get(name);
+  assert.ok(command);
+  return command;
+};
+const popped = (items: string[]): string => {
+  const item = items.pop();
+  assert.ok(item !== undefined);
+  return item;
+};
 
-test('only exact compatible IDs register with verified live metadata', async (t) => {
+test('only exact compatible IDs register with verified live metadata', async (t: TestContext) => {
   const f = await fixture(t);
   f.remote.push(
     chat('fixture/incomplete', { api: undefined }),
@@ -201,29 +252,29 @@ test('only exact compatible IDs register with verified live metadata', async (t)
       ['classifier', known],
     ],
   );
-  for (const [method, result] of [
+  const methods: Array<['stream' | 'generateImages' | 'classify', string]> = [
     ['stream', 'stream'],
     ['generateImages', 'image'],
     ['classify', 'classifier'],
-  ])
-    assert.equal(f.provider[method](), result);
-  const reports = [];
-  const ui = { notify: (message) => reports.push(message) };
-  await f.commands.get('openrouter-explain').handler(unknown, { ui });
-  assert.match(reports.pop(), /no exact|not in the current/);
-  await f.commands.get('openrouter-sync').handler('', {
+  ];
+  for (const [method, result] of methods) assert.equal(f.provider[method](), result);
+  const reports: string[] = [];
+  const ui = { notify: (message: string) => reports.push(message) };
+  await handlerOf(f, 'openrouter-explain').handler(unknown, { ui });
+  assert.match(popped(reports), /no exact|not in the current/);
+  await handlerOf(f, 'openrouter-sync').handler('', {
     ui,
     modelRegistry: {
-      refresh(options) {
+      refresh(options: unknown) {
         assert.deepEqual(options, { providers: ['openrouter'], force: true });
         return { errors: new Map() };
       },
     },
   });
-  assert.match(reports.pop(), /skipped/);
+  assert.match(popped(reports), /skipped/);
 });
 
-test('authoritative empty and legacy snapshots restore without fetching', async (t) => {
+test('authoritative empty and legacy snapshots restore without fetching', async (t: TestContext) => {
   const f = await fixture(t);
   f.allowed = [];
   await f.refresh();
@@ -238,7 +289,7 @@ test('authoritative empty and legacy snapshots restore without fetching', async 
   assert.equal(f.calls.length, count);
 });
 
-test('catalog freshness, user fallback, failure and cancelled generations preserve snapshots', async (t) => {
+test('catalog freshness, user fallback, failure and cancelled generations preserve snapshots', async (t: TestContext) => {
   const f = await fixture(t);
   assert.deepEqual(ids(f), [known]);
   await f.refresh({ credential: undefined });
@@ -294,14 +345,14 @@ test('catalog freshness, user fallback, failure and cancelled generations preser
   assert.equal(f.stored, kept);
 });
 
-test('tools restriction affects only additions and SYNTH off keeps exact catalog refresh', async (t) => {
+test('tools restriction affects only additions and SYNTH off keeps exact catalog refresh', async (t: TestContext) => {
   const f = await fixture(t, { REQUIRE_TOOLS: '0', SYNTH: 'off' });
   f.allowed = [live(known), live(newer, { supported_parameters: [] }), live(unknown)];
   await f.refresh();
   assert.deepEqual(ids(f), [known, newer]);
 });
 
-test('later exact entries win without replacing another model type; invalid prices and limits fall back', async (t) => {
+test('later exact entries win without replacing another model type; invalid prices and limits fall back', async (t: TestContext) => {
   const f = await fixture(t);
   f.remote = [
     chat(known, { name: 'old' }),
@@ -335,7 +386,7 @@ test('later exact entries win without replacing another model type; invalid pric
   assert.equal(f.provider.getAllModels().length, 3);
 });
 
-test('an all-invalid recent catalog does not replace a published snapshot', async (t) => {
+test('an all-invalid recent catalog does not replace a published snapshot', async (t: TestContext) => {
   const f = await fixture(t);
   const invalid = chat(newer, { api: 'unsupported' });
   f.remote.push(invalid);
@@ -353,7 +404,7 @@ test('an all-invalid recent catalog does not replace a published snapshot', asyn
   assert.deepEqual(ids(f), [known]);
 });
 
-test('offline restore validates non-bundled entries without dropping valid typed entries', async (t) => {
+test('offline restore validates non-bundled entries without dropping valid typed entries', async (t: TestContext) => {
   const f = await fixture(t);
   const extraImage = { ...image, id: newer, baseUrl: 'https://openrouter.ai/api/v1' };
   const models = [
@@ -376,9 +427,9 @@ test('offline restore validates non-bundled entries without dropping valid typed
   assert.deepEqual(f.calls, []);
 });
 
-test('only omitted, well-formed live capability declarations can back exact additions', async (t) => {
+test('only omitted, well-formed live capability declarations can back exact additions', async (t: TestContext) => {
   const f = await fixture(t);
-  const additions = [
+  const additions: Array<[string, Row]> = [
     ['omitted', { architecture: undefined, supported_parameters: undefined }],
     ['bad-params', { supported_parameters: 'tools' }],
     ['mixed-params', { supported_parameters: ['tools', false] }],
@@ -392,7 +443,7 @@ test('only omitted, well-formed live capability declarations can back exact addi
   assert.deepEqual(ids(f), [known, 'fixture/omitted']);
 });
 
-test('disable leaves the native provider untouched', async (t) => {
+test('disable leaves the native provider untouched', async (t: TestContext) => {
   const f = await fixture(t, { DISABLE: '1' });
   assert.equal(f.provider, undefined);
   assert.equal(f.commands.size, 0);

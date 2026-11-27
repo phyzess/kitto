@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 import { routeQuestions } from '../lib/task-route-questions.ts';
-import type { Json } from '../types/kitto.d.ts';
+import type { Json, PiExtensionApi, PiSessionContext } from '../types/kitto.d.ts';
 
 export function evaluatePiTaskRoutes(input: Json, context: Json, now: number = Date.now()): Json {
   const { session, current, effort } = context;
@@ -26,10 +26,10 @@ export function evaluatePiTaskRoutes(input: Json, context: Json, now: number = D
   return Object.hasOwn(input, 'approval') ? checkTaskRouteApproval(plan, input.approval, now) : planTaskRoutes(plan, now);
 }
 
-export function registerPiTaskRouting(pi: Json): void {
+export function registerPiTaskRouting(pi: PiExtensionApi): void {
   pi.registerCommand?.('kitto-route', {
     description: 'Check a local Kitto task route plan against this Pi session without changing models or launching work.',
-    async handler(args: string, ctx: Json) {
+    async handler(args: string, ctx: PiSessionContext) {
       if (!ctx.hasUI) return;
       const report = (text: string, level = 'info') => ctx.ui.notify(text, level);
       const choose = args.startsWith('--choose ');

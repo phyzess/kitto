@@ -1,4 +1,5 @@
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,13 +13,19 @@ import {
   rollbackState,
   saveState,
 } from '../lib/state-schema.ts';
+import type { StateV1 } from '../lib/state-schema.ts';
+import type { State } from '../types/kitto.d.ts';
 import { get, list } from '../lib/ownership.ts';
 import { activeRoutingBoundary, setRoutingBoundary } from '../lib/routing-policy.ts';
 
 const block = '<!-- kitto:begin -->\nrules\n<!-- kitto:end -->\n';
 
-function v1() {
-  return {
+function fake<T>(value: unknown): T {
+  return value as T;
+}
+
+function v1(): StateV1 {
+  return fake<StateV1>({
     schema: 1,
     ready: true,
     detached: false,
@@ -39,10 +46,10 @@ function v1() {
     instructions: { codex: block, dsh: block },
     mcp: { codex: { docs: 'fp-docs', search: 'fp-search' }, codexPending: { search: 'fp-search-next', fresh: 'fp-fresh' } },
     routingBoundary: { schema: 1, mode: 'local' },
-  };
+  });
 }
 
-function temp(t) {
+function temp(t: TestContext) {
   const dir = mkdtempSync(join(tmpdir(), 'kitto-state-'));
   t.onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
@@ -75,12 +82,17 @@ test('migration does not mutate its input and is idempotent', () => {
 });
 
 test('round trip v1 to v2 to v1 is exact for realistic and degenerate fixtures', () => {
-  const sparse = { schema: 1, ready: false, agents: ['pi'] };
-  const empties = { schema: 1, skills: {}, hostSkills: {}, keptSkills: {}, instructions: {}, mcp: { codex: {} } };
-  const noPendingKey = { schema: 1, skills: { a: 'h' }, hostSkills: { pi: {}, codex: { c: 'h' } }, mcp: { codex: { x: 'f' } } };
-  const keptOnlyGroup = { schema: 1, skills: {}, hostSkills: {}, keptSkills: { codex: ['mine'] } };
-  const otherMcp = { schema: 1, mcp: { other: { a: 1 }, codex: { x: 'f' } } };
-  const pendingOnly = { schema: 1, mcp: { codexPending: { y: 'f' } } };
+  const sparse = fake<StateV1>({ schema: 1, ready: false, agents: ['pi'] });
+  const empties = fake<StateV1>({ schema: 1, skills: {}, hostSkills: {}, keptSkills: {}, instructions: {}, mcp: { codex: {} } });
+  const noPendingKey = fake<StateV1>({
+    schema: 1,
+    skills: { a: 'h' },
+    hostSkills: { pi: {}, codex: { c: 'h' } },
+    mcp: { codex: { x: 'f' } },
+  });
+  const keptOnlyGroup = fake<StateV1>({ schema: 1, skills: {}, hostSkills: {}, keptSkills: { codex: ['mine'] } });
+  const otherMcp = fake<StateV1>({ schema: 1, mcp: { other: { a: 1 }, codex: { x: 'f' } } });
+  const pendingOnly = fake<StateV1>({ schema: 1, mcp: { codexPending: { y: 'f' } } });
   for (const fixture of [v1(), sparse, empties, noPendingKey, keptOnlyGroup, otherMcp, pendingOnly]) {
     const migrated = migrateState(fixture).state;
     assert.deepEqual(downgradeState(migrated), fixture);
@@ -96,7 +108,7 @@ test('a missing schema field is treated as v1', () => {
 });
 
 test('an entry that is both owned and kept stays owned', () => {
-  const { state } = migrateState({ schema: 1, skills: { a: 'h' }, keptSkills: { shared: ['a', 'b'] } });
+  const { state } = migrateState(fake<StateV1>({ schema: 1, skills: { a: 'h' }, keptSkills: { shared: ['a', 'b'] } }));
   assert.deepEqual(
     list(state, 'skill', 'shared').map((entry) => `${entry.name}:${entry.status}`),
     ['a:owned', 'b:kept'],
@@ -104,15 +116,15 @@ test('an entry that is both owned and kept stays owned', () => {
 });
 
 test('unknown and malformed schemas are refused', async () => {
-  assert.throws(() => migrateState({ schema: 3 }), /Unsupported Kitto state schema 3.*Upgrade Kitto/);
-  assert.throws(() => migrateState({ schema: 'two' }), /Unsupported/);
-  assert.throws(() => migrateState([]), /JSON object/);
-  assert.throws(() => downgradeState({ schema: 99 }), /Unsupported/);
-  await assert.rejects(saveState('/unused', { schema: 1 }), /migrate it first/);
+  assert.throws(() => migrateState(fake<StateV1>({ schema: 3 })), /Unsupported Kitto state schema 3.*Upgrade Kitto/);
+  assert.throws(() => migrateState(fake<StateV1>({ schema: 'two' })), /Unsupported/);
+  assert.throws(() => migrateState(fake<StateV1>([])), /JSON object/);
+  assert.throws(() => downgradeState(fake<StateV1>({ schema: 99 })), /Unsupported/);
+  await assert.rejects(saveState('/unused', fake<State>({ schema: 1 })), /migrate it first/);
 });
 
 test('downgrade refuses ownership that schema 1 cannot express', () => {
-  const base = migrateState({ schema: 1 }).state;
+  const base = migrateState(fake<StateV1>({ schema: 1 })).state;
   const dsh = structuredClone(base);
   dsh.owned = { mcp: { dsh: { row: { hash: 'h', status: 'owned' } } } };
   assert.deepEqual(downgradeState(dsh), downgradeState(base), 'schema 1 never recorded DSH rows, so nothing is lost');
@@ -124,7 +136,7 @@ test('downgrade refuses ownership that schema 1 cannot express', () => {
   assert.throws(() => downgradeState(pending), /pending skill/);
 });
 
-test('pi managed packages are imported and reported as removable', (t) => {
+test('pi managed packages are imported and reported as removable', (t: TestContext) => {
   const dir = temp(t);
   const file = join(dir, 'managed-packages.json');
   const specs = ['npm:pi-foo@1.2.0', { source: 'git:github.com/acme/tool.git@main', extensions: ['a'] }];
@@ -144,7 +156,7 @@ test('pi managed packages are imported and reported as removable', (t) => {
   assert.deepEqual(migrateState(result.state, { piLocalDir: dir }).removable, []);
 });
 
-test('pi import tolerates a missing file and rejects a malformed one', (t) => {
+test('pi import tolerates a missing file and rejects a malformed one', (t: TestContext) => {
   const dir = temp(t);
   assert.deepEqual(migrateState(v1(), { piLocalDir: dir }).removable, []);
   writeFileSync(join(dir, 'managed-packages.json'), '{"not":"a list"}');
@@ -153,33 +165,37 @@ test('pi import tolerates a missing file and rejects a malformed one', (t) => {
   assert.throws(() => migrateState(v1(), { piLocalDir: dir }), /Cannot import/);
 });
 
-test('loadState migrates on disk and writes the v1 backup exactly once', async (t) => {
+test('loadState migrates on disk and writes the v1 backup exactly once', async (t: TestContext) => {
   const dir = temp(t);
   const path = join(dir, 'state.json');
   const original = JSON.stringify(v1(), null, 2) + '\n';
   writeFileSync(path, original);
   const first = await loadState(path);
+  assert.ok(first);
   assert.equal(first.wrote, true);
   assert.equal(first.backup, true);
   assert.equal(readFileSync(join(dir, 'state.v1.json'), 'utf8'), original);
   assert.equal(JSON.parse(readFileSync(path, 'utf8')).schema, CURRENT_SCHEMA);
   assert.deepEqual(readdirSync(dir).sort(), ['state.json', 'state.v1.json']);
   const second = await loadState(path);
+  assert.ok(second);
   assert.equal(second.wrote, false);
   assert.equal(second.backup, false);
   writeFileSync(path, JSON.stringify({ ...v1(), version: '9.9.9' }));
   const third = await loadState(path);
+  assert.ok(third);
   assert.equal(third.wrote, true);
   assert.equal(third.backup, false);
   assert.equal(readFileSync(join(dir, 'state.v1.json'), 'utf8'), original);
 });
 
-test('dry run reads and migrates in memory without touching disk', async (t) => {
+test('dry run reads and migrates in memory without touching disk', async (t: TestContext) => {
   const dir = temp(t);
   const path = join(dir, 'state.json');
   const original = JSON.stringify(v1());
   writeFileSync(path, original);
   const result = await loadState(path, { dryRun: true });
+  assert.ok(result);
   assert.equal(result.changed, true);
   assert.equal(result.state.schema, CURRENT_SCHEMA);
   assert.equal(result.wrote, false);
@@ -187,10 +203,12 @@ test('dry run reads and migrates in memory without touching disk', async (t) => 
   assert.equal(existsSync(join(dir, 'state.v1.json')), false);
   assert.equal(await saveState(path, result.state, { dryRun: true }), false);
   assert.equal(readFileSync(path, 'utf8'), original);
-  assert.equal((await rollbackState(path, { dryRun: true })).wrote, false);
+  const dry = await rollbackState(path, { dryRun: true });
+  assert.ok(dry);
+  assert.equal(dry.wrote, false);
 });
 
-test('loadState returns undefined for a missing file and refuses a future schema on disk', async (t) => {
+test('loadState returns undefined for a missing file and refuses a future schema on disk', async (t: TestContext) => {
   const dir = temp(t);
   const path = join(dir, 'state.json');
   assert.equal(await loadState(path), undefined);
@@ -201,7 +219,7 @@ test('loadState returns undefined for a missing file and refuses a future schema
   assert.equal(existsSync(join(dir, 'state.v1.json')), false);
 });
 
-test('saveState persists v2 atomically and rollbackState restores v1', async (t) => {
+test('saveState persists v2 atomically and rollbackState restores v1', async (t: TestContext) => {
   const dir = temp(t);
   const path = join(dir, 'state.json');
   const { state } = migrateState(v1());
@@ -209,15 +227,16 @@ test('saveState persists v2 atomically and rollbackState restores v1', async (t)
   assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), state);
   assert.deepEqual(readdirSync(dir), ['state.json']);
   const rolled = await rollbackState(path);
+  assert.ok(rolled);
   assert.equal(rolled.wrote, true);
   assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), v1());
 });
 
 test('routing accepts schema 1 and schema 2 states but nothing else', () => {
-  const state = { schema: 1, routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web' };
+  const state = fake<State>({ schema: 1, routingInstallKind: 'local', ready: true, agents: ['dsh'], dshProfile: 'web' });
   setRoutingBoundary(state, 'personal');
-  assert.equal(state.routingBoundary.schema, 1);
+  assert.equal(state.routingBoundary?.schema, 1);
   assert.ok(activeRoutingBoundary(state, 'web'));
   assert.ok(activeRoutingBoundary({ ...state, schema: CURRENT_SCHEMA }, 'web'));
-  assert.equal(activeRoutingBoundary({ ...state, schema: 3 }, 'web'), null);
+  assert.equal(activeRoutingBoundary(fake<State>({ ...state, schema: 3 }), 'web'), null);
 });

@@ -5,12 +5,12 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "target": "es2024",
-    "strict": false,
+    "strict": true,
     "noImplicitAny": true,
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["bin/**/*.ts", "lib/**/*.ts", "integration/**/*.ts", "types/**/*.ts"]
+  "include": ["bin/**/*.ts", "lib/**/*.ts", "integration/**/*.ts", "types/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
 }

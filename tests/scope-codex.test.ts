@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'vitest';
+import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { hosts } from '../lib/host-pins.ts';
@@ -21,7 +22,7 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
   const home = join(fixture, 'home');
   const codexHome = join(home, 'codex');
   const dataHome = join(fixture, "data with ' quote");
-  const env = { ...process.env, HOME: home, CODEX_HOME: codexHome, KITTO_HOME: dataHome };
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, CODEX_HOME: codexHome, KITTO_HOME: dataHome };
   const original = {
     description: 'Existing hooks',
     hooks: { Stop: [{ hooks: [{ type: 'command', command: 'true' }] }] },
@@ -30,11 +31,11 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
   const workspace = join(fixture, 'workspace');
   const repo = join(workspace, 'repo');
 
-  async function put(path, text) {
+  async function put(path: string, text: string) {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, text);
   }
-  async function skill(root, name) {
+  async function skill(root: string, name: string) {
     await put(
       join(root, '.agents/skills', name, 'SKILL.md'),
       `---\nname: ${name}\ndescription: Example skill\n---\nSkill implementation\n`,
@@ -43,7 +44,7 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
   async function readHooks() {
     return JSON.parse(await readFile(hookPath, 'utf8'));
   }
-  async function setup(...args) {
+  async function setup(...args: string[]) {
     return run(process.execPath, [cli, 'setup', '--agents', 'codex', ...args], { env });
   }
 
@@ -83,6 +84,7 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
   delete nativeEnv.KITTO_HOME;
   const command = installed.hooks.SessionStart[0].hooks[0].command;
   const adapter = run('sh', ['-c', command], { env: nativeEnv });
+  assert.ok(adapter.child.stdin);
   adapter.child.stdin.end(JSON.stringify({ cwd: repo }));
   const scopeContext = JSON.parse((await adapter).stdout).hookSpecificOutput.additionalContext;
   assert.match(scopeContext, /global-instructions-fixture[\s\S]*workspace-instructions-fixture/);
@@ -94,7 +96,7 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
     return;
   }
 
-  let request;
+  let request: { input?: unknown } | undefined;
   const server = createServer(async (req, res) => {
     if (req.url !== '/v1/responses') {
       req.resume();
@@ -110,12 +112,17 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
       'data: {"type":"response.completed","response":{"id":"resp_fixture","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}}\n\n',
     );
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.onTestFinished(() => server.close());
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const received = () => request;
+  t.onTestFinished(() => {
+    server.close();
+  });
 
-  async function nativePrompt(cwd) {
+  async function nativePrompt(cwd: string) {
     request = undefined;
-    const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
     const provider = `model_providers.fixture={name="Fixture", base_url="${baseUrl}", wire_api="responses", supports_websockets=false, request_max_retries=0, stream_max_retries=0}`;
     const session = run(
       'codex',
@@ -132,10 +139,12 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
       ],
       { cwd, env: nativeEnv, timeout: 15000 },
     );
+    assert.ok(session.child.stdin);
     session.child.stdin.end();
     await session;
-    assert.ok(request?.input);
-    return JSON.stringify(request.input);
+    const body = received();
+    assert.ok(body?.input);
+    return JSON.stringify(body.input);
   }
 
   const project = await nativePrompt(repo);

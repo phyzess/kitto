@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const copied = ['CHANGELOG.md', 'README.md', 'integration/skills', 'integration/cordis.patch.yml', 'integration/plugin.json'];
 
-export function distManifest(manifest) {
+export function distManifest(manifest: { files: string[]; [key: string]: unknown }) {
   const { scripts, devDependencies, private: isPrivate, ...published } = manifest;
   return { ...published, files: [...manifest.files, '!**/*.map'] };
 }

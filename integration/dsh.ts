@@ -4,12 +4,12 @@ import { registerArchiveReview } from './dsh-archive-review.ts';
 import { registerRouteEvidence } from './dsh-route-evidence.ts';
 import { registerDshRouting } from './dsh-routing.ts';
 import { registerDshTaskRouting } from './dsh-task-routing.ts';
-import type { Json } from '../types/kitto.d.ts';
+import type { Json, DshPluginContext } from '../types/kitto.d.ts';
 
 export const name = 'phyzess-kitto';
 export const inject = ['skills'];
 
-export function apply(ctx: Json, config?: Json): void {
+export function apply(ctx: DshPluginContext, config?: Json): void {
   const path = fileURLToPath(new URL('./skills/kitto/SKILL.md', import.meta.url));
   const candidate = {
     name: 'kitto',

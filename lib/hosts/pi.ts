@@ -10,6 +10,7 @@ import { syncCommand } from './pi-sync.ts';
 import type { HostAction } from './action.ts';
 import type { PiAdapter, State } from '../../types/kitto.d.ts';
 import type { RunFunction } from '../process.ts';
+import { stateHome } from '../state-homes.ts';
 
 export interface PiAdapterDeps {
   home?: string;
@@ -45,12 +46,12 @@ export function createPiAdapter({ home = kittoHome(), run = defaultRun, sync = s
     ],
     async planDetach(state: State) {
       const actions: HostAction[] = [];
-      const settings = join(state.piHome, 'settings.json');
+      const settings = join(stateHome(state, 'piHome'), 'settings.json');
       const data = (await present(settings)) ? await readJson(settings) : {};
       const owned = (value: string) =>
         typeof value === 'string' &&
         (value.startsWith('.') || value.startsWith('/')) &&
-        sameLocation(resolve(state.piHome, value), runtime);
+        sameLocation(resolve(stateHome(state, 'piHome'), value), runtime);
       if ((data.packages || []).some((entry: string | { source: string }) => owned(typeof entry === 'string' ? entry : entry.source))) {
         actions.push(
           hostAction('pi', 'unregister-package', `pi remove ${runtime}`, {

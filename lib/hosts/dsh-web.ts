@@ -10,6 +10,7 @@ import { nativeCli } from './native-cli.ts';
 import type { HostAction, PreviewOptions } from './action.ts';
 import type { HostAdapter, HostReport, State } from '../../types/kitto.d.ts';
 import type { RunFunction } from '../process.ts';
+import { stateHome } from '../state-homes.ts';
 
 export interface DshWebAdapterDeps {
   home?: string;
@@ -65,7 +66,7 @@ export function createDshWebAdapter({
             );
             return;
           }
-          await mkdir(state.dshHome, { recursive: true });
+          await mkdir(stateHome(state, 'dshHome'), { recursive: true });
           run('dsh', ['plugin', '--profile', profileOf(state), 'add', runtime], {
             env: { ...process.env, DSH_HOME: state.dshHome, DSH_AGENTS_HOME: state.agentsHome },
           });
@@ -80,7 +81,7 @@ export function createDshWebAdapter({
       let registered: boolean | undefined;
       const bundleRegistered = async (): Promise<boolean> => {
         if (registered !== undefined) return registered;
-        const manifest = join(state.dshHome, 'profiles', profileOf(state), 'package.json');
+        const manifest = join(stateHome(state, 'dshHome'), 'profiles', profileOf(state), 'package.json');
         if (!(await present(manifest))) return (registered = false);
         const profile = await readJson(manifest),
           dependency = profile.dependencies?.['@phyzess/kitto'];

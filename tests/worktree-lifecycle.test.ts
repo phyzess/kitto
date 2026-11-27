@@ -5,11 +5,18 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { fileURLToPath } from 'node:url';
+import type { DshPluginContext, Json } from '../types/kitto.d.ts';
 
 const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
 
-async function fixture(t, objectFormat = 'sha1') {
+interface RunOptions {
+  task?: string;
+  session?: string;
+}
+
+async function fixture(t: TestContext, objectFormat = 'sha1') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-lifecycle-')));
   t.onTestFinished(() => rm(root, { recursive: true, force: true }));
   const home = join(root, 'home'),
@@ -18,8 +25,14 @@ async function fixture(t, objectFormat = 'sha1') {
   const state = join(home, 'state');
   await mkdir(scopes, { recursive: true });
   await mkdir(repo);
-  const env = { PATH: process.env.PATH, HOME: home, XDG_STATE_HOME: state, KITTO_HOME: scopes, GIT_CONFIG_NOSYSTEM: '1' };
-  function git(...args) {
+  const env: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    HOME: home,
+    XDG_STATE_HOME: state,
+    KITTO_HOME: scopes,
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  function git(...args: string[]) {
     const r = spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.org', ...args], {
       cwd: repo,
       env,
@@ -37,7 +50,7 @@ async function fixture(t, objectFormat = 'sha1') {
   git('add', '.');
   git('commit', '-m', 'Base');
   await scope();
-  const args = (command, flags = [], { task = 'ticket-42', session = 'parent' } = {}) => [
+  const args = (command: string, flags: string[] = [], { task = 'ticket-42', session = 'parent' }: RunOptions = {}) => [
     cli,
     'worktree',
     command,
@@ -49,20 +62,20 @@ async function fixture(t, objectFormat = 'sha1') {
     session,
     ...flags,
   ];
-  function run(command, flags, options, cwd = repo) {
+  function run(command: string, flags?: string[], options?: RunOptions, cwd: string = repo) {
     return spawnSync(process.execPath, args(command, flags, options), { cwd, env, encoding: 'utf8' });
   }
-  function invoke(...args) {
-    const r = run(...args);
+  function invoke(command: string, flags?: string[], options?: RunOptions) {
+    const r = run(command, flags, options);
     assert.equal(r.status, 0, r.stderr);
     return JSON.parse(r.stdout);
   }
-  function start(options) {
+  function start(options?: RunOptions) {
     const preview = invoke('start', [], options);
     return invoke('start', ['--confirm', preview.confirm], options);
   }
-  function concurrently(command, flags, options) {
-    return new Promise((resolve, reject) => {
+  function concurrently(command: string, flags?: string[], options?: RunOptions) {
+    return new Promise<{ status: number | null; stderr: string; stdout: string }>((resolve, reject) => {
       const child = spawn(process.execPath, args(command, flags, options), { cwd: repo, env });
       let stderr = '',
         stdout = '';
@@ -164,7 +177,7 @@ test('finish previews removal, apply requires its current token and preserves th
   assert.notEqual(f.run('apply', [...flags, '--confirm', preview.confirm]).status, 0);
 });
 
-const finishFlags = (head) => ['--quiescent', '--delivered', head];
+const finishFlags = (head: string) => ['--quiescent', '--delivered', head];
 
 test('a stale preview or another active session cannot authorize removal', async (t) => {
   const f = await fixture(t);
@@ -191,7 +204,7 @@ test('dirty, untracked, empty, locked or undelivered work is not removable', asy
   const f = await fixture(t);
   const created = f.start();
   const flags = finishFlags(created.baseHead);
-  const blocks = (name) => assert.ok(f.invoke('finish', flags).blockers.includes(name), name);
+  const blocks = (name: string) => assert.ok(f.invoke('finish', flags).blockers.includes(name), name);
   await writeFile(join(created.path, 'tracked'), 'edited');
   blocks('tracked');
   f.git('-C', created.path, 'restore', 'tracked');
@@ -225,6 +238,7 @@ test('parallel start confirmations cannot adopt or duplicate a checkout', async 
   ]);
   assert.equal(results.filter((result) => result.status === 0).length, 1, JSON.stringify(results));
   const denied = results.find((result) => result.status !== 0);
+  assert.ok(denied);
   assert.match(denied.stderr, /locked|stale/);
   assert.equal(f.invoke('start').action, 'reuse');
   assert.equal(
@@ -318,7 +332,12 @@ test('checkout does not execute filters activated only for linked Git directorie
   assert.match(f.run('start').stderr, /does not adopt/);
 });
 
-async function cacheOldStat(f, checkout, path, setTime) {
+async function cacheOldStat(
+  f: Awaited<ReturnType<typeof fixture>>,
+  checkout: string,
+  path: string,
+  setTime: (path: string, atime: number, mtime: number) => Promise<void>,
+) {
   f.git('config', 'core.trustctime', 'false');
   f.git('config', 'core.checkStat', 'minimal');
   const time = 1000000000;
@@ -445,31 +464,35 @@ test('clean SHA-256 blobs are verified as raw bytes, including binary files', as
   assert.equal(f.git('rev-parse', `refs/heads/${created.branch}`), created.baseHead);
 });
 
+function pluginContext(fake: Partial<DshPluginContext>): DshPluginContext {
+  return fake as DshPluginContext;
+}
+
 test('the DSH archive adapter stays disabled by default and does not mount on Desktop', async () => {
   const { apply } = await import('../integration/dsh.ts');
   const routingServices = ['profileContext', 'tools'];
   const archiveServices = ['profileContext', 'tools', 'workspaceRegistry', 'sessionPersistence'];
   for (const config of [undefined, { archiveReview: false }, { archiveReview: true }]) {
-    const injections = [];
+    const injections: string[][] = [];
     apply(
-      {
+      pluginContext({
         skills: { registerProvider() {} },
-        inject(deps, enable) {
+        inject(deps: string[], enable: (host: Json) => unknown) {
           injections.push(deps);
           enable({
             profileContext: { name: 'desktop' },
             get tools() {
-              assert.fail('Desktop must not register tools');
+              return assert.fail('Desktop must not register tools');
             },
             get workspaceRegistry() {
-              assert.fail('Desktop must not access the archive registry');
+              return assert.fail('Desktop must not access the archive registry');
             },
             get sessionPersistence() {
-              assert.fail('Desktop must not access archive persistence');
+              return assert.fail('Desktop must not access archive persistence');
             },
           });
         },
-      },
+      }),
       config,
     );
     assert.deepEqual(injections, config?.archiveReview ? [archiveServices, routingServices] : [routingServices]);
@@ -514,7 +537,7 @@ test('installed DSH registry and actual adapter project durable archive and unar
           close() {},
           global: {
             get: () => state,
-            async set(next) {
+            async set(next: unknown) {
               await writeFile(data, JSON.stringify(next));
               state = next;
             },
@@ -525,7 +548,7 @@ test('installed DSH registry and actual adapter project durable archive and unar
     ctx.reflect.provide('profileContext', { name: 'web', installAnchor });
     ctx.reflect.provide('skills', { registerProvider() {} });
     ctx.reflect.provide('tools', {
-      register(tool) {
+      register(tool: Json) {
         tools.set(tool.name, tool);
         return () => tools.delete(tool.name);
       },
@@ -542,7 +565,7 @@ test('installed DSH registry and actual adapter project durable archive and unar
     await plugin;
     const tool = tools.get('kitto_worktree_archive_review');
     assert.ok(tool, 'actual DSH integration entry registered the tool');
-    return { registry: ctx.get('workspaceRegistry'), review: (args) => tool.execute(args, { signal: new AbortController().signal }) };
+    return { registry: ctx.get('workspaceRegistry'), review: (args: Json) => tool.execute(args, { signal: new AbortController().signal }) };
   }
 
   const first = await boot();
@@ -563,11 +586,12 @@ test('installed DSH registry and actual adapter project durable archive and unar
 
   const resumed = await boot();
   assert.equal(await resumed.review(request), 'review-pending');
-  let readEntered, proceed;
-  const reading = new Promise((resolve) => {
+  let readEntered: () => void = () => {},
+    proceed: () => void = () => {};
+  const reading = new Promise<void>((resolve) => {
     readEntered = resolve;
   });
-  const exitRead = new Promise((resolve) => {
+  const exitRead = new Promise<void>((resolve) => {
     proceed = resolve;
   });
   list = async () => {

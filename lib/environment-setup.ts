@@ -33,8 +33,10 @@ export async function runEnvironmentSetup(plan: SetupPlan): Promise<void> {
   }
   const workspace = plan.workspace && resolve(plan.workspace);
   const agents = plan.agents.filter((name: HostName) => name !== 'dsh' || !unit);
-  const serviceOptions = { unit, source, deps, workspace, global: true, installAgents: plan.serviceInstallAgents ?? false, dshProfile };
-  if (unit) await configureServiceEnvironment({ ...serviceOptions, dryRun: true });
+  const serviceOptions = unit
+    ? { unit, source, deps, workspace, global: true, installAgents: plan.serviceInstallAgents ?? false, dshProfile }
+    : undefined;
+  if (serviceOptions) await configureServiceEnvironment({ ...serviceOptions, dryRun: true });
   if (agents.length) {
     const options: KittoOptions = { agents, 'dry-run': dryRun };
     if (agents.includes('dsh')) options['dsh-profile'] = dshProfile;
@@ -66,7 +68,7 @@ export async function runEnvironmentSetup(plan: SetupPlan): Promise<void> {
       if (workspace) await setup({ ...scope, 'workspace-parent': workspace });
     }
   }
-  if (unit && !dryRun) await configureServiceEnvironment({ ...serviceOptions, dryRun: false });
+  if (serviceOptions && !dryRun) await configureServiceEnvironment({ ...serviceOptions, dryRun: false });
   if (agents.length && deps && source !== false) {
     if (dryRun) console.log('安装时将检查配置仓库声明的辅助工具和依赖。');
     else await maintain(['deps', '--apply']);

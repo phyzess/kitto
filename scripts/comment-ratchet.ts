@@ -5,6 +5,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from '@ast-grep/napi';
+import type { SgNode } from '@ast-grep/napi';
 import { Lexer, parseAllDocuments, visit } from 'yaml';
 
 const version = '0.43.0';
@@ -14,11 +15,74 @@ const limit = 32 * 1024 * 1024;
 const maxTypeScriptBytes = 8 * 1024 * 1024;
 const maxFragmentBytes = 96 * 1024;
 
-export function decode(bytes) {
+interface CommandOptions {
+  cwd?: string;
+  input?: Uint8Array | string;
+  emptyMatch?: boolean;
+  rejectStderr?: boolean;
+  env?: NodeJS.ProcessEnv;
+}
+
+interface Slice {
+  start: number;
+  end: number;
+  text: string;
+}
+
+interface Row extends Slice {
+  next: number;
+}
+
+interface Position {
+  line: number;
+  column: number;
+}
+
+interface Span {
+  byteStart: number;
+  byteEnd: number;
+  start: Position;
+  end: Position;
+}
+
+interface Token extends Span {
+  language: string;
+  fragment: string[];
+  kind: string;
+  text: string;
+  raw: string;
+  hash: string;
+  occurrence?: number;
+  directiveAnchor?: string;
+}
+
+type Mapper = (offset: number, end?: boolean) => number;
+
+interface Mapped {
+  bytes: Buffer;
+  map: Mapper;
+}
+
+interface Fragment extends Mapped {
+  language: string;
+  part: string;
+}
+
+interface Pair extends Slice {
+  key: string;
+  value: string;
+  valueStart: number;
+}
+
+export function decode(bytes: Uint8Array) {
   return utf8.decode(bytes);
 }
 
-export function command(bin, args, { cwd = root, input, emptyMatch = false, rejectStderr = false, env } = {}) {
+export function command(
+  bin: string,
+  args: string[],
+  { cwd = root, input, emptyMatch = false, rejectStderr = false, env }: CommandOptions = {},
+) {
   const result = spawnSync(bin, args, { cwd, input, env, timeout: 15_000, maxBuffer: limit });
   const noMatch = emptyMatch && result.status === 1 && !result.stderr?.length && result.stdout?.toString().trim() === '[]';
   if (result.error || (result.status !== 0 && !noMatch) || (rejectStderr && result.stderr?.length)) {
@@ -34,7 +98,7 @@ export function nativeParser() {
     (arch === 'x64' || arch === 'arm64') &&
     (platform === 'darwin'
       ? `${platform}-${arch}`
-      : platform === 'linux' && process.report.getReport().header.glibcVersionRuntime
+      : platform === 'linux' && (process.report.getReport() as { header: { glibcVersionRuntime?: string } }).header.glibcVersionRuntime
         ? `${platform}-${arch}-gnu`
         : null);
   if (!target) throw new Error(`Unsupported ast-grep platform: ${platform}/${arch} (requires glibc on Linux)`);
@@ -43,8 +107,8 @@ export function nativeParser() {
   const manifest = new URL(`../node_modules/${name}/package.json`, import.meta.url);
   const bin = fileURLToPath(new URL('ast-grep', manifest));
   try {
-    const parent = JSON.parse(readFileSync(core));
-    const child = JSON.parse(readFileSync(manifest));
+    const parent = JSON.parse(readFileSync(core, 'utf8'));
+    const child = JSON.parse(readFileSync(manifest, 'utf8'));
     if (
       parent.name !== '@ast-grep/cli' ||
       parent.version !== version ||
@@ -56,18 +120,18 @@ export function nativeParser() {
       throw new Error(`Expected @ast-grep/cli and ${name} at version ${version}`);
     }
   } catch (error) {
-    throw new Error(`Pinned parser unavailable; run npm ci --ignore-scripts (${error.message})`);
+    throw new Error(`Pinned parser unavailable; run npm ci --ignore-scripts (${error instanceof Error ? error.message : error})`);
   }
   return bin;
 }
 
-function ast(bin, language, kind, bytes) {
+function ast(bin: string, language: string, kind: string, bytes: Buffer): Slice[] {
   const result = JSON.parse(
     command(bin, ['run', '--stdin', '--lang', language, '--kind', kind, '--json=compact'], {
       input: bytes,
       cwd: dirname(bin),
       emptyMatch: true,
-    }),
+    }).toString(),
   );
   if (!Array.isArray(result)) throw new Error('Invalid parser response');
   return result
@@ -89,8 +153,8 @@ function ast(bin, language, kind, bytes) {
     .sort((a, b) => a.start - b.start || b.end - a.end);
 }
 
-function lines(bytes) {
-  const result = [];
+function lines(bytes: Buffer): Row[] {
+  const result: Row[] = [];
   for (let start = 0; start < bytes.length;) {
     const lf = bytes.indexOf(10, start);
     const next = lf < 0 ? bytes.length : lf + 1;
@@ -101,7 +165,7 @@ function lines(bytes) {
   return result;
 }
 
-function position(bytes, rows, offset) {
+function position(bytes: Buffer, rows: Row[], offset: number): Position {
   let lo = 0;
   let hi = rows.length;
   while (lo < hi) {
@@ -114,11 +178,11 @@ function position(bytes, rows, offset) {
   return { line: lo, column: [...decode(bytes.subarray(row.start, offset))].length + 1 };
 }
 
-function span(bytes, rows, start, end) {
+function span(bytes: Buffer, rows: Row[], start: number, end: number): Span {
   return { byteStart: start, byteEnd: end, start: position(bytes, rows, start), end: position(bytes, rows, end) };
 }
 
-function location(text, start) {
+function location(text: string, start: number) {
   if (start === 0 && text.startsWith('#!')) return 'shebang';
   if (
     /^(?:\/\/|\/\*+|#)\s*(?:@ts-(?:check|nocheck|ignore|expect-error)\b|(?:eslint|prettier|shellcheck|ruff|isort|fmt|istanbul|c8)[- :]|(?:type:\s*ignore|noqa)\b|SPDX-License-Identifier:|[#@]\s*source(?:Mapping)?URL\s*=)/u.test(
@@ -131,7 +195,7 @@ function location(text, start) {
   return 'comment';
 }
 
-function completeTree(bin, language, bytes) {
+function completeTree(bin: string, language: string, bytes: Buffer) {
   if (bytes.length > maxFragmentBytes) throw new Error(`${language} full-tree check exceeds the supported source size`);
   const result = spawnSync(bin, ['run', '--stdin', '--lang', language, '--debug-query=sexp', `--pattern=${decode(bytes)}`], {
     cwd: dirname(bin),
@@ -141,16 +205,17 @@ function completeTree(bin, language, bytes) {
     encoding: 'utf8',
   });
   const tree = result.stderr?.match(/^Debug Sexp:\r?\n(\([^\r\n]*\))\r?\n/u)?.[1];
-  if (result.error || ![0, 1, 8].includes(result.status) || !tree) throw new Error(`${language} full-tree check failed`);
+  if (result.error || result.status === null || ![0, 1, 8].includes(result.status) || !tree)
+    throw new Error(`${language} full-tree check failed`);
   if (/\((?:ERROR|MISSING)(?=[\s)])/u.test(tree)) throw new Error(`${language} parse error: incomplete or recovered syntax`);
   return tree;
 }
 
-function completeTypeScript(bytes) {
+function completeTypeScript(bytes: Buffer) {
   if (bytes.length > maxTypeScriptBytes) throw new Error('TypeScript full-tree check exceeds the supported source size');
   const root = parse('TypeScript', decode(bytes)).root();
   const rootId = root.id();
-  const stack = [root];
+  const stack: SgNode[] = [root];
   for (let node = stack.pop(); node; node = stack.pop()) {
     const { start, end } = node.range();
     if (node.kind() === 'ERROR' || (node.id() !== rootId && node.isLeaf() && start.index === end.index)) {
@@ -160,8 +225,8 @@ function completeTypeScript(bytes) {
   }
 }
 
-function guardYaml(text) {
-  const fail = (message) => {
+function guardYaml(text: string) {
+  const fail = (message: string) => {
     throw new Error(`Yaml parse error: ${message}`);
   };
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u0084\u0086-\u009F\uFFFE\uFFFF]/u.test(text)) {
@@ -184,7 +249,7 @@ function guardYaml(text) {
   }
 }
 
-function guardSyntax(language, bytes, moduleKind) {
+function guardSyntax(language: string, bytes: Buffer, moduleKind: string) {
   if (language === 'Yaml') guardYaml(decode(bytes));
   if (language === 'JavaScript') command(process.execPath, ['--check', `--input-type=${moduleKind}`], { input: bytes });
   if (language === 'TypeScript') {
@@ -196,8 +261,8 @@ function guardSyntax(language, bytes, moduleKind) {
   if (language === 'Bash') command('bash', ['--noprofile', '--norc', '-n'], { input: bytes, rejectStderr: true });
 }
 
-function envComments(bytes) {
-  const result = [];
+function envComments(bytes: Buffer) {
+  const result: Slice[] = [];
   for (const row of lines(bytes)) {
     const raw = row.text.replace(/\r$/u, '');
     const assignment = raw.match(/^\s*(?:export[ \t]+)?[A-Za-z_][A-Za-z_0-9]*[ \t]*=[ \t]*/u);
@@ -234,7 +299,7 @@ function envComments(bytes) {
   return result;
 }
 
-function gitignoreComments(bytes) {
+function gitignoreComments(bytes: Buffer) {
   return lines(bytes).flatMap((row) =>
     row.text.startsWith('#')
       ? [
@@ -248,7 +313,7 @@ function gitignoreComments(bytes) {
   );
 }
 
-function gitRevsComments(bytes) {
+function gitRevsComments(bytes: Buffer) {
   return lines(bytes).flatMap((row) => {
     const hash = row.text.indexOf('#');
     if (hash < 0) return [];
@@ -262,7 +327,7 @@ function gitRevsComments(bytes) {
   });
 }
 
-function parseSource(bin, language, bytes, moduleKind, checkWholeTree) {
+function parseSource(bin: string, language: string, bytes: Buffer, moduleKind: string, checkWholeTree: boolean) {
   if (language === 'Env') return envComments(bytes);
   if (language === 'Gitignore') return gitignoreComments(bytes);
   if (language === 'GitRevs') return gitRevsComments(bytes);
@@ -278,7 +343,7 @@ function parseSource(bin, language, bytes, moduleKind, checkWholeTree) {
 const bashInterpreter =
   /^(?:(?:\/usr\/bin\/env|command|exec)\s+)?(?:(?:\/usr)?\/bin\/)?(node|python(?:3(?:\.\d+)?)?|bash|sh|dash|zsh|perl|ruby|php|lua|awk|cat)(?=\s|$)/u;
 
-function bashFragments(bin, source, { workflow }) {
+function bashFragments(bin: string, source: Buffer, { workflow }: { workflow: boolean }): Fragment[] {
   const redirects = ast(bin, 'Bash', 'heredoc_redirect', source);
   const commands = ast(bin, 'Bash', 'command', source);
   for (const { text } of commands) {
@@ -299,7 +364,7 @@ function bashFragments(bin, source, { workflow }) {
   if (!redirects.length) return [];
   const bodies = ast(bin, 'Bash', 'heredoc_body', source);
   const owners = ast(bin, 'Bash', 'redirected_statement', source);
-  const sequence = new Map();
+  const sequence = new Map<string, number>();
   return redirects.flatMap((redirect) => {
     const owner = owners.filter((node) => node.start < redirect.start && node.end >= redirect.end).at(-1);
     const header = owner && decode(source.subarray(owner.start, redirect.start));
@@ -322,11 +387,11 @@ function bashFragments(bin, source, { workflow }) {
     const key = `${kind}:${marker}`;
     const part = `${key}:${(sequence.get(key) ?? 0) + 1}`;
     sequence.set(key, (sequence.get(key) ?? 0) + 1);
-    return [{ language, part, bytes: source.subarray(body.start, body.end), map: (offset) => offset + body.start }];
+    return [{ language, part, bytes: source.subarray(body.start, body.end), map: (offset: number) => offset + body.start }];
   });
 }
 
-function readPair(node, bytes) {
+function readPair(node: Slice, bytes: Buffer): Pair {
   const key = node.text.match(/^(?:([\w.-]+)|'([\w.-]+)'|"([\w.-]+)")[ \t]*:/u);
   if (!key) throw new Error('Unsupported workflow mapping key');
   let start = node.start + Buffer.byteLength(key[0]);
@@ -334,19 +399,19 @@ function readPair(node, bytes) {
   return { ...node, key: key[1] ?? key[2] ?? key[3], value: decode(bytes.subarray(start, node.end)), valueStart: start };
 }
 
-function literalRun(pair, bytes) {
+function literalRun(pair: Pair, bytes: Buffer): Mapped {
   const rows = lines(bytes.subarray(pair.valueStart, pair.end));
   const header = rows[0]?.text;
   if (!header) throw new Error('Missing workflow run value');
   if (/^\|[+-]?[ \t]*(?:#[^\r]*)?\r?$/u.test(header)) {
     const body = rows.slice(1);
-    const indent = body.find((row) => row.text.trim())?.text.match(/^ */u)[0].length;
+    const indent = body.find((row) => row.text.trim())?.text.match(/^ */u)![0].length;
     if (!indent) throw new Error('Empty or unmappable workflow block run');
     let cursor = 0;
-    const chunks = [];
-    const mapRows = [];
+    const chunks: Buffer[] = [];
+    const mapRows: { cursor: number; origin: number; size: number }[] = [];
     for (const row of body) {
-      const removed = row.text.trim() ? indent : Math.min(indent, row.text.match(/^ */u)[0].length);
+      const removed = row.text.trim() ? indent : Math.min(indent, row.text.match(/^ */u)![0].length);
       if (!row.text.startsWith(' '.repeat(removed))) throw new Error('Ambiguous workflow block indentation');
       const origin = pair.valueStart + row.start + removed;
       const data = bytes.subarray(origin, pair.valueStart + row.next);
@@ -356,7 +421,7 @@ function literalRun(pair, bytes) {
     }
     return {
       bytes: Buffer.concat(chunks),
-      map: (offset, end) => {
+      map: (offset: number, end?: boolean) => {
         const row = mapRows.findLast((row) => row.cursor < offset || (!end && row.cursor === offset));
         if (!row || offset > row.cursor + row.size) throw new Error('Unmappable workflow token');
         return row.origin + offset - row.cursor;
@@ -370,10 +435,10 @@ function literalRun(pair, bytes) {
   if (quoted && (trim.at(-1) !== trim[0] || body.includes(trim[0]) || (trim[0] === '"' && body.includes('\\')))) {
     throw new Error('Unsupported escape or quote in workflow run scalar; use a literal block');
   }
-  return { bytes: Buffer.from(body), map: (offset) => pair.valueStart + Number(quoted) + offset };
+  return { bytes: Buffer.from(body), map: (offset: number) => pair.valueStart + Number(quoted) + offset };
 }
 
-function workflowFragments(bin, bytes) {
+function workflowFragments(bin: string, bytes: Buffer): Fragment[] {
   const nodes = ast(bin, 'Yaml', 'block_mapping_pair', bytes).map((node) => readPair(node, bytes));
   const items = ast(bin, 'Yaml', 'block_sequence_item', bytes);
   if (ast(bin, 'Yaml', 'alias, anchor, tag, flow_pair', bytes).length) {
@@ -389,7 +454,7 @@ function workflowFragments(bin, bytes) {
   ) {
     throw new Error('Unsupported executable workflow field or shell');
   }
-  const children = (parent) =>
+  const children = (parent: Slice) =>
     nodes.filter(
       (node) =>
         node.start > parent.start &&
@@ -400,7 +465,7 @@ function workflowFragments(bin, bytes) {
   if (jobs.length !== 1) throw new Error('Expected a single workflow jobs mapping');
   const runs = nodes.filter((node) => node.key === 'run');
   const seen = new Set();
-  const fragments = [];
+  const fragments: Fragment[] = [];
   for (const job of children(jobs[0])) {
     const steps = children(job).filter((node) => node.key === 'steps');
     if (steps.length > 1) throw new Error(`Duplicate workflow steps for ${job.key}`);
@@ -437,20 +502,20 @@ function workflowFragments(bin, bytes) {
   return fragments;
 }
 
-function physicalLines(bytes, rows, tokens) {
-  const occupied = new Map();
+function physicalLines(bytes: Buffer, rows: Row[], tokens: Token[]) {
+  const occupied = new Map<number, { start: number; end: number; token: Token }[]>();
   for (const token of tokens) {
     for (let n = token.start.line; n <= Math.min(rows.length, token.end.line); n++) {
       const row = rows[n - 1];
       const start = Math.max(token.byteStart, row.start);
       const end = Math.min(token.byteEnd, row.end);
       if (end > start || (row.start === row.end && token.byteStart < start && token.byteEnd > end)) {
-        (occupied.get(n) ?? occupied.set(n, []).get(n)).push({ start, end, token });
+        (occupied.get(n) ?? occupied.set(n, []).get(n)!).push({ start, end, token });
       }
     }
   }
-  const all = [];
-  const ordinary = [];
+  const all: number[] = [];
+  const ordinary: number[] = [];
   for (const [n, slices] of occupied) {
     const row = rows[n - 1];
     let cursor = row.start;
@@ -467,16 +532,16 @@ function physicalLines(bytes, rows, tokens) {
   return { commentOnlyLines: all, ordinaryCommentOnlyLines: ordinary };
 }
 
-function bindDirectives(rows, tokens, commentOnlyLines) {
+function bindDirectives(rows: Row[], tokens: Token[], commentOnlyLines: number[]) {
   const commentOnly = new Set(commentOnlyLines);
   const codeBefore = [0];
   for (const [index, row] of rows.entries()) {
-    codeBefore.push(codeBefore.at(-1) + Number(Boolean(row.text.trim()) && !commentOnly.has(index + 1)));
+    codeBefore.push(codeBefore[codeBefore.length - 1] + Number(Boolean(row.text.trim()) && !commentOnly.has(index + 1)));
   }
   for (const token of tokens) {
     if (token.kind !== 'directive') continue;
     const row = token.start.line - 1;
-    const adjacent = [codeBefore[row], token.start.column];
+    const adjacent: (number | string | undefined)[] = [codeBefore[row], token.start.column];
     if (/^(?:\/\/|\/\*+)\s*@ts-(?:ignore|expect-error)\b/u.test(token.text)) {
       adjacent.push(rows[row]?.text, rows[token.end.line]?.text);
     } else if (!/^(?:\/\/|\/\*+)\s*@ts-(?:no)?check\b/u.test(token.text)) {
@@ -486,15 +551,15 @@ function bindDirectives(rows, tokens, commentOnlyLines) {
   }
 }
 
-export function inspect(bin, path, language, bytes) {
+export function inspect(bin: string, path: string, language: string, bytes: Buffer) {
   const text = decode(bytes);
   if (text.includes('\0')) throw new Error('NUL in text source');
   const rows = lines(bytes);
   if (language === 'Json') JSON.parse(text);
   if (language === 'NodeVersion' && !/^\d+\r?\n?$/u.test(text)) throw new Error('Expected a Node.js major version');
   const workflow = language === 'Yaml' && path.startsWith('.github/workflows/');
-  const tokens = [];
-  function visit(lang, source, parts, toFile) {
+  const tokens: Token[] = [];
+  function visit(lang: string, source: Buffer, parts: string[], toFile: (offset: number, end: boolean) => number) {
     const moduleKind = !parts.length && /\.[c][jt]s$/u.test(path) ? 'commonjs' : 'module';
     const nodes = parseSource(bin, lang, source, moduleKind, lang === 'Yaml' || parts.length > 0);
     for (const node of nodes) {
@@ -514,10 +579,10 @@ export function inspect(bin, path, language, bytes) {
     const children =
       lang === 'Bash' ? bashFragments(bin, source, { workflow }) : workflow && lang === 'Yaml' ? workflowFragments(bin, source) : [];
     for (const child of children) {
-      visit(child.language, child.bytes, [...parts, child.part], (offset, end) => toFile(child.map(offset, end), end));
+      visit(child.language, child.bytes, [...parts, child.part], (offset: number, end: boolean) => toFile(child.map(offset, end), end));
     }
   }
-  if (!['Json', 'NodeVersion', 'Excluded'].includes(language)) visit(language, bytes, [], (offset) => offset);
+  if (!['Json', 'NodeVersion', 'Excluded'].includes(language)) visit(language, bytes, [], (offset: number) => offset);
   tokens.sort((a, b) => a.byteStart - b.byteStart);
   const counts = new Map();
   for (const token of tokens) {
@@ -532,15 +597,15 @@ export function inspect(bin, path, language, bytes) {
 
 const hashCommentIgnoreFiles = new Set(['.gitignore', '.prettierignore', '.npmignore', '.dockerignore']);
 
-export function formatFor(path) {
-  const name = path.split('/').at(-1);
+export function formatFor(path: string) {
+  const name = path.split('/').at(-1)!;
   if (hashCommentIgnoreFiles.has(name)) return 'Gitignore';
   if (name === '.git-blame-ignore-revs') return 'GitRevs';
   if (name === '.node-version') return 'NodeVersion';
   if (path === 'config/pi/i-have-adhd-always') return 'Json';
   if (name === '.env' || name === 'env.example' || /^\.env\.[\w.-]+$/u.test(name)) return 'Env';
   if (/^(?:LICENSE|NOTICE)(?:\.txt)?$/u.test(name) || /\.md$/iu.test(name)) return 'Excluded';
-  const formats = {
+  const formats: Record<string, string> = {
     js: 'JavaScript',
     mjs: 'JavaScript',
     cjs: 'JavaScript',

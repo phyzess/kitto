@@ -8,13 +8,13 @@ const scanned = ['lib', 'integration', 'bin', 'scripts', '.github'];
 const allowedFiles = new Set(['lib/host-pins.ts']);
 const docs = ['docs/usage.md', 'docs/model-routing.md'];
 
-const pinned = new Map([
-  ...Object.entries(hosts).map(([name, host]) => [`hosts.${name}.version`, host.version]),
+const pinned = new Map<string, string>([
+  ...Object.entries(hosts).map(([name, host]): [string, string] => [`hosts.${name}.version`, host.version]),
   ['pnpmVersion', pnpmVersion],
   ['routingHostVersion', routingHostVersion],
 ]);
 
-function files(directory) {
+function files(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : files(path);
@@ -22,7 +22,7 @@ function files(directory) {
   });
 }
 
-function lines(text, version) {
+function lines(text: string, version: string) {
   const pattern = new RegExp(`(?<![\\w.])${version.replace(/[.+]/g, '\\$&')}(?!\\w|\\.\\d)`, 'g');
   return [...text.matchAll(pattern)].map((match) => text.slice(0, match.index).split('\n').length);
 }

@@ -1,21 +1,26 @@
-import { test } from 'vitest';
+import { test, type TestContext } from 'vitest';
 import { subtest } from './helpers/subtest.ts';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mcpParity, printMcpParity } from '../lib/parity.ts';
+import { mcpParity, printMcpParity, type McpParity } from '../lib/parity.ts';
 import { dshExecutable } from '../integration/scoped-dsh/native.ts';
+import type { State } from '../types/kitto.d.ts';
 
 const dsh = await dshExecutable().catch(() => undefined);
 
-function temp(t) {
+function makeState(overrides: Partial<State>): State {
+  return { schema: 2, source: '', agents: [], ...overrides };
+}
+
+function temp(t: TestContext) {
   const directory = mkdtempSync(join(tmpdir(), 'kitto-parity-'));
   t.onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
 
-test('Codex parity delegates TOML parsing without writing the real home or emitting transport values', async (t) => {
+test('Codex parity delegates TOML parsing without writing the real home or emitting transport values', async (t: TestContext) => {
   const directory = temp(t);
   const piHome = join(directory, 'pi');
   const codexHome = join(directory, 'codex');
@@ -60,8 +65,8 @@ console.log(JSON.stringify([
 `,
     { mode: 0o700 },
   );
-  const state = { agents: ['pi', 'codex'], source: directory, piHome, codexHome };
-  const lines = [];
+  const state = makeState({ agents: ['pi', 'codex'], source: directory, piHome, codexHome });
+  const lines: string[] = [];
   const parity = await printMcpParity(state, (line) => lines.push(line), { codex });
   assert.deepEqual(parity.all, ['alpha', 'beta', 'dot.name']);
   assert.deepEqual(parity.hosts.pi, ['alpha', 'beta']);
@@ -73,13 +78,10 @@ console.log(JSON.stringify([
   assert.equal(readFileSync(join(codexHome, 'auth.json'), 'utf8'), 'fixture-must-not-be-copied');
 });
 
-test(
-  'DSH parity composes enabled declarations over profile then home',
-  { skip: !dsh && 'native DSH YAML and composer unavailable' },
-  async (t) => {
-    const dshHome = temp(t);
-    mkdirSync(join(dshHome, 'profiles/web'), { recursive: true });
-    const homePatch = `- insert:
+test('DSH parity composes enabled declarations over profile then home', { skip: !dsh }, async (t: TestContext) => {
+  const dshHome = temp(t);
+  mkdirSync(join(dshHome, 'profiles/web'), { recursive: true });
+  const homePatch = `- insert:
     - id: alpha-home
       name: '@deepseek-ai/dsh-mcp-client'
       config: { serverName: alpha }
@@ -98,8 +100,8 @@ test(
 - id: disable-me
   disabled: true
 `;
-    writeFileSync(join(dshHome, 'cordis.patch.yml'), homePatch);
-    const profilePatch = `- insert:
+  writeFileSync(join(dshHome, 'cordis.patch.yml'), homePatch);
+  const profilePatch = `- insert:
     - id: alpha-profile
       name: '@deepseek-ai/dsh-mcp-client'
       config: { serverName: alpha }
@@ -115,58 +117,57 @@ test(
           name: '@deepseek-ai/dsh-mcp-client'
           config: { serverName: group-ghost }
 `;
-    const profileFile = join(dshHome, 'profiles/web/cordis.patch.yml');
-    writeFileSync(profileFile, profilePatch);
-    const state = { agents: ['dsh'], dshHome, dshProfile: 'web' };
-    const parity = await mcpParity(state, { dsh });
-    assert.deepEqual(parity.hosts.dsh, ['alpha', 'declarative']);
-    assert.deepEqual(parity.unavailable, {});
-    assert.equal(readFileSync(join(dshHome, 'cordis.patch.yml'), 'utf8'), homePatch);
-    assert.equal(readFileSync(profileFile, 'utf8'), profilePatch);
-  },
-);
+  const profileFile = join(dshHome, 'profiles/web/cordis.patch.yml');
+  writeFileSync(profileFile, profilePatch);
+  const state = makeState({ agents: ['dsh'], dshHome, dshProfile: 'web' });
+  const parity = await mcpParity(state, { dsh });
+  assert.deepEqual(parity.hosts.dsh, ['alpha', 'declarative']);
+  assert.deepEqual(parity.unavailable, {});
+  assert.equal(readFileSync(join(dshHome, 'cordis.patch.yml'), 'utf8'), homePatch);
+  assert.equal(readFileSync(profileFile, 'utf8'), profilePatch);
+});
 
-test('printMcpParity prints one line per host and missing list', async (t) => {
+test('printMcpParity prints one line per host and missing list', async (t: TestContext) => {
   const directory = temp(t);
-  const state = {
+  const state = makeState({
     agents: ['pi', 'codex'],
     source: directory,
     piHome: join(directory, 'pi'),
     codexHome: join(directory, 'codex'),
     codexMcpNames: undefined,
-  };
-  mkdirSync(state.piHome, { recursive: true });
-  writeFileSync(join(state.piHome, 'mcp.json'), JSON.stringify({ mcpServers: { alpha: { command: 'a' } } }));
-  const lines = [];
+  });
+  mkdirSync(join(directory, 'pi'), { recursive: true });
+  writeFileSync(join(directory, 'pi', 'mcp.json'), JSON.stringify({ mcpServers: { alpha: { command: 'a' } } }));
+  const lines: string[] = [];
   await printMcpParity(state, (line) => lines.push(line));
   assert(lines.some((line) => line === 'mcp pi: alpha'));
   assert(lines.some((line) => line === 'mcp codex: (none)'));
   assert(lines.some((line) => line === 'mcp missing on codex: alpha'));
 });
 
-test('mcpParity marks the app-managed DSH desktop profile global-only', async (t) => {
+test('mcpParity marks the app-managed DSH desktop profile global-only', async (t: TestContext) => {
   const directory = temp(t);
-  const state = {
+  const state = makeState({
     agents: ['pi', 'dsh'],
     source: directory,
     piHome: join(directory, 'pi'),
     dshHome: join(directory, 'dsh'),
     dshProfile: 'desktop',
-  };
-  mkdirSync(state.piHome, { recursive: true });
-  writeFileSync(join(state.piHome, 'mcp.json'), JSON.stringify({ mcpServers: { alpha: { command: 'a' } } }));
+  });
+  mkdirSync(join(directory, 'pi'), { recursive: true });
+  writeFileSync(join(directory, 'pi', 'mcp.json'), JSON.stringify({ mcpServers: { alpha: { command: 'a' } } }));
   const parity = await mcpParity(state);
   assert.deepEqual(parity.hosts.pi, ['alpha']);
   assert.equal(parity.hosts.dsh, undefined);
   assert.equal(parity.missing.dsh, undefined);
   assert.deepEqual(parity.globalOnly, ['dsh']);
-  const lines = [];
+  const lines: string[] = [];
   await printMcpParity(state, (line) => lines.push(line));
   assert(lines.includes('mcp dsh: (global-only; MCP sync disabled)'));
   assert(!lines.some((line) => line.startsWith('mcp missing on dsh')));
 });
 
-test('an unavailable host is not treated as missing every server', async (t) => {
+test('an unavailable host is not treated as missing every server', async (t: TestContext) => {
   const directory = temp(t);
   const piHome = join(directory, 'pi');
   const codexHome = join(directory, 'codex');
@@ -177,9 +178,9 @@ test('an unavailable host is not treated as missing every server', async (t) => 
   writeFileSync(join(dshHome, 'cordis.patch.yml'), '- {literal-fixture-secret: [');
   const codex = join(directory, 'codex-fails');
   writeFileSync(codex, '#!/bin/sh\nprintf literal-fixture-secret >&2\nexit 1\n', { mode: 0o700 });
-  const lines = [];
+  const lines: string[] = [];
   const parity = await printMcpParity(
-    { agents: ['pi', 'codex', 'dsh'], source: directory, piHome, codexHome, dshHome },
+    makeState({ agents: ['pi', 'codex', 'dsh'], source: directory, piHome, codexHome, dshHome }),
     (line) => lines.push(line),
     { codex, dsh },
   );
@@ -191,29 +192,25 @@ test('an unavailable host is not treated as missing every server', async (t) => 
   assert(!lines.join('\n').includes('literal-fixture-secret'));
 });
 
-test(
-  'a dynamic MCP condition is inert and reported unavailable',
-  { skip: !dsh && 'native DSH YAML and composer unavailable' },
-  async (t) => {
-    const dshHome = temp(t);
-    writeFileSync(
-      join(dshHome, 'cordis.patch.yml'),
-      `- insert:
+test('a dynamic MCP condition is inert and reported unavailable', { skip: !dsh }, async (t: TestContext) => {
+  const dshHome = temp(t);
+  writeFileSync(
+    join(dshHome, 'cordis.patch.yml'),
+    `- insert:
     - name: '@deepseek-ai/dsh-mcp-client'
       disabled: !!js '(() => { throw new Error("fixture-secret") })()'
       config: { serverName: alpha }
 `,
-    );
-    const parity = await mcpParity({ agents: ['dsh'], dshHome }, { dsh });
-    assert.equal(parity.hosts.dsh, undefined);
-    assert.match(parity.unavailable.dsh, /Cannot read DSH MCP declarations/);
-    assert.doesNotMatch(parity.unavailable.dsh, /fixture-secret/);
-  },
-);
+  );
+  const parity = await mcpParity(makeState({ agents: ['dsh'], dshHome }), { dsh });
+  assert.equal(parity.hosts.dsh, undefined);
+  assert.match(parity.unavailable.dsh, /Cannot read DSH MCP declarations/);
+  assert.doesNotMatch(parity.unavailable.dsh, /fixture-secret/);
+});
 
-const skipWithoutDsh = !dsh && 'native DSH YAML and composer unavailable';
+const skipWithoutDsh = !dsh;
 
-async function declarationProbe(t, text) {
+async function declarationProbe(t: TestContext, text: string) {
   const root = temp(t);
   const dshHome = join(root, 'dsh');
   const piHome = join(root, 'pi');
@@ -226,37 +223,45 @@ async function declarationProbe(t, text) {
   );
   const path = join(dshHome, 'cordis.patch.yml');
   writeFileSync(path, body);
-  const lines = [];
-  const result = await printMcpParity({ agents: ['pi', 'dsh'], source: root, dshHome, piHome }, (line) => lines.push(line), { dsh });
+  const lines: string[] = [];
+  const result = await printMcpParity(makeState({ agents: ['pi', 'dsh'], source: root, dshHome, piHome }), (line) => lines.push(line), {
+    dsh,
+  });
   assert.throws(() => readFileSync(marker), { code: 'ENOENT' });
   assert(!lines.join('\n').includes('fixture-secret'));
   assert.equal(readFileSync(path, 'utf8'), body);
   return result;
 }
 
-function assertDshUnavailable(result) {
+function assertDshUnavailable(result: McpParity) {
   assert.deepEqual(result.hosts, { pi: ['pi-only'] });
   assert.deepEqual(result.all, ['pi-only']);
   assert.deepEqual(result.missing, { pi: [] });
   assert.match(result.unavailable.dsh, /Cannot read DSH MCP declarations/);
 }
 
-test('expressions controlling an MCP declaration are unavailable, not fabricated server names', { skip: skipWithoutDsh }, async (t) => {
-  const manager = "name: '@deepseek-ai/dsh-mcp-manager'";
-  for (const [label, row] of [
-    ['row', '!!js EXPRESSION'],
-    ['plugin name', 'name: !!js EXPRESSION'],
-    ['group metadata', 'name: unrelated\n      group: !!js EXPRESSION'],
-    ['manager config', `${manager}\n      config: !!js EXPRESSION`],
-    ['servers mapping', `${manager}\n      config: { servers: !!js EXPRESSION }`],
-    ['server entry', `${manager}\n      config: { servers: { declared: !!js EXPRESSION } }`],
-    ['server enabled', `${manager}\n      config: { servers: { declared: { enabled: !!js EXPRESSION } } }`],
-  ]) {
-    await subtest(t, label, async (child) => assertDshUnavailable(await declarationProbe(child, `- insert:\n    - ${row}\n`)));
-  }
-});
+test(
+  'expressions controlling an MCP declaration are unavailable, not fabricated server names',
+  { skip: skipWithoutDsh },
+  async (t: TestContext) => {
+    const manager = "name: '@deepseek-ai/dsh-mcp-manager'";
+    for (const [label, row] of [
+      ['row', '!!js EXPRESSION'],
+      ['plugin name', 'name: !!js EXPRESSION'],
+      ['group metadata', 'name: unrelated\n      group: !!js EXPRESSION'],
+      ['manager config', `${manager}\n      config: !!js EXPRESSION`],
+      ['servers mapping', `${manager}\n      config: { servers: !!js EXPRESSION }`],
+      ['server entry', `${manager}\n      config: { servers: { declared: !!js EXPRESSION } }`],
+      ['server enabled', `${manager}\n      config: { servers: { declared: { enabled: !!js EXPRESSION } } }`],
+    ]) {
+      await subtest(t, label, async (child: TestContext) =>
+        assertDshUnavailable(await declarationProbe(child, `- insert:\n    - ${row}\n`)),
+      );
+    }
+  },
+);
 
-test('literal mapping keys and irrelevant expressions do not change MCP presence', { skip: skipWithoutDsh }, async (t) => {
+test('literal mapping keys and irrelevant expressions do not change MCP presence', { skip: skipWithoutDsh }, async (t: TestContext) => {
   const result = await declarationProbe(
     t,
     `- insert:
@@ -275,10 +280,13 @@ test('literal mapping keys and irrelevant expressions do not change MCP presence
   assert.deepEqual(result.unavailable, {});
 });
 
-test('native group carriers without an explicit group flag expose only enabled declarations', { skip: skipWithoutDsh }, async (t) => {
-  const result = await declarationProbe(
-    t,
-    `- insert:
+test(
+  'native group carriers without an explicit group flag expose only enabled declarations',
+  { skip: skipWithoutDsh },
+  async (t: TestContext) => {
+    const result = await declarationProbe(
+      t,
+      `- insert:
     - name: cordis:group
       config:
         - name: '@deepseek-ai/dsh-mcp-client'
@@ -297,20 +305,27 @@ test('native group carriers without an explicit group flag expose only enabled d
       disabled: true
       config: { path: /nonexistent/fixture.yml }
 `,
-  );
-  assert.deepEqual(result.hosts.dsh, ['long', 'short']);
-  assert.deepEqual(result.unavailable, {});
-});
+    );
+    assert.deepEqual(result.hosts.dsh, ['long', 'short']);
+    assert.deepEqual(result.unavailable, {});
+  },
+);
 
-test('active includes and indeterminate carriers are unavailable without reading includes', { skip: skipWithoutDsh }, async (t) => {
-  for (const [label, row] of [
-    ['short include', 'name: cordis:include\n      config: { path: /nonexistent/fixture.yml }'],
-    ['long include', "name: '@deepseek-ai/cordis-plugin-include'\n      config: { path: /nonexistent/fixture.yml }"],
-    ['dynamic include', "name: '@deepseek-ai/cordis-plugin-include'\n      disabled: !!js EXPRESSION"],
-    ['dynamic group activation', "name: '@deepseek-ai/cordis-plugin-group'\n      disabled: !!js EXPRESSION\n      config: []"],
-    ['dynamic group list', 'name: cordis:group\n      config: !!js EXPRESSION'],
-    ['malformed group list', 'name: cordis:group\n      config: { bogus: true }'],
-  ]) {
-    await subtest(t, label, async (child) => assertDshUnavailable(await declarationProbe(child, `- insert:\n    - ${row}\n`)));
-  }
-});
+test(
+  'active includes and indeterminate carriers are unavailable without reading includes',
+  { skip: skipWithoutDsh },
+  async (t: TestContext) => {
+    for (const [label, row] of [
+      ['short include', 'name: cordis:include\n      config: { path: /nonexistent/fixture.yml }'],
+      ['long include', "name: '@deepseek-ai/cordis-plugin-include'\n      config: { path: /nonexistent/fixture.yml }"],
+      ['dynamic include', "name: '@deepseek-ai/cordis-plugin-include'\n      disabled: !!js EXPRESSION"],
+      ['dynamic group activation', "name: '@deepseek-ai/cordis-plugin-group'\n      disabled: !!js EXPRESSION\n      config: []"],
+      ['dynamic group list', 'name: cordis:group\n      config: !!js EXPRESSION'],
+      ['malformed group list', 'name: cordis:group\n      config: { bogus: true }'],
+    ]) {
+      await subtest(t, label, async (child: TestContext) =>
+        assertDshUnavailable(await declarationProbe(child, `- insert:\n    - ${row}\n`)),
+      );
+    }
+  },
+);

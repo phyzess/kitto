@@ -4,11 +4,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { hosts, pnpmVersion } from '../lib/host-pins.ts';
 
 const installer = new URL('../scripts/ci-install-native.ts', import.meta.url).href;
 
-function fixture(t) {
+function fixture(t: TestContext) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'kitto-ci-install-')));
   t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const bin = join(home, 'bin');
@@ -42,7 +43,7 @@ function fixture(t) {
     `#!/bin/sh\nprintf '%s\\n' "$@" >> "$MARKER"\nif [ -n "$MODE" ]; then exec "$NODE" "$MOCK_INSTALL" "$3" "$MODE"; fi\n`,
     { mode: 0o700 },
   );
-  function run(platform, arch, { glibc = '2.39', runner = home, mode = '' } = {}) {
+  function run(platform: string, arch: string, { glibc = '2.39', runner = home, mode = '' } = {}) {
     const result = spawnSync(
       process.execPath,
       [
@@ -107,11 +108,12 @@ test('invalid RUNNER_TEMP and an occupied prefix fail before npm is invoked', (t
   assert(!existsSync(marker));
 });
 
-for (const [mode, diagnostic] of [
+const invalidInstallations: Array<[string, RegExp]> = [
   ['text', /Expected a native pnpm executable/],
   ['wrong-version', /Unexpected native package/],
   ['occupied', /EEXIST/],
-]) {
+];
+for (const [mode, diagnostic] of invalidInstallations) {
   test(`rejects an invalid installation: ${mode}`, (t) => {
     const { run, prefix } = fixture(t);
     assert.match(run('linux', 'x64', { mode }), diagnostic);

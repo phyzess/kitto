@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
-import { test } from 'vitest';
+import { test, type TestContext } from 'vitest';
 import { fileURLToPath } from 'node:url';
 
 function testExecutable() {
@@ -31,7 +31,13 @@ function available() {
 
 const nativeDshAvailable = available();
 
-async function fixture(t) {
+interface ProbeResult {
+  instructions: string;
+  skills: string[];
+  body?: string;
+}
+
+async function fixture(t: TestContext) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'kitto-scope-dsh-')));
   t.onTestFinished(() => rm(home, { recursive: true, force: true }));
   const env = {
@@ -75,7 +81,7 @@ test('DSH scoped setup preserves an existing profile and is idempotent', { skip:
   setup({ dshProfile: 'custom' });
   const after = await readFile(path, 'utf8');
   match(after, /^# user comment\n- id: agent-instructions\n  config:\n    maxBytes: 65536\n/);
-  equal(after.match(/phyzess-kitto-scopes/g).length, 1);
+  equal(after.match(/phyzess-kitto-scopes/g)?.length, 1);
   setup({ dshProfile: 'custom' });
   equal(await readFile(path, 'utf8'), after);
   await writeFile(path, after.replace('/index.mjs', '/foreign.mjs'));
@@ -142,7 +148,7 @@ export async function apply(ctx) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';
-  const results = await new Promise((resolve, reject) => {
+  const results = await new Promise<ProbeResult[]>((resolve, reject) => {
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(output || 'DSH Web probe timed out'));

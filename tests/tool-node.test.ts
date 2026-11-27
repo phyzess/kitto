@@ -1,4 +1,5 @@
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -7,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sameLocation } from '../lib/paths.ts';
 import { get } from '../lib/ownership.ts';
+import type { State } from '../types/kitto.d.ts';
 import {
   applyLauncherRemoval,
   applyToolNode,
@@ -18,7 +20,9 @@ import {
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-function scratch(t) {
+const partialState = (value: Partial<State>) => value as State;
+
+function scratch(t: TestContext) {
   const base = mkdtempSync(join(tmpdir(), 'kitto-tool-node-'));
   const temp = join(base, 'real');
   mkdirSync(temp);
@@ -28,12 +32,12 @@ function scratch(t) {
   return link;
 }
 
-function stubNode(path, version) {
+function stubNode(path: string, version: string) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `#!/bin/sh\necho v${version}\n`, { mode: 0o755 });
 }
 
-function fakeMise(dir, answer) {
+function fakeMise(dir: string, answer: string) {
   mkdirSync(dir, { recursive: true });
   const log = join(dir, 'mise.log');
   writeFileSync(
@@ -111,8 +115,8 @@ test('a missing recorded node makes the launcher explain itself and exit 127', (
 test('launcher deploy runs the recorded node with every argument, preserves foreign files and is removed on detach', async (t) => {
   const temp = scratch(t);
   const agentsHome = join(temp, '.agents');
-  const state = { agentsHome };
-  const toolNode = { path: process.execPath, version: process.versions.node, source: 'execPath' };
+  const state = partialState({ agentsHome });
+  const toolNode: NonNullable<State['toolNode']> = { path: process.execPath, version: process.versions.node, source: 'execPath' };
   const plan = await planToolNode(state, toolNode);
   assert.equal(plan.action, 'write');
   assert.equal(existsSync(plan.target), false, 'planning must not write');
@@ -120,7 +124,9 @@ test('launcher deploy runs the recorded node with every argument, preserves fore
   await applyToolNode(state, plan);
   assert.deepEqual(state.toolNode, toolNode);
   assert.equal(lstatSync(plan.target).mode & 0o777, 0o755);
-  assert.equal(get(state, 'launcher', 'shared', 'kitto-node').status, 'owned');
+  const launcherEntry = get(state, 'launcher', 'shared', 'kitto-node');
+  assert.ok(launcherEntry);
+  assert.equal(launcherEntry.status, 'owned');
   const run = spawnSync(plan.target, ['-p', 'process.argv.length + process.argv[1]', 'a b'], { encoding: 'utf8' });
   assert.equal(run.stdout.trim(), '2a b');
   assert.equal((await planToolNode(state, toolNode)).action, 'same');
@@ -146,8 +152,8 @@ test('launcher deploy runs the recorded node with every argument, preserves fore
 
 test('a launcher edited after deployment is preserved', async (t) => {
   const temp = scratch(t);
-  const state = { agentsHome: join(temp, '.agents') };
-  const toolNode = { path: process.execPath, version: process.versions.node, source: 'execPath' };
+  const state = partialState({ agentsHome: join(temp, '.agents') });
+  const toolNode: NonNullable<State['toolNode']> = { path: process.execPath, version: process.versions.node, source: 'execPath' };
   const plan = await planToolNode(state, toolNode);
   await applyToolNode(state, plan);
   writeFileSync(plan.target, `${plan.content}# local edit\n`);

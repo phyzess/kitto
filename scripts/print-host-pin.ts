@@ -1,6 +1,6 @@
 import { hosts, pnpmVersion, routingHostVersion } from '../lib/host-pins.ts';
 
-const pins = {
+const pins: Record<string, string> = {
   pnpm: pnpmVersion,
   routing: routingHostVersion,
   ...Object.fromEntries(Object.entries(hosts).map(([name, host]) => [name, host.version])),

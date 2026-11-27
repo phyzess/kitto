@@ -93,7 +93,7 @@ export async function routeCommand(args: string[]): Promise<void> {
         else store.releasePool(request);
         output = { status: operation === 'record-quota' ? 'pool-held' : 'pool-released' };
       }
-    } else if (optedIn) {
+    } else {
       const { collectGoMetadata } = await import('./go-metadata.ts');
       output = await collectGoMetadata({ state, request, optedIn });
     }

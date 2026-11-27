@@ -25,7 +25,7 @@ export function isExactPin(value: unknown): boolean {
 
 export function readVersion(output: string | null | undefined): string | null {
   const candidate = output?.match(/(?:^|[\s(])v?(\d+\.\d+\.\d+[^\s)]*)/)?.[1];
-  return parseVersion(candidate) ? candidate : null;
+  return candidate !== undefined && parseVersion(candidate) ? candidate : null;
 }
 
 const compareText = (a: string | number, b: string | number) => (a === b ? 0 : a < b ? -1 : 1);

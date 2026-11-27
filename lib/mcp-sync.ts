@@ -16,6 +16,7 @@ import {
 import { list, record, release } from './ownership.ts';
 import { platformOverlay } from './platform.ts';
 import type { State } from '../types/kitto.d.ts';
+import { stateHome } from './state-homes.ts';
 
 export { loadDshYaml };
 
@@ -343,7 +344,7 @@ function collectDeclared(value: unknown, declared: Map<string, string>, location
 
 async function profileDeclaredServers(state: State, yaml: any): Promise<Map<string, string>> {
   const declared = new Map<string, string>();
-  const directory = join(state.dshHome, 'profiles');
+  const directory = join(stateHome(state, 'dshHome'), 'profiles');
   let entries: Dirent[];
   try {
     entries = await readdir(directory, { withFileTypes: true });

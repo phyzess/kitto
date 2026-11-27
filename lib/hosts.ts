@@ -19,18 +19,26 @@ type HostProbe = { status: 'missing' } | { status: 'unreadable'; detail: string 
 
 type RowAction = 'none' | 'upgrade' | 'install' | 'pin' | 'same-build-precedence' | 'newer' | 'unreadable';
 
-interface HostRow {
+interface AppManagedRow {
   name: HostName;
-  appManaged?: boolean;
+  appManaged: true;
   package: string;
   baseline: string;
-  target?: string;
-  command?: string[];
-  status?: HostProbe['status'];
-  current?: string;
-  detail?: string;
-  action?: RowAction;
 }
+
+type ManagedRow = HostProbe & {
+  name: HostName;
+  appManaged?: false;
+  package: string;
+  baseline: string;
+  target: string;
+  command: string[];
+  action: RowAction;
+};
+
+type HostRow = AppManagedRow | ManagedRow;
+
+const isManaged = (row: HostRow): row is ManagedRow => !row.appManaged;
 
 export { compareVersions };
 
@@ -125,25 +133,26 @@ function buildRows(state: State, options: HostsOptions): HostRow[] {
     }
     const target = pin || baseline;
     const command = ['npm', 'install', '--global', `${hosts[name].package}@${target}`];
-    const row: HostRow = { name, package: hosts[name].package, baseline, target, command, ...probeHost(name) };
-    if (row.status !== 'found') row.action = row.status === 'missing' ? 'install' : 'unreadable';
-    else if (row.current === target) row.action = 'none';
+    const probe = probeHost(name);
+    let action: RowAction;
+    if (probe.status !== 'found') action = probe.status === 'missing' ? 'install' : 'unreadable';
+    else if (probe.current === target) action = 'none';
     else {
-      const order = compareVersions(row.current, target);
-      row.action = order !== null && order < 0 ? 'upgrade' : pin ? 'pin' : order === 0 ? 'same-build-precedence' : 'newer';
+      const order = compareVersions(probe.current, target);
+      action = order !== null && order < 0 ? 'upgrade' : pin ? 'pin' : order === 0 ? 'same-build-precedence' : 'newer';
     }
-    return row;
+    return { name, package: hosts[name].package, baseline, target, command, ...probe, action };
   });
   return rows;
 }
 
-function currentLabel(row: HostRow) {
+function currentLabel(row: ManagedRow) {
   if (row.status === 'found') return row.current;
   if (row.status === 'missing') return 'not found';
   return `unreadable (${row.detail})`;
 }
 
-function actionLabel(row: HostRow) {
+function actionLabel(row: ManagedRow) {
   switch (row.action) {
     case 'none':
       return 'already at the target version';
@@ -162,7 +171,7 @@ function actionLabel(row: HostRow) {
   }
 }
 
-const actionable = (row: HostRow) => !row.appManaged && ['upgrade', 'install', 'pin'].includes(row.action);
+const actionable = (row: HostRow) => isManaged(row) && ['upgrade', 'install', 'pin'].includes(row.action);
 
 function pinWarning(row: HostRow) {
   if (row.appManaged || row.target === row.baseline) return null;
@@ -177,7 +186,7 @@ function printRow(row: HostRow) {
   }
   const target = row.target === row.baseline ? row.target : `${row.target} (explicit pin; Kitto baseline ${row.baseline})`;
   console.log(`  ${row.name}: current ${currentLabel(row)}; Kitto baseline ${row.baseline}; target ${target}; ${actionLabel(row)}`);
-  console.log(`      native manager: ${row.command!.join(' ')}`);
+  console.log(`      native manager: ${row.command.join(' ')}`);
   const warning = pinWarning(row);
   if (warning) console.log(warning);
 }
@@ -221,11 +230,11 @@ function runCommand(command: string[]) {
 function applyRows(state: State, rows: HostRow[]) {
   console.log(`Kitto ${state.version} host CLIs (apply: pinned versions only).`);
   console.log(policy);
-  const managed = rows.filter((row) => !row.appManaged);
+  const managed = rows.filter(isManaged);
   for (const row of rows.filter((row) => row.appManaged)) {
     console.log(`  ${row.name}: app-managed by DeepSeek Harness Desktop; skipped (upgrade through the App).`);
   }
-  const broken = managed.filter((row) => row.action === 'unreadable');
+  const broken = managed.filter((row): row is ManagedRow & { status: 'unreadable' } => row.status === 'unreadable');
   if (broken.length) {
     throw new Error(
       `Cannot read the current version of ${broken.map((row) => `${row.name} (${row.detail})`).join(', ')}. ` +
@@ -261,7 +270,7 @@ function applyRows(state: State, rows: HostRow[]) {
   console.log('Installing pinned versions with the native npm global manager (no npx, no dist-tags):');
   const changed = [];
   const notChanged = [];
-  let failure: { row: HostRow; error: unknown } | undefined;
+  let failure: { row: ManagedRow; error: unknown } | undefined;
   for (let index = 0; index < changes.length; index++) {
     const row = changes[index];
     console.log(`  ${row.name}: current ${currentLabel(row)} -> ${row.target}`);

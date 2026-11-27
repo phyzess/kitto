@@ -1,4 +1,5 @@
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -7,6 +8,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installDependencies } from '../lib/dependencies.ts';
 import { piAdapter } from '../lib/pi-adapter.ts';
+import type { PiAdapterOptions, PiCommand } from '../lib/pi-adapter.ts';
 import {
   composeAgents,
   exportMcp,
@@ -19,16 +21,39 @@ import {
 } from '../lib/pi-settings.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const read = (path) => readFileSync(path, 'utf8');
-const readJson = (path) => JSON.parse(read(path));
-const put = (path, data) => {
+const read = (path: string) => readFileSync(path, 'utf8');
+const readJson = (path: string) => JSON.parse(read(path));
+const put = (path: string, data: unknown) => {
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, JSON.stringify(data));
   return path;
 };
 const boundary = '<!-- kitto:host-addendum -->';
 
-function fixture(t) {
+interface RunResult {
+  output: string;
+  error: Error | null;
+}
+
+interface PiFixture {
+  base: string;
+  repo: string;
+  home: string;
+  bin: string;
+  env: NodeJS.ProcessEnv;
+  installLog: string;
+  pi: string;
+  agents: string;
+  local: string;
+  machine: string;
+  shared: string;
+  owned?: ReturnType<typeof recordSettings>;
+  run(command: PiCommand, extra?: Partial<PiAdapterOptions>): RunResult;
+  ok(command: PiCommand, extra?: Partial<PiAdapterOptions>): RunResult;
+  snapshot(): Record<string, string | null>;
+}
+
+function fixture(t: TestContext): PiFixture {
   const base = mkdtempSync(join(tmpdir(), 'kitto-adapter-'));
   t.onTestFinished(() => rmSync(base, { recursive: true, force: true }));
   const repo = join(base, "repo with ' quote"),
@@ -37,7 +62,7 @@ function fixture(t) {
   mkdirSync(join(repo, 'skills'), { recursive: true });
   mkdirSync(home);
   mkdirSync(bin);
-  cpSync(join(root, 'config'), join(repo, 'config'), { recursive: true, filter: (path) => !path.includes('/config/pi/local') });
+  cpSync(join(root, 'config'), join(repo, 'config'), { recursive: true, filter: (path: string) => !path.includes('/config/pi/local') });
   const installLog = join(base, 'installs.log');
   writeFileSync(
     join(bin, 'pi'),
@@ -49,7 +74,7 @@ if (process.argv[2] === 'install') { fs.appendFileSync(${JSON.stringify(installL
     { mode: 0o755 },
   );
   const env = { ...process.env, HOME: home, SHELL: '/bin/sh', PATH: `${bin}:${process.env.PATH}` };
-  const f = {
+  const f: PiFixture = {
     base,
     repo,
     home,
@@ -61,40 +86,40 @@ if (process.argv[2] === 'install') { fs.appendFileSync(${JSON.stringify(installL
     local: join(repo, 'config/pi/local'),
     machine: join(home, '.pi/agent/settings.json'),
     shared: join(repo, 'config/pi/settings.json'),
+    run: (command: PiCommand, extra: Partial<PiAdapterOptions> = {}): RunResult => {
+      const lines: string[] = [];
+      const log = console.log;
+      console.log = (...args: unknown[]) => lines.push(args.join(' '));
+      let error: Error | null = null;
+      const previousPath = process.env.PATH;
+      process.env.PATH = f.env.PATH;
+      try {
+        piAdapter(command, { source: repo, piHome: f.pi, agentsHome: f.agents, home, env: f.env, ...extra });
+      } catch (caught) {
+        error = caught instanceof Error ? caught : new Error(String(caught));
+      } finally {
+        console.log = log;
+        process.env.PATH = previousPath;
+      }
+      return { output: lines.join('\n'), error };
+    },
+    ok: (command: PiCommand, extra?: Partial<PiAdapterOptions>): RunResult => {
+      const result = f.run(command, extra);
+      assert.equal(result.error, null, result.output + (result.error?.message ?? ''));
+      return result;
+    },
+    snapshot: () =>
+      Object.fromEntries(
+        readdirSync(base, { recursive: true, encoding: 'utf8' }).map((name) => {
+          const path = join(base, name);
+          return [relative(base, path), statSync(path).isFile() ? readFileSync(path).toString('latin1') : null];
+        }),
+      ),
   };
-  f.run = (command, extra = {}) => {
-    const lines = [];
-    const log = console.log;
-    console.log = (...args) => lines.push(args.join(' '));
-    let error = null;
-    const previousPath = process.env.PATH;
-    process.env.PATH = f.env.PATH;
-    try {
-      piAdapter(command, { source: repo, piHome: f.pi, agentsHome: f.agents, home, env: f.env, ...extra });
-    } catch (caught) {
-      error = caught;
-    } finally {
-      console.log = log;
-      process.env.PATH = previousPath;
-    }
-    return { output: lines.join('\n'), error };
-  };
-  f.ok = (command, extra) => {
-    const result = f.run(command, extra);
-    assert.equal(result.error, null, result.output + (result.error?.message ?? ''));
-    return result;
-  };
-  f.snapshot = () =>
-    Object.fromEntries(
-      readdirSync(base, { recursive: true }).map((name) => {
-        const path = join(base, name);
-        return [relative(base, path), statSync(path).isFile() ? readFileSync(path).toString('latin1') : null];
-      }),
-    );
   return f;
 }
 
-test('preview and status do not write', (t) => {
+test('preview and status do not write', (t: TestContext) => {
   const f = fixture(t);
   put(f.machine, { packages: ['npm:personal'] });
   const before = f.snapshot();
@@ -103,7 +128,7 @@ test('preview and status do not write', (t) => {
   assert.deepEqual(f.snapshot(), before);
 });
 
-test('a clean-home preview does not create destinations', (t) => {
+test('a clean-home preview does not create destinations', (t: TestContext) => {
   const f = fixture(t);
   const before = f.snapshot();
   f.ok('pull', { dryRun: true });
@@ -111,16 +136,17 @@ test('a clean-home preview does not create destinations', (t) => {
   assert.equal(existsSync(f.installLog), false);
 });
 
-test('a source without the shared layer fails clearly', (t) => {
+test('a source without the shared layer fails clearly', (t: TestContext) => {
   const f = fixture(t);
   rmSync(join(f.repo, 'config/instructions/common.md'));
   const result = f.run('pull');
+  assert.ok(result.error);
   assert.match(result.error.message, /missing shared instructions/);
   assert.equal(existsSync(join(f.pi, 'AGENTS.md')), false);
   assert.equal(existsSync(join(f.local, '.sync-lock')), false);
 });
 
-test('Pi AGENTS composes shared rules before the Pi addendum', (t) => {
+test('Pi AGENTS composes shared rules before the Pi addendum', (t: TestContext) => {
   const f = fixture(t);
   f.ok('pull');
   const common = read(join(f.repo, 'config/instructions/common.md')).trim();
@@ -137,7 +163,7 @@ test('Pi AGENTS composes shared rules before the Pi addendum', (t) => {
   assert.equal(statSync(join(f.pi, 'AGENTS.md')).mode & 0o777, 0o600);
 });
 
-test('Pi push exports only the Pi addendum', (t) => {
+test('Pi push exports only the Pi addendum', (t: TestContext) => {
   const f = fixture(t);
   f.ok('pull');
   const machine = join(f.pi, 'AGENTS.md');
@@ -148,7 +174,7 @@ test('Pi push exports only the Pi addendum', (t) => {
   assert(!exported.includes('# 共享工作规则'));
 });
 
-test('Pi push preview does not write shared rules back', (t) => {
+test('Pi push preview does not write shared rules back', (t: TestContext) => {
   const f = fixture(t);
   f.ok('pull');
   const machine = join(f.pi, 'AGENTS.md');
@@ -159,7 +185,12 @@ test('Pi push preview does not write shared rules back', (t) => {
   assert.deepEqual(f.snapshot(), before);
 });
 
-function refusal(t, mutate, pattern, { touchSettings = false } = {}) {
+function refusal(
+  t: TestContext,
+  mutate: (f: PiFixture) => unknown,
+  pattern: RegExp,
+  { touchSettings = false }: { touchSettings?: boolean } = {},
+) {
   const f = fixture(t);
   f.ok('pull');
   mutate(f);
@@ -174,14 +205,14 @@ function refusal(t, mutate, pattern, { touchSettings = false } = {}) {
   assert.equal(existsSync(join(f.local, '.sync-lock')), false);
 }
 
-test('Pi push refuses AGENTS without the shared prefix', (t) => {
-  refusal(t, (f) => writeFileSync(join(f.pi, 'AGENTS.md'), '# legacy whole-file AGENTS\n'), /host-specific section/);
+test('Pi push refuses AGENTS without the shared prefix', (t: TestContext) => {
+  refusal(t, (f: PiFixture) => writeFileSync(join(f.pi, 'AGENTS.md'), '# legacy whole-file AGENTS\n'), /host-specific section/);
 });
 
-test('Pi push refuses a truncated shared layer', (t) => {
+test('Pi push refuses a truncated shared layer', (t: TestContext) => {
   refusal(
     t,
-    (f) => {
+    (f: PiFixture) => {
       const common = join(f.repo, 'config/instructions/common.md');
       writeFileSync(common, `${read(common).trimEnd().split('\n').slice(0, -1).join('\n')}\n`);
     },
@@ -189,10 +220,10 @@ test('Pi push refuses a truncated shared layer', (t) => {
   );
 });
 
-test('Pi push refuses a whole-section truncation', (t) => {
+test('Pi push refuses a whole-section truncation', (t: TestContext) => {
   refusal(
     t,
-    (f) => {
+    (f: PiFixture) => {
       const common = join(f.repo, 'config/instructions/common.md');
       const text = read(common),
         marker = '\n## 会话开始\n';
@@ -204,10 +235,10 @@ test('Pi push refuses a whole-section truncation', (t) => {
   );
 });
 
-test('Pi push refuses a composition without the boundary', (t) => {
+test('Pi push refuses a composition without the boundary', (t: TestContext) => {
   refusal(
     t,
-    (f) => {
+    (f: PiFixture) => {
       const common = read(join(f.repo, 'config/instructions/common.md')).trim();
       const addendum = read(join(f.repo, 'config/pi/AGENTS.md')).trim();
       writeFileSync(join(f.pi, 'AGENTS.md'), `${common}\n\n${addendum}\n`);
@@ -216,10 +247,10 @@ test('Pi push refuses a composition without the boundary', (t) => {
   );
 });
 
-test('Pi push validates AGENTS before writing the repository', (t) => {
+test('Pi push validates AGENTS before writing the repository', (t: TestContext) => {
   refusal(
     t,
-    (f) => {
+    (f: PiFixture) => {
       const common = join(f.repo, 'config/instructions/common.md');
       writeFileSync(common, `${read(common).trimEnd().split('\n').slice(0, -1).join('\n')}\n`);
     },
@@ -228,7 +259,7 @@ test('Pi push validates AGENTS before writing the repository', (t) => {
   );
 });
 
-test('Pi push accepts a BOM and CRLF deployed file', (t) => {
+test('Pi push accepts a BOM and CRLF deployed file', (t: TestContext) => {
   const f = fixture(t);
   f.ok('pull');
   const machine = join(f.pi, 'AGENTS.md');
@@ -239,7 +270,7 @@ test('Pi push accepts a BOM and CRLF deployed file', (t) => {
   assert(exported.startsWith('## Pi 专属补充'));
 });
 
-test('a shared rule change flows into the Pi AGENTS file', (t) => {
+test('a shared rule change flows into the Pi AGENTS file', (t: TestContext) => {
   const f = fixture(t);
   f.ok('pull');
   const common = join(f.repo, 'config/instructions/common.md');
@@ -250,7 +281,7 @@ test('a shared rule change flows into the Pi AGENTS file', (t) => {
   assert(text.includes('## Pi 专属补充'));
 });
 
-test('compose and extract agents helpers enforce the canonical composition', (t) => {
+test('compose and extract agents helpers enforce the canonical composition', (t: TestContext) => {
   const { base } = fixture(t);
   const common = join(base, 'common.md'),
     addendum = join(base, 'addendum.md'),
@@ -283,24 +314,24 @@ test('compose and extract agents helpers enforce the canonical composition', (t)
   assert.throws(() => composeAgents(common, addendum, out), /reserved shared\/host boundary/);
 });
 
-function merge(f) {
+function merge(f: PiFixture) {
   mergeSettings(f.shared, f.machine, f.local, f.machine, { previous: f.owned ?? [] });
   f.owned = recordSettings(f.shared, f.machine, f.local);
 }
 
-test('pull hands the shared package list to the ledger callback and writes no managed-packages file', (t) => {
+test('pull hands the shared package list to the ledger callback and writes no managed-packages file', (t: TestContext) => {
   const f = fixture(t);
   const shared = readJson(f.shared).packages;
   put(f.machine, { packages: [] });
-  const recorded = [];
+  const recorded: unknown[] = [];
   f.ok('pull', { dryRun: true, onPackages: (specs) => recorded.push(specs) });
-  assert.deepEqual(recorded, []);
+  assert.deepEqual<unknown[]>(recorded, []);
   f.ok('pull', { onPackages: (specs) => recorded.push(specs) });
   assert.deepEqual(recorded, [shared]);
   assert.equal(existsSync(join(f.local, 'managed-packages.json')), false);
 });
 
-test('packages in the ownership list are not kept as machine-only extras', (t) => {
+test('packages in the ownership list are not kept as machine-only extras', (t: TestContext) => {
   const f = fixture(t);
   put(f.shared, { packages: [] });
   put(f.machine, { packages: ['npm:old-shared', 'npm:personal'] });
@@ -308,7 +339,7 @@ test('packages in the ownership list are not kept as machine-only extras', (t) =
   assert.deepEqual(readJson(f.machine).packages, ['npm:personal']);
 });
 
-test('a removed shared package stays removed while a local one survives', (t) => {
+test('a removed shared package stays removed while a local one survives', (t: TestContext) => {
   const f = fixture(t);
   put(f.shared, { packages: ['npm:shared'] });
   put(f.machine, { packages: ['npm:shared', 'npm:personal'] });
@@ -320,7 +351,7 @@ test('a removed shared package stays removed while a local one survives', (t) =>
   assert.deepEqual(readJson(f.machine).packages, ['npm:personal']);
 });
 
-test('a new machine package is preserved', (t) => {
+test('a new machine package is preserved', (t: TestContext) => {
   const f = fixture(t);
   put(f.shared, { packages: [] });
   put(f.machine, { packages: [] });
@@ -330,7 +361,7 @@ test('a new machine package is preserved', (t) => {
   assert.deepEqual(readJson(f.machine).packages, ['npm:later']);
 });
 
-test('object-form packages are not flattened by a pull', (t) => {
+test('object-form packages are not flattened by a pull', (t: TestContext) => {
   const f = fixture(t);
   const entry = { source: 'npm:object-form', extensions: ['a'] };
   put(f.shared, { packages: [entry, 'npm:plain'] });
@@ -342,7 +373,7 @@ test('object-form packages are not flattened by a pull', (t) => {
   assert.equal(readFileSync(f.machine, 'utf8').endsWith('}\n'), true);
 });
 
-test('a git fragment survives the local list', (t) => {
+test('a git fragment survives the local list', (t: TestContext) => {
   const f = fixture(t);
   mkdirSync(f.local, { recursive: true });
   const path = join(f.local, 'packages.txt');
@@ -350,7 +381,7 @@ test('a git fragment survives the local list', (t) => {
   assert.deepEqual(readList(path), ['git:example/repo#v1.2.3']);
 });
 
-test('nested local overrides do not export', (t) => {
+test('nested local overrides do not export', (t: TestContext) => {
   const f = fixture(t);
   put(f.shared, { defaultModel: 'shared', nested: { a: 1, b: 2 } });
   put(join(f.local, 'settings.json'), { defaultModel: 'local', nested: { a: 99 }, secret: 'x' });
@@ -364,7 +395,7 @@ test('nested local overrides do not export', (t) => {
   assert(!('lastChangelogVersion' in result));
 });
 
-test('MCP definition updates, switches and unknown servers survive a merge', (t) => {
+test('MCP definition updates, switches and unknown servers survive a merge', (t: TestContext) => {
   const { base } = fixture(t);
   const repo = put(join(base, 'repo.json'), { mcpServers: { x: { command: 'new', args: ['new'] } } });
   const machine = put(join(base, 'machine.json'), {
@@ -379,7 +410,7 @@ test('MCP definition updates, switches and unknown servers survive a merge', (t)
   assert.equal(data.other, true);
 });
 
-test('an MCP local override is explicit', (t) => {
+test('an MCP local override is explicit', (t: TestContext) => {
   const { base } = fixture(t);
   const repo = put(join(base, 'repo.json'), { mcpServers: { x: { command: 'new' } } });
   const machine = put(join(base, 'machine.json'), { mcpServers: { x: { enabled: false } } });
@@ -389,7 +420,7 @@ test('an MCP local override is explicit', (t) => {
   assert.equal(readJson(out).mcpServers.x.enabled, true);
 });
 
-test('platform-only servers merge from the platform overlay and stay out of exports', (t) => {
+test('platform-only servers merge from the platform overlay and stay out of exports', (t: TestContext) => {
   const { base } = fixture(t);
   const repo = put(join(base, 'repo.json'), { mcpServers: { shared: { command: 'shared' } } });
   const platform = put(join(base, 'platform.json'), { mcpServers: { only: { command: 'mac' } } });
@@ -401,7 +432,7 @@ test('platform-only servers merge from the platform overlay and stay out of expo
   assert.deepEqual(readJson(out), { mcpServers: { shared: { command: 'shared' } } });
 });
 
-test('export preserves a shared server that has a local override', (t) => {
+test('export preserves a shared server that has a local override', (t: TestContext) => {
   const { base } = fixture(t);
   const repo = put(join(base, 'repo.json'), { mcpServers: { x: { command: 'shared' } } });
   const local = put(join(base, 'local.json'), { mcpServers: { x: { command: 'local' } } });
@@ -410,7 +441,7 @@ test('export preserves a shared server that has a local override', (t) => {
   assert.deepEqual(readJson(out), readJson(repo));
 });
 
-test('export does not add unmanaged MCP servers or settings', (t) => {
+test('export does not add unmanaged MCP servers or settings', (t: TestContext) => {
   const f = fixture(t);
   const repo = put(join(f.base, 'repo.json'), { mcpServers: { shared: { command: 'shared' } } });
   const machine = put(join(f.base, 'machine.json'), {
@@ -429,7 +460,7 @@ test('export does not add unmanaged MCP servers or settings', (t) => {
   assert.equal(data.theme, 'light');
 });
 
-test('export refuses a literal secret in a declared entry', (t) => {
+test('export refuses a literal secret in a declared entry', (t: TestContext) => {
   const { base } = fixture(t);
   const repo = put(join(base, 'repo.json'), { mcpServers: { bad: { command: 'x', args: ['sk-this-should-not-travel'] } } });
   const out = join(base, 'export.json');
@@ -437,7 +468,7 @@ test('export refuses a literal secret in a declared entry', (t) => {
   assert.equal(existsSync(out), false);
 });
 
-test('an existing ~/.pi-agent-env is preserved and pull is idempotent', (t) => {
+test('an existing ~/.pi-agent-env is preserved and pull is idempotent', (t: TestContext) => {
   const f = fixture(t);
   writeFileSync(join(f.home, '.pi-agent-env'), 'SYNTHETIC_TOKEN=keep-me\n');
   f.ok('pull');
@@ -447,13 +478,13 @@ test('an existing ~/.pi-agent-env is preserved and pull is idempotent', (t) => {
   assert.deepEqual(f.snapshot(), before);
 });
 
-test('a new ~/.pi-agent-env has private permissions', (t) => {
+test('a new ~/.pi-agent-env has private permissions', (t: TestContext) => {
   const f = fixture(t);
   f.ok('pull');
   assert.equal(statSync(join(f.home, '.pi-agent-env')).mode & 0o777, 0o600);
 });
 
-test('push ignores unmanaged skills and extensions', (t) => {
+test('push ignores unmanaged skills and extensions', (t: TestContext) => {
   const f = fixture(t);
   f.ok('pull');
   mkdirSync(join(f.agents, 'skills/third-party'), { recursive: true });
@@ -464,7 +495,7 @@ test('push ignores unmanaged skills and extensions', (t) => {
   assert.equal(existsSync(join(f.repo, 'config/pi/extensions/third-party.ts')), false);
 });
 
-function lockWith(f, pid) {
+function lockWith(f: PiFixture, pid?: number) {
   const lock = join(f.local, '.sync-lock');
   mkdirSync(lock, { recursive: true });
   if (pid !== undefined) writeFileSync(join(lock, 'pid'), `${pid}\n`);
@@ -473,11 +504,11 @@ function lockWith(f, pid) {
 
 const exitedPid = () => spawnSync(process.execPath, ['-e', '']).pid;
 
-function lockOutput(result) {
+function lockOutput(result: RunResult) {
   return `${result.output}\n${result.error?.message ?? ''}`;
 }
 
-test('a lock blocks mutation', (t) => {
+test('a lock blocks mutation', (t: TestContext) => {
   const f = fixture(t);
   const lock = lockWith(f);
   const result = f.run('pull');
@@ -486,7 +517,7 @@ test('a lock blocks mutation', (t) => {
   assert.equal(existsSync(f.machine), false);
 });
 
-test('a lock held by another uid is live', (t) => {
+test('a lock held by another uid is live', (t: TestContext) => {
   const f = fixture(t);
   lockWith(f, 1);
   const result = f.run('pull');
@@ -495,7 +526,7 @@ test('a lock held by another uid is live', (t) => {
   assert.doesNotMatch(lockOutput(result), /rm -rf/);
 });
 
-test('a probe that is denied counts as a live owner', (t) => {
+test('a probe that is denied counts as a live owner', (t: TestContext) => {
   const f = fixture(t);
   lockWith(f, exitedPid());
   const result = f.run('pull', { isAlive: () => true });
@@ -503,7 +534,7 @@ test('a probe that is denied counts as a live owner', (t) => {
   assert.doesNotMatch(lockOutput(result), /rm -rf/);
 });
 
-test('a lock with an exited owner is reported stale and kept', (t) => {
+test('a lock with an exited owner is reported stale and kept', (t: TestContext) => {
   const f = fixture(t);
   const lock = lockWith(f, exitedPid());
   const result = f.run('pull');
@@ -511,7 +542,7 @@ test('a lock with an exited owner is reported stale and kept', (t) => {
   assert(existsSync(lock));
 });
 
-test('a lock with an unverifiable owner never suggests removal', (t) => {
+test('a lock with an unverifiable owner never suggests removal', (t: TestContext) => {
   const f = fixture(t);
   const lock = lockWith(f, exitedPid());
   const result = f.run('pull', { isAlive: () => undefined });
@@ -521,18 +552,18 @@ test('a lock with an unverifiable owner never suggests removal', (t) => {
   assert(existsSync(lock));
 });
 
-test('the lock records the owner pid, is released on success and is skipped by a dry run', (t) => {
+test('the lock records the owner pid, is released on success and is skipped by a dry run', (t: TestContext) => {
   const f = fixture(t);
-  const seen = [];
+  const seen: string[] = [];
   f.ok('pull', { onLock: (lock) => seen.push(read(join(lock, 'pid')).trim()), onUnlock: (lock) => seen.push(lock) });
   assert.equal(seen[0], String(process.pid));
   assert.equal(existsSync(join(f.local, '.sync-lock')), false);
-  const dry = [];
+  const dry: string[] = [];
   f.ok('pull', { dryRun: true, onLock: (lock) => dry.push(lock) });
   assert.deepEqual(dry, []);
 });
 
-test('a failed package install stops the deploy and releases the lock', (t) => {
+test('a failed package install stops the deploy and releases the lock', (t: TestContext) => {
   const f = fixture(t);
   f.env.FAKE_PI_INSTALL_EXIT = '7';
   const result = f.run('pull');
@@ -541,7 +572,7 @@ test('a failed package install stops the deploy and releases the lock', (t) => {
   assert.equal(existsSync(join(f.local, '.sync-lock')), false);
 });
 
-test('a local package skip survives version pinning', (t) => {
+test('a local package skip survives version pinning', (t: TestContext) => {
   const f = fixture(t);
   mkdirSync(f.local, { recursive: true });
   writeFileSync(join(f.local, 'packages.skip.txt'), 'npm:@plannotator/pi-extension\nhttps://github.com/ayghri/i-have-adhd\n');
@@ -550,22 +581,23 @@ test('a local package skip survives version pinning', (t) => {
   assert.doesNotMatch(result.output, /pi install git:github.com\/ayghri\/i-have-adhd/);
   const packages = readJson(f.machine).packages;
   assert(
-    !packages.some(
-      (entry) => String(entry.source ?? entry).includes('plannotator') || String(entry.source ?? entry).includes('i-have-adhd'),
-    ),
+    !packages.some((entry: string | { source?: string }) => {
+      const name = String((typeof entry === 'string' ? undefined : entry.source) ?? entry);
+      return name.includes('plannotator') || name.includes('i-have-adhd');
+    }),
   );
 });
 
-test('a mise tool installed at the wrong version is not treated as present', async (t) => {
+test('a mise tool installed at the wrong version is not treated as present', async (t: TestContext) => {
   const f = fixture(t);
   writeFileSync(join(f.bin, 'mise'), `#!${process.execPath}\nif (process.argv[2] === 'current') console.log('0.0.1');\n`, { mode: 0o755 });
   const previous = process.env.PATH,
     log = console.log,
-    lines = [];
+    lines: string[] = [];
   process.env.PATH = f.env.PATH;
-  console.log = (...args) => lines.push(args.join(' '));
+  console.log = (...args: unknown[]) => lines.push(args.join(' '));
   try {
-    await installDependencies({ source: f.repo, piHome: f.pi, agents: ['pi'] }, false);
+    await installDependencies({ schema: 2, source: f.repo, piHome: f.pi, agents: ['pi'] }, false);
   } finally {
     console.log = log;
     process.env.PATH = previous;

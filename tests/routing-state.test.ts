@@ -5,19 +5,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
+import type { TestContext } from 'vitest';
 import { createRoutingStore, newTicketId } from '../lib/routing-state.ts';
 
 const now = Date.UTC(2026, 10, 25, 12);
-const iso = (value) => new Date(value).toISOString();
+const iso = (value: number) => new Date(value).toISOString();
 const selected = { provider: 'go-alias', model: 'flash', upstream: 'opencode-go', account: 'verified-member', billing: 'go-included' };
 const pool = 'verified-subscription-member';
 const library = new URL('../lib/routing-state.ts', import.meta.url).href;
-function child(home, snippet, ...params) {
+function child(home: string, snippet: string, ...params: string[]) {
   const program = `import { createRoutingStore } from ${JSON.stringify(library)}; const [home, ...args] = process.argv.slice(1); const store = createRoutingStore(home); ${snippet}`;
   return spawnSync(process.execPath, ['--input-type=module', '-e', program, home, ...params], { encoding: 'utf8' });
 }
 
-function fixture(t) {
+function fixture(t: TestContext) {
   const home = mkdtempSync(join(tmpdir(), 'kitto-routing-state-'));
   t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const store = createRoutingStore(home),
@@ -78,7 +79,7 @@ test('interrupted writes and invalid pool rows fail closed for that pool alone',
   mkdirSync(`${base}.lock`, { mode: 0o700 });
   assert.equal(store.poolStatus(pool, now), 'invalid');
   assert.equal(store.poolStatus('different-pool', now), 'clear');
-  rmSync(`${base}.lock`, { dir: true, recursive: true });
+  rmSync(`${base}.lock`, { recursive: true });
   writeFileSync(base, '{broken', { mode: 0o600 });
   assert.equal(store.poolStatus(pool, now), 'invalid');
   assert.equal(store.poolStatus('different-pool', now), 'clear');

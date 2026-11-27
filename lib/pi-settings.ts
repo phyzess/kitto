@@ -205,8 +205,8 @@ export function mergeSettings(
   return lines;
 }
 
-export function recordSettings(repoPath: string, machinePath: string, localDir: string): unknown[] {
-  const repo = (loadJson(repoPath, {}) || {}).packages ?? [];
+export function recordSettings(repoPath: string, machinePath: string, localDir: string): PiPackageSpec[] {
+  const repo: PiPackageSpec[] = (loadJson(repoPath, {}) || {}).packages ?? [];
   const machine = (loadJson(machinePath, {}) || {}).packages ?? [];
   const extraPath = join(localDir, 'packages.txt');
   const extra = unique([...readList(extraPath), ...machine.filter((item: unknown) => !contains(repo, item))]);

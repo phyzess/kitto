@@ -83,13 +83,15 @@ export function migrateRouting({
   const profilePath = join(root, 'profiles', 'web', 'cordis.patch.yml');
   if (mode !== 'preview') {
     const temp = realpathSync(tmpdir());
-    const active = [join(homedir(), '.dsh'), process.env.DSH_HOME, ...activeHomes].filter(Boolean).map((path) => {
-      try {
-        return realpathSync(path);
-      } catch {
-        return resolve(path);
-      }
-    });
+    const active = [join(homedir(), '.dsh'), process.env.DSH_HOME, ...activeHomes]
+      .filter((path): path is string => Boolean(path))
+      .map((path) => {
+        try {
+          return realpathSync(path);
+        } catch {
+          return resolve(path);
+        }
+      });
     if (
       dirname(root) !== temp ||
       !/^kitto-route-fixture-[A-Za-z0-9]{6,}$/.test(basename(root)) ||

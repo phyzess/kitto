@@ -10,8 +10,8 @@ const SURFACES: Record<string, Set<string>> = {
 const DATA = new Set(['public', 'personal', 'internal', 'restricted']);
 const BILLING = new Set(['subscription', 'go-included', 'metered']);
 const EFFORTS = new Set(['default', 'none', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-const exact = (route: Json | null | undefined): boolean =>
-  routeId(route?.provider) && !route.provider.includes('/') && routeId(route.model);
+const exact = (route: Json | null | undefined): route is Json =>
+  route !== null && route !== undefined && routeId(route.provider) && !route.provider.includes('/') && routeId(route.model);
 const sameRoute = (a: Json | null | undefined, b: Json | null | undefined) =>
   exact(a) && exact(b) && a.provider === b.provider && a.model === b.model;
 const nonnegative = (n: unknown): n is number => Number.isFinite(n) && (n as number) >= 0;
@@ -37,7 +37,7 @@ function decision(role: Json, host: Json, planId: string, route: Json, preferred
     return ['decision-required', 'verify-account-and-billing'];
   }
   if (route.dataAllowed !== true) return ['decision-required', 'verify-data-policy'];
-  const effort = (sameRoute(preferred, route) ? preferred.effort : undefined) ?? role.effort ?? 'default';
+  const effort = (preferred && sameRoute(preferred, route) ? preferred.effort : undefined) ?? role.effort ?? 'default';
   if (!EFFORTS.has(effort) || (effort !== 'default' && !route.efforts?.includes(effort))) return ['unavailable', 'unsupported-effort'];
   if (role.reviewGate === 'independent') {
     if (
@@ -160,7 +160,7 @@ export function planTaskRoutes(input: Json, now: number = Date.now()): Json {
     if (visiting.has(role.id)) return false;
     if (visited.has(role.id)) return true;
     visiting.add(role.id);
-    if (!role.dependencies.every((dep: string) => byId.has(dep) && acyclic(byId.get(dep)))) return false;
+    if (!role.dependencies.every((dep: string) => byId.has(dep) && acyclic(byId.get(dep)!))) return false;
     visiting.delete(role.id);
     visited.add(role.id);
     return true;
@@ -212,13 +212,13 @@ export function planTaskRoutes(input: Json, now: number = Date.now()): Json {
     if (!dependencyBlocks.has(role.id)) {
       dependencyBlocks.set(
         role.id,
-        role.dependencies.filter((id: string) => resultById.get(id).status !== 'ready' || blocked(byId.get(id)).length > 0),
+        role.dependencies.filter((id: string) => resultById.get(id)!.status !== 'ready' || blocked(byId.get(id)!).length > 0),
       );
     }
     return dependencyBlocks.get(role.id)!;
   }
   for (const row of rows) {
-    const dependencies = blocked(byId.get(row.id));
+    const dependencies = blocked(byId.get(row.id)!);
     if (dependencies.length) row.blockedBy = dependencies;
   }
   return {

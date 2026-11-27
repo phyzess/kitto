@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 import { routeQuestions } from '../lib/task-route-questions.ts';
-import type { Json } from '../types/kitto.d.ts';
+import type { Json, DshPluginContext } from '../types/kitto.d.ts';
 
 export function evaluateDshTaskRoutes(input: Json, session: string | undefined, now: number = Date.now()): Json {
   if (input?.host?.kind !== 'dsh' || input.host.session !== session || !session) {
@@ -49,7 +49,7 @@ export function evaluateDshTaskRoutes(input: Json, session: string | undefined, 
   return result;
 }
 
-export function registerDshTaskRouting(ctx: Json): void {
+export function registerDshTaskRouting(ctx: DshPluginContext): void {
   ctx.inject(['profileContext', 'tools'], (host: Json) => {
     const { installAnchor, name } = host.profileContext;
     if (name !== 'web' || !isAbsolute(installAnchor ?? '')) return;

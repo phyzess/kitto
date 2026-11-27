@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { test } from 'vitest';
+import { test, type TestContext } from 'vitest';
 import kittoScopes from '../integration/scoped-pi/index.ts';
 import { installPiScope } from '../lib/scope-pi.ts';
 
-async function fixture(t) {
+async function fixture(t: TestContext) {
   const path = await realpath(await mkdtemp(join(tmpdir(), 'kitto-pi-scope-')));
   t.onTestFinished(() => rm(path, { recursive: true, force: true }));
   return path;
@@ -57,8 +57,8 @@ test('Pi loads registered scope skills and augments native context without dupli
   const workspace = join(root, 'work');
   const project = join(workspace, 'project');
   const cwd = join(project, 'child');
-  const skills = (dir) => join(dir, '.agents', 'skills');
-  const instructions = (dir) => join(dir, 'AGENTS.md');
+  const skills = (dir: string) => join(dir, '.agents', 'skills');
+  const instructions = (dir: string) => join(dir, 'AGENTS.md');
   const globalInstructions = instructions(global);
   const workspaceInstructions = instructions(workspace);
   const projectInstructions = instructions(project);
@@ -72,7 +72,7 @@ test('Pi loads registered scope skills and augments native context without dupli
   await writeFile(childInstructions, 'child rules');
 
   const handlers = new Map();
-  kittoScopes({ on: (event, handler) => handlers.set(event, handler) });
+  kittoScopes({ on: (event: string, handler: unknown) => handlers.set(event, handler) });
   const discover = handlers.get('resources_discover');
   assert.deepEqual(await discover({ cwd }), { skillPaths: [skills(project), skills(workspace), skills(global)] });
   assert.deepEqual(await discover({ cwd: root }), { skillPaths: [skills(global)] });

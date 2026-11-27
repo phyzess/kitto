@@ -9,6 +9,7 @@ import { hostSkillRoots } from './host-config.ts';
 import { readVersion } from './version-order.ts';
 import type { HostName, State } from '../types/kitto.d.ts';
 import type { HostPin } from './host-pins.ts';
+import { stateHome } from './state-homes.ts';
 
 export interface VersionRow {
   kind: string;
@@ -31,7 +32,7 @@ async function entries(path: string): Promise<Dirent[]> {
 
 async function resources(
   root: string,
-  revision: string,
+  revision: string | null,
   hashTree: (path: string, flag?: boolean) => Promise<string>,
 ): Promise<VersionRow[]> {
   const rows: VersionRow[] = [];
@@ -43,10 +44,10 @@ async function resources(
   return rows;
 }
 
-async function piVersions(state: State, revision: string): Promise<VersionRow[]> {
+async function piVersions(state: State, revision: string | null): Promise<VersionRow[]> {
   const rows: VersionRow[] = [];
   const settings = await optionalJson(join(state.source, 'config/pi/settings.json'));
-  const machine = await optionalJson(join(state.piHome, 'settings.json'), settings);
+  const machine = await optionalJson(join(stateHome(state, 'piHome'), 'settings.json'), settings);
   const specs = new Map<string, string | null>();
   for (const list of [settings.packages || [], machine.packages || []]) {
     for (const entry of list) {
@@ -60,7 +61,7 @@ async function piVersions(state: State, revision: string): Promise<VersionRow[]>
     }
   }
   for (const [name, target] of specs) {
-    const manifest = await optionalJson(join(state.piHome, 'npm/node_modules', name, 'package.json'));
+    const manifest = await optionalJson(join(stateHome(state, 'piHome'), 'npm/node_modules', name, 'package.json'));
     rows.push({ kind: 'npm', name, target, installed: manifest.version || null });
   }
   for (const [id, server] of Object.entries(await piServers(state))) {
@@ -101,7 +102,7 @@ async function codexVersions(state: State): Promise<VersionRow[]> {
 
 async function dshVersions(state: State): Promise<VersionRow[]> {
   const profile = state.dshProfile || 'web';
-  const root = join(state.dshHome, 'profiles', profile);
+  const root = join(stateHome(state, 'dshHome'), 'profiles', profile);
   const manifest = await optionalJson(join(root, 'package.json'));
   const rows: VersionRow[] = [];
   for (const name of manifest.dsh?.profile?.bundles || []) {

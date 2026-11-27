@@ -37,18 +37,21 @@ export function parseRoutingBoundary(mode: string, routes?: string): { mode: Rou
   return { mode: mode as RoutingBoundary['mode'], ...(keys && { routes: keys }) };
 }
 
-export function setRoutingBoundary(state: State, mode: string, routes?: string): void {
+export function setRoutingBoundary(state: State, mode: string, routes?: string): RoutingBoundary {
   const policy = parseRoutingBoundary(mode, routes);
   if (policy.mode !== 'skip' && (!state.agents.includes('dsh') || isDesktopProfile(state.dshProfile))) {
     throw new Error('Confirm routing only in full local DSH setup (not Desktop, scoped-only or service setup).');
   }
-  state.routingBoundary = { schema: 1, ...policy, identity: localIdentity(), profile: state.dshProfile as string };
+  const boundary: RoutingBoundary = { schema: 1, ...policy, identity: localIdentity(), profile: state.dshProfile as string };
+  state.routingBoundary = boundary;
+  return boundary;
 }
 
 export function activeRoutingBoundary(state: State | null | undefined, profile: unknown): RoutingBoundary | null {
-  const policy = state?.routingBoundary;
+  if (!state) return null;
+  const policy = state.routingBoundary;
   if (
-    ![1, 2].includes(state?.schema) ||
+    ![1, 2].includes(state.schema) ||
     state.routingInstallKind !== 'local' ||
     state.ready !== true ||
     state.detached ||

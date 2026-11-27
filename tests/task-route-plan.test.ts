@@ -1,6 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
+import type { Json } from '../types/kitto.d.ts';
 
 const now = Date.parse('2026-11-26T12:00:00Z');
 const subscription = {
@@ -30,7 +31,7 @@ const paid = {
   estimateUsd: 0.3,
   efforts: ['high'],
 };
-function role(id, route, dependencies = []) {
+function role(id: string, route: Json, dependencies: string[] = []): Json {
   const base = { id, workRevision: 'current-diff', data: 'personal', effects: 'read', dependencies };
   return {
     ...base,
@@ -48,7 +49,7 @@ function role(id, route, dependencies = []) {
     },
   };
 }
-function plan(kind = 'dsh', surface = 'teams', roles = [role('review', paid)]) {
+function plan(kind = 'dsh', surface = 'teams', roles: Json[] = [role('review', paid)]): Json {
   return {
     id: 'work-item',
     host: {
@@ -62,8 +63,8 @@ function plan(kind = 'dsh', surface = 'teams', roles = [role('review', paid)]) {
     roles,
   };
 }
-const approval = (result) =>
-  result.rows.filter((row) => row.status === 'ready').map((row) => ({ id: row.id, approvalKey: row.route.approvalKey }));
+const approval = (result: Json) =>
+  result.rows.filter((row: Json) => row.status === 'ready').map((row: Json) => ({ id: row.id, approvalKey: row.route.approvalKey }));
 
 test('explicit official Flash remains selectable with the exact paid task authorization', () => {
   const input = plan();
@@ -79,7 +80,7 @@ test('explicit official Flash remains selectable with the exact paid task author
 });
 
 test('an authorized preset needs no question; a broken preset is not silently replaced', () => {
-  const input = { ...plan('pi', 'current', [role('verify', subscription)]), presets: { verify: subscription } };
+  const input: Json = { ...plan('pi', 'current', [role('verify', subscription)]), presets: { verify: subscription } };
   assert.deepEqual(planTaskRoutes(input, now).questions, []);
   input.presets.verify = { provider: 'missing', model: 'unavailable' };
   assert.equal(planTaskRoutes(input, now).questions[0].reason, 'chosen-or-preset-route-unavailable');
@@ -112,7 +113,10 @@ test('independent review rejects another model from the implementation family ev
   review.reviewGate = 'independent';
   review.requireDifferentFamily = false;
   review.implementers = [{ canonicalModel: 'deepseek/pro', family: 'deepseek' }];
-  assert.equal(planTaskRoutes(input, now).rows[0].options.find((option) => option.provider === paid.provider).reason, 'not-independent');
+  assert.equal(
+    planTaskRoutes(input, now).rows[0].options.find((option: Json) => option.provider === paid.provider).reason,
+    'not-independent',
+  );
   review.implementers = [{ canonicalModel: subscription.canonicalModel, family: subscription.family }];
   assert.equal(planTaskRoutes(input, now).status, 'ready');
 });

@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = join(root, 'dist');
-const options = { skip: existsSync(join(dist, 'package.json')) ? false : 'dist/ is absent; run npm run build' };
+const options = { skip: !existsSync(join(dist, 'package.json')) };
 
-function files(dir) {
+function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)],
   );
@@ -20,7 +20,7 @@ const runtimeSources = () =>
     .filter((file) => file.endsWith('.ts'))
     .map((file) => relative(root, file).replace(/\.ts$/u, '.mjs'))
     .sort();
-const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
+const json = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
 
 test('dist mirrors every runtime source file one to one', options, () => {
   const output = files(dist)
@@ -54,7 +54,7 @@ test('dist is a complete package root whose manifest paths resolve inside it', o
 });
 
 test('package-root-relative assumptions hold in dist', options, () => {
-  const read = (path) => readFileSync(join(dist, path), 'utf8');
+  const read = (path: string) => readFileSync(join(dist, path), 'utf8');
   for (const path of [
     'lib/kitto-home.mjs',
     'lib/scopes.mjs',
@@ -84,11 +84,11 @@ test('the built CLI runs from dist', options, () => {
 
 test('the packed tarball ships no source maps and only declared files', options, () => {
   const [packed] = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: dist, encoding: 'utf8' }));
-  const paths = packed.files.map((file) => file.path);
+  const paths = packed.files.map((file: { path: string }) => file.path);
   assert(paths.includes('bin/kitto.mjs'));
   assert(paths.includes('integration/skills/kitto/SKILL.md'));
   assert.equal(
-    paths.some((path) => path.endsWith('.map')),
+    paths.some((path: string) => path.endsWith('.map')),
     false,
   );
   for (const path of paths)
