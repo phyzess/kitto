@@ -60,7 +60,7 @@ jobs:
               break
             fi
           done
-          test -n "$entry"
+          [[ -n "$entry" ]] || { echo "pathspec scripts/check-comments.{ts,mjs} did not match any file in $BASE_SHA" >&2; exit 1; }
           git --no-replace-objects archive "$BASE_SHA" "${paths[@]}" | tar -x -C "$tool"
           npm ci --ignore-scripts --prefix "$tool"
           node "$tool/$entry" "${args[@]}"
