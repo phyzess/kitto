@@ -18,9 +18,11 @@ export async function updateNotice(
     const path = join(home, 'update-check.json');
     let cache: { checkedAt?: number } = {};
     try {
-      cache = JSON.parse(await readFile(path, 'utf8'));
+      const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
+      if (parsed !== null && typeof parsed === 'object') cache = parsed;
     } catch {}
-    if (Number.isFinite(cache.checkedAt) && now - cache.checkedAt < 86_400_000 && now >= cache.checkedAt) return;
+    const checkedAt = cache.checkedAt;
+    if (typeof checkedAt === 'number' && Number.isFinite(checkedAt) && now - checkedAt < 86_400_000 && now >= checkedAt) return;
     await mkdir(home, { recursive: true });
     await writeFile(path, JSON.stringify({ checkedAt: now }), { mode: 0o600 });
     const result = await fetcher('https://registry.npmjs.org/@phyzess%2fkitto/latest', { signal: AbortSignal.timeout(2000) });

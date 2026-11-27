@@ -3,6 +3,7 @@ import { existsSync, statSync, accessSync, constants } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { delimiter, join, resolve } from 'node:path';
 import type { HostName, State } from '../types/kitto.d.ts';
+import { stateHome } from './state-homes.ts';
 
 export interface McpServerEntry {
   command?: string;
@@ -27,7 +28,7 @@ interface DependencyRule {
 }
 
 export interface DependencyPlanItem {
-  name: string | undefined;
+  name: string;
   path: string | undefined;
   target: string | null;
   installed: string | null;
@@ -69,12 +70,14 @@ export function npmSpec(source: string): [string, string | null] {
   return split > 0 ? [spec.slice(0, split), spec.slice(split + 1)] : [spec, null];
 }
 
-export async function piServers(state: State): Promise<Record<string, McpServerEntry>> {
+export type PiServerEntry = McpServerEntry & { command: string };
+
+export async function piServers(state: State): Promise<Record<string, PiServerEntry>> {
   const declared = await optionalJson(join(state.source, 'config/pi/mcp.json'));
-  const live = await optionalJson(join(state.piHome, 'mcp.json'), declared);
+  const live = await optionalJson(join(stateHome(state, 'piHome'), 'mcp.json'), declared);
   return Object.fromEntries(
     (Object.entries(live.mcpServers || {}) as Array<[string, McpServerEntry]>).filter(
-      ([name, entry]) => !name.startsWith('_') && entry?.command && entry.enabled !== false,
+      (pair): pair is [string, PiServerEntry] => !pair[0].startsWith('_') && Boolean(pair[1]?.command) && pair[1].enabled !== false,
     ),
   );
 }
@@ -137,6 +140,7 @@ export async function dependencyPlan(state: State): Promise<DependencyPlanItem[]
     if (!reasons.length) continue;
     const target = rule.target ?? null;
     const name = rule.package || rule.executable;
+    if (!name) continue;
     let installed: string | null = null;
     const path = rule.executable ? executable(rule.executable) : undefined;
     if (rule.manager === 'mise') {

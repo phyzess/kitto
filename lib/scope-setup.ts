@@ -77,9 +77,8 @@ async function installRuntime(home: string): Promise<string> {
 
 export async function setupScope(options: KittoOptions): Promise<void> {
   const workspaceParent = options['workspace-parent'];
-  if ([options.global, options.workspace, workspaceParent].filter(Boolean).length !== 1) {
-    throw new Error('Choose exactly one of --global, --workspace PATH or --workspace-parent PATH.');
-  }
+  const choiceMessage = 'Choose exactly one of --global, --workspace PATH or --workspace-parent PATH.';
+  if ([options.global, options.workspace, workspaceParent].filter(Boolean).length !== 1) throw new Error(choiceMessage);
   for (const key of Object.keys(options)) {
     if (!['global', 'workspace', 'workspace-parent', 'agents', 'dsh-profile', 'dsh-service', 'dry-run', 'require-baseline'].includes(key)) {
       throw new Error('Scoped setup does not support --' + key);
@@ -88,7 +87,9 @@ export async function setupScope(options: KittoOptions): Promise<void> {
   const dryRun = Boolean(options['dry-run']);
   const home = scopeHome();
   const global = Boolean(options.global);
-  const root = global ? join(home, 'global') : await workspacePath(resolve(workspaceParent || options.workspace));
+  const workspaceInput = workspaceParent || options.workspace;
+  if (!global && !workspaceInput) throw new Error(choiceMessage);
+  const root = workspaceInput && !global ? await workspacePath(resolve(workspaceInput)) : join(home, 'global');
   if (!global && (await exists(root)) && !(await stat(root)).isDirectory()) throw new Error('Workspace must be a directory.');
   const unit = options['dsh-service'];
   if (unit && (global || workspaceParent || (options.agents && !options.agents.includes('dsh')))) {

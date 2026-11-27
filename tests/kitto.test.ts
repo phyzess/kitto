@@ -237,6 +237,20 @@ test('self-update notice is rate-limited, ignores prereleases, and tolerates off
   );
 });
 
+test('self-update notice recovers from a null cache file', async (t) => {
+  const f = fixture(t),
+    cache = join(f.home, 'notice-null');
+  mkdirSync(cache, { recursive: true });
+  writeFileSync(join(cache, 'update-check.json'), 'null');
+  let calls = 0;
+  const fetcher = async () => {
+    calls++;
+    return { ok: true, json: async () => ({ version: '0.2.0' }) };
+  };
+  assert.match(await updateNotice(cache, '0.1.0', { fetcher, now: 100 }), /0.2.0/);
+  assert.equal(calls, 1);
+});
+
 test('setup preview leaves home and source unchanged', (t) => {
   const f = fixture(t);
   const before = readdirSync(f.home);

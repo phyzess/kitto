@@ -8,9 +8,9 @@ import { checkoutGitDir, cleanExit, commonDir, git, inspect, output, registratio
 import type { Json } from '../types/kitto.d.ts';
 
 interface LifecycleArgs {
-  repo?: string;
-  task?: string;
-  session?: string;
+  repo: string;
+  task: string;
+  session: string;
   confirm?: string;
   quiescent?: boolean;
   release?: boolean;
@@ -31,7 +31,7 @@ interface RepoContext {
   repo: string;
   common: string;
   entries: WorktreeRegistration[];
-  primary: WorktreeRegistration;
+  primary: WorktreeRegistration & { HEAD: string };
   scope: [string, string];
   key: string;
   bucket: string;
@@ -72,7 +72,7 @@ async function stat(path: string) {
 
 async function nodeIdentity(path: string): Promise<string> {
   const node = await stat(path);
-  requireFact(node?.isDirectory() && (await realpath(path)) === path, 'Directory identity is unknown.');
+  requireFact(node !== null && node.isDirectory() && (await realpath(path)) === path, 'Directory identity is unknown.');
   return `${node.dev}:${node.ino}`;
 }
 
@@ -193,7 +193,18 @@ async function repository(args: LifecycleArgs, root: string): Promise<RepoContex
   const bucket = join(root, repoId);
   const path = join(bucket, key);
   const branch = `kitto/task-${key}`;
-  return { repo, common, entries, primary, scope, key, bucket, path, branch, file: join(bucket, `${key}.json`) };
+  return {
+    repo,
+    common,
+    entries,
+    primary: { ...primary, HEAD: primary.HEAD },
+    scope,
+    key,
+    bucket,
+    path,
+    branch,
+    file: join(bucket, `${key}.json`),
+  };
 }
 
 function ownRegistration(ctx: RepoContext): WorktreeRegistration[] {
@@ -207,7 +218,10 @@ async function emptyDestination(ctx: RepoContext): Promise<boolean> {
 
 const ownershipMarker = 'kitto-owner';
 
-async function binding(ctx: RepoContext, create = false): Promise<{ identity: string; entry: WorktreeRegistration; gitDir: string }> {
+async function binding(
+  ctx: RepoContext,
+  create = false,
+): Promise<{ identity: string; entry: WorktreeRegistration & { HEAD: string }; gitDir: string }> {
   const entries = ownRegistration(ctx);
   const [entry] = entries;
   requireFact(
@@ -227,7 +241,7 @@ async function binding(ctx: RepoContext, create = false): Promise<{ identity: st
   requireFact(await privatePath(marker, false), 'Managed checkout ownership marker is missing.');
   const owner = await readFile(marker, 'utf8');
   requireFact(hex.test(owner), 'Invalid checkout ownership marker.');
-  return { identity: digest([...nodes, owner]), entry, gitDir };
+  return { identity: digest([...nodes, owner]), entry: { ...entry, HEAD: entry.HEAD }, gitDir };
 }
 
 function currentRow(
@@ -436,6 +450,8 @@ async function checkoutSnapshot(ctx: RepoContext, head: string): Promise<string>
   requireFact(committed.size === indexed.size, 'Some indexed paths are not committed.');
   verifyConversionPolicy(ctx.path, indexed.keys());
   const root = await stat(ctx.path);
+  requireFact(root !== null && root.isDirectory(), 'Unknown checkout root.');
+  const rootDevice = root.dev;
   const hash = createHash('sha256');
   function record(name: string, node: Json) {
     hash.update(JSON.stringify([name, ...observation(node)]));
@@ -445,7 +461,7 @@ async function checkoutSnapshot(ctx: RepoContext, head: string): Promise<string>
       const child = join(path, name),
         rel = parent ? `${parent}/${name}` : name;
       const node = await stat(child);
-      requireFact(node && node.dev === root.dev, 'Unknown checkout entry or filesystem boundary.');
+      requireFact(node && node.dev === rootDevice, 'Unknown checkout entry or filesystem boundary.');
       record(rel, node);
       if (rel === '.git') requireFact(node.isFile(), 'Unknown Git file.');
       else if (node.isDirectory()) {
@@ -466,7 +482,6 @@ async function checkoutSnapshot(ctx: RepoContext, head: string): Promise<string>
       }
     }
   }
-  requireFact(root?.isDirectory(), 'Unknown checkout root.');
   record('', root);
   await walk(ctx.path, '');
   requireFact(!indexed.size && !directories.size, 'Some indexed paths are unavailable.');
@@ -563,7 +578,7 @@ export async function matchesArchiveClaim(
   try {
     const root = stateRoot();
     if (!(await privatePath(root, true))) return false;
-    const ctx = await repository({ repo, task: task as string }, root);
+    const ctx = await repository({ repo, task, session }, root);
     if (header.cwd !== ctx.path || !(await privatePath(ctx.bucket, true))) return false;
     const row = await load(ctx.file, ctx.key);
     if (row?.phase !== 'ready' || !row.sessions.includes(session)) return false;

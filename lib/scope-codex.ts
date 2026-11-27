@@ -49,10 +49,12 @@ export async function installCodexScope({
       Array.isArray(group?.hooks) && group.hooks.some((handler: Json) => handler?.type === 'command' && handler.command === command),
   );
 
-  const skillsPath = global ? join(home, '.agents/skills/kitto-shared') : null;
-  const skillsSource = global ? join(root, '.agents/skills') : null;
+  if (global && root === undefined) throw new Error('A global Codex scope install needs the scope root.');
+  const skillsLink =
+    global && root !== undefined ? { path: join(home, '.agents/skills/kitto-shared'), source: join(root, '.agents/skills') } : null;
   async function needsLink() {
-    if (!skillsPath) return false;
+    if (!skillsLink) return false;
+    const { path: skillsPath, source: skillsSource } = skillsLink;
     const entry = await existing(skillsPath);
     if (!entry) return true;
     if (entry.isSymbolicLink() && sameLocation(resolve(dirname(skillsPath), await readlink(skillsPath)), skillsSource)) return false;
@@ -77,15 +79,15 @@ export async function installCodexScope({
       await rm(staging, { recursive: true, force: true });
     }
   }
-  if (!dryRun && link) {
-    await mkdir(dirname(skillsPath), { recursive: true });
+  if (!dryRun && link && skillsLink) {
+    await mkdir(dirname(skillsLink.path), { recursive: true });
     try {
-      await symlink(skillsSource, skillsPath, 'dir');
+      await symlink(skillsLink.source, skillsLink.path, 'dir');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || (await needsLink())) throw error;
     }
   }
   if (dryRun) console.log(`Codex scoped configuration: ${path}`);
   else if (needsHook) console.log('In Codex, review and trust the Kitto SessionStart hook with /hooks. Start a new session afterward.');
-  return { path, changed: needsHook || link, skillsPath };
+  return { path, changed: needsHook || link, skillsPath: skillsLink?.path ?? null };
 }

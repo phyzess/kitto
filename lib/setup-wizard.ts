@@ -98,15 +98,15 @@ async function configure({
       }
 
       if (selected.includes('dsh') && !dshProfileAsked) {
-        dshProfile = await text('DSH 配置档名称（desktop 由 Desktop 应用管理，仅部署全局规则/skills）', {
+        const answer = await text('DSH 配置档名称（desktop 由 Desktop 应用管理，仅部署全局规则/skills）', {
           initialValue: 'web',
           validate: (value) => {
             if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value)) return '请输入有效的 DSH 配置档名称';
             if (unit && value.toLowerCase() === 'desktop') return '系统服务不能使用 desktop 配置档';
           },
         });
-        if (dshProfile === undefined) return undefined;
-        dshProfile = normalizeDshProfile(dshProfile);
+        if (answer === undefined) return undefined;
+        dshProfile = normalizeDshProfile(answer);
         dshProfileAsked = true;
         if (isDesktopProfile(dshProfile)) {
           print('DSH Desktop 由 App 管理：Kitto 只部署全局 AGENTS.md 和 skills；不安装 bundle、不写 profile patch、不需要 pnpm。');

@@ -31,6 +31,7 @@ import type { HostAction } from './hosts/action.ts';
 import type { HostName, RuntimeRecord, SourceRevision, State } from '../types/kitto.d.ts';
 import type { InstructionPlan } from './host-config.ts';
 import type { McpOperation } from './codex-mcp.ts';
+import { stateHome } from './state-homes.ts';
 
 export interface KittoOptions {
   'dry-run'?: boolean;
@@ -55,19 +56,19 @@ export interface KittoOptions {
 
 type SkillAction = 'copy' | 'remove' | 'keep' | 'same' | 'linked';
 
-interface SkillPlanItem {
-  name: string;
-  source?: string;
-  target: string;
-  hash?: string;
-  action: SkillAction;
-}
+type SkillPlanItem =
+  | { name: string; target: string; action: 'remove'; source?: string; hash?: string }
+  | { name: string; target: string; action: 'keep'; source?: string; hash?: string }
+  | { name: string; target: string; action: 'copy' | 'same' | 'linked'; source: string; hash: string };
 
-interface SkillGroup {
+interface SkillRoot {
   name: string;
   source: string;
   target: string;
-  plans?: SkillPlanItem[];
+}
+
+interface SkillGroup extends SkillRoot {
+  plans: SkillPlanItem[];
 }
 
 interface ConfigurationPlan {
@@ -294,13 +295,15 @@ async function skillPlan(root: string, destination: string, state: State, group:
 }
 
 async function configurationPlan(state: State): Promise<ConfigurationPlan> {
-  const groups: SkillGroup[] = [
-    { name: 'shared', source: join(state.source, 'skills'), target: join(state.agentsHome, 'skills') },
+  const roots: SkillRoot[] = [
+    { name: 'shared', source: join(state.source, 'skills'), target: join(stateHome(state, 'agentsHome'), 'skills') },
     ...hostSkillRoots(state),
   ];
-  for (const group of groups) {
-    group.plans = await skillPlan(group.source, group.target, state, group.name);
-    for (const plan of group.plans) console.log(`skill ${plan.action}: ${plan.name} (${group.name})`);
+  const groups: SkillGroup[] = [];
+  for (const root of roots) {
+    const plans = await skillPlan(root.source, root.target, state, root.name);
+    for (const plan of plans) console.log(`skill ${plan.action}: ${plan.name} (${root.name})`);
+    groups.push({ ...root, plans });
   }
   const instructions = await instructionPlan(state);
   for (const plan of instructions) console.log(`instructions ${plan.before === plan.after ? 'same' : 'sync'}: ${plan.target}`);
@@ -337,7 +340,7 @@ async function deploy(state: State, apply: boolean, plan: ConfigurationPlan | un
         await rm(trash, { recursive: true, force: true });
       }
       if (plan.action === 'keep') kept.push(plan.name);
-      else if (plan.action !== 'remove') owned[plan.name] = plan.hash!;
+      else if (plan.action !== 'remove') owned[plan.name] = plan.hash;
     }
     replaceScope(state, 'skill', name, { owned, kept });
   }
@@ -447,7 +450,7 @@ async function refreshRuntime(state: State, apply: boolean): Promise<RuntimeReco
     );
     return undefined;
   }
-  const installed = await installRuntime(home, state, state.agentsHome);
+  const installed = await installRuntime(home, state, stateHome(state, 'agentsHome'));
   const pending = { version: (await json(join(installed, 'package.json'))).version, hash: await treeHash(installed) };
   state.pendingRuntime = pending;
   await saveKittoState(home, state);
@@ -488,20 +491,19 @@ function restoreError(state: State, detail: string): Error {
   return new Error(`${detail} ${restoreHint(state)} and rerun kitto setup; or use a new KITTO_HOME for a fresh installation.`);
 }
 
-async function checkRestoreRef(state: State): Promise<void> {
+async function checkRestoreRef(state: State, url: string): Promise<void> {
   const ref = state.sourceRef;
   if (!ref) return;
   let heads: string, tags: string;
   try {
-    heads = run('git', ['ls-remote', '--heads', state.sourceUrl, `refs/heads/${ref}`], { capture: true, timeout: 30_000 });
-    tags = run('git', ['ls-remote', '--tags', state.sourceUrl, `refs/tags/${ref}`], { capture: true, timeout: 30_000 });
+    heads = run('git', ['ls-remote', '--heads', url, `refs/heads/${ref}`], { capture: true, timeout: 30_000 });
+    tags = run('git', ['ls-remote', '--tags', url, `refs/tags/${ref}`], { capture: true, timeout: 30_000 });
   } catch (error) {
-    throw restoreError(state, `Cannot inspect ${redactUrl(state.sourceUrl)}: ${(error as Error).message}.`);
+    throw restoreError(state, `Cannot inspect ${redactUrl(url)}: ${(error as Error).message}.`);
   }
-  if (heads && tags)
-    throw restoreError(state, `The recorded ref ${ref} exists as both a branch and a tag on ${redactUrl(state.sourceUrl)}.`);
+  if (heads && tags) throw restoreError(state, `The recorded ref ${ref} exists as both a branch and a tag on ${redactUrl(url)}.`);
   if (tags) throw restoreError(state, `The checkout was pinned to tag ${ref} and Kitto does not guess pinned snapshots.`);
-  if (!heads) throw restoreError(state, `Branch ${ref} no longer exists on ${redactUrl(state.sourceUrl)}.`);
+  if (!heads) throw restoreError(state, `Branch ${ref} no longer exists on ${redactUrl(url)}.`);
 }
 
 async function syncSourceLocation(state: State, apply: boolean): Promise<void> {
@@ -560,7 +562,7 @@ async function updateSource(state: State, apply: boolean): Promise<boolean> {
     if (state.sourceRef === undefined)
       throw restoreError(state, 'The configuration checkout is missing and state.json does not record its branch or tag.');
     if (!isGitUrl(state.sourceUrl)) throw restoreError(state, 'The recorded source URL is not an HTTPS/SSH Git URL.');
-    await checkRestoreRef(state);
+    await checkRestoreRef(state, state.sourceUrl);
     console.log(
       `Restore configuration checkout from ${redactUrl(state.sourceUrl)}${state.sourceRef ? ` (${state.sourceRef})` : ' (remote default branch)'}: ${state.source}`,
     );
@@ -821,8 +823,8 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
     if (old.routingInstallKind === 'service' && boundary !== 'skip')
       throw new Error('Routing is not supported for a Kitto service account.');
     state.routingInstallKind = old.routingInstallKind === 'service' ? 'service' : 'local';
-    setRoutingBoundary(state, boundary, routingRoutes);
-    console.log(`Local model routing boundary: ${state.routingBoundary.mode}`);
+    const applied = setRoutingBoundary(state, boundary, routingRoutes);
+    console.log(`Local model routing boundary: ${applied.mode}`);
   }
   if (options.keepExistingSkills === true) state.keepExistingSkills = true;
   if (agents.includes('codex') && !sameLocation(state.agentsHome, resolve(homedir(), '.agents'))) {
@@ -840,7 +842,7 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
       console.log(desktopProfileNotice);
     } else {
       const builtIn = ['web', 'headless', 'sdk', 'sdk-minimal', 'acp'];
-      if (!builtIn.includes(dshProfile) && !(await present(join(state.dshHome, 'profiles', dshProfile, 'package.json')))) {
+      if (!builtIn.includes(dshProfile) && !(await present(join(stateHome(state, 'dshHome'), 'profiles', dshProfile, 'package.json')))) {
         throw new Error(`Initialize the native DSH profile ${dshProfile} before setup.`);
       }
       console.log(`DSH profile: ${dshProfile}`);
@@ -878,7 +880,7 @@ export async function setup(options: KittoOptions = {}): Promise<void> {
     }
     await validateSource(state);
     const plan = await configurationPlan(state);
-    await installRuntime(home, old, state.agentsHome);
+    await installRuntime(home, old, stateHome(state, 'agentsHome'));
     await saveKittoState(home, state);
     await deploy(state, true, plan);
   });
