@@ -10,6 +10,13 @@ import { fileURLToPath } from 'node:url';
 import {
   applyCodexMcp, defaultCodexRun, planCodexMcp, removeCodexMcp, sourceServers, sourceTransport, transportHash,
 } from '../lib/codex-mcp.mjs';
+import { list, markPending } from '../lib/ownership.mjs';
+
+const confirmedOf = state => Object.fromEntries(list(state, 'mcp', 'codex').flatMap(entry => {
+  const hash = entry.status === 'owned' ? entry.hash : entry.previous;
+  return hash === undefined ? [] : [[entry.name, hash]];
+}));
+const pendingOf = state => Object.fromEntries(list(state, 'mcp', 'codex', 'pending').map(entry => [entry.name, entry.hash]));
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const fakeAgent = join(root, 'tests/helpers/fake-agent.cjs');
@@ -50,7 +57,8 @@ function fixture(t) {
     : [];
   const mcpCalls = action => calls().filter(call => call.command === 'codex'
     && call.args[0] === 'mcp' && call.args[1] === action);
-  const state = (owned = {}) => ({ source, codexHome, agents: ['codex'], mcp: { codex: { ...owned } } });
+  const state = (owned = {}) => ({ source, codexHome, agents: ['codex'], schema: 2,
+    owned: { mcp: { codex: Object.fromEntries(Object.entries(owned).map(([name, hash]) => [name, { hash, status: 'owned' }])) } } });
   const plan = async current => {
     const lines = [];
     const operations = await planCodexMcp(current, {
@@ -143,12 +151,12 @@ test('new source servers are added once and ownership fingerprints are recorded'
   assert.deepEqual(f.codexState().mcpServers.alpha.transport,
     { type: 'stdio', command: 'alpha-mcp', args: ['serve'] });
   assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://example.invalid/mcp');
-  assert.equal(state.mcp.codex.alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: ['serve'] }));
-  assert.equal(state.mcp.codex.remote, transportHash({ type: 'http', url: 'https://example.invalid/mcp' }));
+  assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: ['serve'] }));
+  assert.equal(confirmedOf(state).remote, transportHash({ type: 'http', url: 'https://example.invalid/mcp' }));
   assert.deepEqual(f.mcpCalls('add').map(call => call.args.slice(2)),
     [['alpha', '--', 'alpha-mcp', 'serve'], ['remote', '--url', 'https://example.invalid/mcp']]);
   const saves = JSON.parse(readFileSync(join(f.temp, 'state.json'), 'utf8'));
-  assert.equal(saves.mcp.codex.alpha, state.mcp.codex.alpha);
+  assert.equal(confirmedOf(saves).alpha, confirmedOf(state).alpha);
 
   const before = JSON.stringify(f.codexState().mcpServers);
   const second = await f.plan(state);
@@ -182,7 +190,7 @@ test('an owned server is updated when its source transport changes', async t => 
   await f.apply(state);
   assert.deepEqual(f.codexState().mcpServers.alpha.transport,
     { type: 'stdio', command: 'alpha-v2-mcp', args: ['serve', '--new'] });
-  assert.equal(state.mcp.codex.alpha,
+  assert.equal(confirmedOf(state).alpha,
     transportHash({ type: 'stdio', command: 'alpha-v2-mcp', args: ['serve', '--new'] }));
   assert.equal(f.mcpCalls('add').length, 2);
   const again = await f.plan(state);
@@ -205,16 +213,16 @@ test('an interrupted add leaves pending ownership that the next run adopts', asy
   }), /simulated state write failure/);
   assert(f.codexState().mcpServers.alpha);
   const interrupted = JSON.parse(readFileSync(statePath, 'utf8'));
-  assert.equal(interrupted.mcp.codex.alpha, undefined);
-  assert.equal(interrupted.mcp.codexPending.alpha, hash);
+  assert.equal(confirmedOf(interrupted).alpha, undefined);
+  assert.equal(pendingOf(interrupted).alpha, hash);
   const retry = JSON.parse(readFileSync(statePath, 'utf8'));
   const plan = await f.plan(retry);
   assert.equal(plan.operations[0].action, 'adopt');
   const adds = f.mcpCalls('add').length;
   await f.apply(retry);
   assert.equal(f.mcpCalls('add').length, adds, 'adoption must not add a second time');
-  assert.equal(retry.mcp.codex.alpha, hash);
-  assert.equal(retry.mcp.codexPending, undefined);
+  assert.equal(confirmedOf(retry).alpha, hash);
+  assert.deepEqual(pendingOf(retry), {});
 });
 
 test('a verification failure after the native write is adopted on retry', async t => {
@@ -241,13 +249,13 @@ test('a verification failure after the native write is adopted on retry', async 
     run, env: f.env, home: f.codexHome, platform: 'linux', save, warn: () => {},
   }), /simulated list failure/);
   const interrupted = JSON.parse(readFileSync(statePath, 'utf8'));
-  assert.equal(interrupted.mcp.codex.alpha, undefined);
-  assert.equal(interrupted.mcp.codexPending.alpha, hash);
+  assert.equal(confirmedOf(interrupted).alpha, undefined);
+  assert.equal(pendingOf(interrupted).alpha, hash);
   const retry = JSON.parse(readFileSync(statePath, 'utf8'));
   assert.equal((await f.plan(retry)).operations[0].action, 'adopt');
   await f.apply(retry);
-  assert.equal(retry.mcp.codex.alpha, hash);
-  assert.equal(retry.mcp.codexPending, undefined);
+  assert.equal(confirmedOf(retry).alpha, hash);
+  assert.deepEqual(pendingOf(retry), {});
 });
 
 test('pending-only servers are reconciled when the source disappears', async t => {
@@ -264,29 +272,29 @@ test('pending-only servers are reconciled when the source disappears', async t =
     run: f.run, env: f.env, home: f.codexHome, platform: 'linux', save, warn: () => {},
   }), /simulated state write failure/);
   const interrupted = JSON.parse(readFileSync(statePath, 'utf8'));
-  assert(interrupted.mcp.codexPending.alpha);
+  assert(pendingOf(interrupted).alpha);
   f.writeSource({});
   const plan = await f.plan(interrupted);
   assert(plan.operations.some(operation => operation.action === 'remove' && operation.name === 'alpha'));
   await f.apply(interrupted);
   assert.equal(f.codexState().mcpServers.alpha, undefined);
-  assert.equal(interrupted.mcp.codexPending, undefined);
-  assert.deepEqual(interrupted.mcp.codex, {});
+  assert.deepEqual(pendingOf(interrupted), {});
+  assert.deepEqual(confirmedOf(interrupted), {});
   const orphan = f.state();
-  orphan.mcp.codexPending = { beta: transportHash({ type: 'stdio', command: 'beta-mcp', args: [] }) };
+  markPending(orphan, 'mcp', 'codex', 'beta', transportHash({ type: 'stdio', command: 'beta-mcp', args: [] }));
   f.saveCodex({ mcpServers: {} });
   const orphanPlan = await f.plan(orphan);
   assert.equal(orphanPlan.operations[0].action, 'forgetPending');
   await f.apply(orphan);
-  assert.equal(orphan.mcp.codexPending, undefined);
+  assert.deepEqual(pendingOf(orphan), {});
   const changed = f.state();
-  changed.mcp.codexPending = { gamma: transportHash({ type: 'stdio', command: 'gamma-mcp', args: [] }) };
+  markPending(changed, 'mcp', 'codex', 'gamma', transportHash({ type: 'stdio', command: 'gamma-mcp', args: [] }));
   f.saveCodex({ mcpServers: { gamma: { transport: { type: 'stdio', command: 'user-gamma', args: [] } } } });
   const changedPlan = await f.plan(changed);
   assert.equal(changedPlan.operations[0].action, 'forgetPending');
   await f.apply(changed);
   assert.equal(f.codexState().mcpServers.gamma.transport.command, 'user-gamma');
-  assert.equal(changed.mcp.codexPending, undefined);
+  assert.deepEqual(pendingOf(changed), {});
 });
 
 test('a native add timeout after writing the server is adopted with a warning', async t => {
@@ -307,8 +315,8 @@ test('a native add timeout after writing the server is adopted with a warning', 
     warn: line => warnings.push(line),
   });
   assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://example.invalid/mcp');
-  assert.equal(state.mcp.codex.remote, transportHash({ type: 'http', url: 'https://example.invalid/mcp' }));
-  assert.equal(state.mcp.codexPending, undefined);
+  assert.equal(confirmedOf(state).remote, transportHash({ type: 'http', url: 'https://example.invalid/mcp' }));
+  assert.deepEqual(pendingOf(state), {});
   assert.match(warnings.join('\n'), /adopted/);
   assert.match(warnings.join('\n'), /codex mcp login remote/);
   assert.equal(f.mcpCalls('add').length, 1);
@@ -327,8 +335,8 @@ test('a native add timeout without a live server is retried, not adopted', async
     save: async () => writeFileSync(statePath, JSON.stringify(state)), warn: () => {},
   }), /timed out/);
   assert.equal(f.codexState().mcpServers.remote, undefined);
-  assert.equal(state.mcp.codex.remote, undefined);
-  assert(state.mcp.codexPending.remote);
+  assert.equal(confirmedOf(state).remote, undefined);
+  assert(pendingOf(state).remote);
 });
 
 test('a post-write timeout does not adopt a different live transport', async t => {
@@ -349,13 +357,13 @@ test('a post-write timeout does not adopt a different live transport', async t =
     save: async () => writeFileSync(statePath, JSON.stringify(state)), warn: () => {},
   }), /simulated timeout/);
   assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://user.example/mcp');
-  assert.equal(state.mcp.codex.remote, undefined);
-  assert(state.mcp.codexPending.remote, 'the pending record stays for a safe retry');
+  assert.equal(confirmedOf(state).remote, undefined);
+  assert(pendingOf(state).remote, 'the pending record stays for a safe retry');
   const plan = await f.plan(state);
   assert.equal(plan.operations[0].action, 'conflict');
   await f.apply(state);
   assert.equal(f.codexState().mcpServers.remote.transport.url, 'https://user.example/mcp');
-  assert.equal(state.mcp.codexPending, undefined);
+  assert.deepEqual(pendingOf(state), {});
 });
 
 test('a failed pre-write save never touches live Codex', async t => {
@@ -384,14 +392,14 @@ test('verified missing live servers prune stale ownership instead of misclaiming
   plan = await f.plan(state);
   assert.equal(plan.operations[0].action, 'forget');
   await f.apply(state);
-  assert.deepEqual(state.mcp.codex, {});
+  assert.deepEqual(confirmedOf(state), {});
   f.writeSource({ alpha: { command: 'alpha-mcp', args: [] } });
   f.saveCodex({ mcpServers: { alpha: { transport: { type: 'stdio', command: 'alpha-mcp', args: [] } } } });
   plan = await f.plan(state);
   assert.equal(plan.operations[0].action, 'conflict');
   await f.apply(state);
   assert(f.codexState().mcpServers.alpha);
-  assert.deepEqual(state.mcp.codex, {});
+  assert.deepEqual(confirmedOf(state), {});
 });
 
 test('dotted server names are synced with the name set Codex accepts', async t => {
@@ -402,7 +410,7 @@ test('dotted server names are synced with the name set Codex accepts', async t =
   assert.equal(operations[0].action, 'add');
   await f.apply(state);
   assert.equal(f.codexState().mcpServers['dot.name'].transport.command, 'dot-mcp');
-  assert.equal(state.mcp.codex['dot.name'], transportHash({ type: 'stdio', command: 'dot-mcp', args: [] }));
+  assert.equal(confirmedOf(state)['dot.name'], transportHash({ type: 'stdio', command: 'dot-mcp', args: [] }));
 });
 
 test('preview probes a scratch CODEX_HOME instead of writing the real one', async t => {
@@ -444,7 +452,7 @@ test('a same-name server without Kitto ownership is preserved with a warning', a
   assert.match(warnings.join('\n'), /preserved/);
   assert.equal(f.codexState().mcpServers.alpha.transport.command, 'user-mcp');
   assert.equal(f.mcpCalls('add').length, 0);
-  assert.deepEqual(state.mcp.codex, {});
+  assert.deepEqual(confirmedOf(state), {});
 });
 
 test('servers changed outside Kitto are preserved instead of overwritten', async t => {
@@ -466,7 +474,7 @@ test('servers changed outside Kitto are preserved instead of overwritten', async
     assert.match(warnings.join('\n'), /preserved/);
     assert.equal(JSON.stringify(f.codexState().mcpServers), liveBefore);
     assert.equal(f.mcpCalls('add').length, addCount);
-    assert.equal(state.mcp.codex.alpha, transportHash({ type: 'stdio', command: 'kitto-mcp', args: ['serve'] }));
+    assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'kitto-mcp', args: ['serve'] }));
   }
 });
 
@@ -492,8 +500,8 @@ test('removing a source server only removes the untouched Kitto-owned live copy'
   assert.equal(f.codexState().mcpServers.beta, undefined);
   assert.equal(f.codexState().mcpServers.alpha.transport.command, 'edited-mcp');
   assert(f.codexState().mcpServers.personal);
-  assert.equal(state.mcp.codex.beta, undefined);
-  assert.equal(state.mcp.codex.alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: [] }));
+  assert.equal(confirmedOf(state).beta, undefined);
+  assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: [] }));
   assert.deepEqual(f.mcpCalls('remove').map(call => call.args[2]), ['beta']);
 });
 
@@ -506,14 +514,14 @@ test('a partial apply saves the successful server and resumes without repeating 
   const state = f.state();
   f.env.FAKE_MCP_FAIL_ADD = 'beta';
   await assert.rejects(f.apply(state), /simulated MCP add failure/);
-  assert.equal(state.mcp.codex.alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: [] }));
-  assert.equal(state.mcp.codex.beta, undefined);
-  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(f.temp, 'state.json'), 'utf8')).mcp.codex), ['alpha']);
+  assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: [] }));
+  assert.equal(confirmedOf(state).beta, undefined);
+  assert.deepEqual(Object.keys(confirmedOf(JSON.parse(readFileSync(join(f.temp, 'state.json'), 'utf8')))), ['alpha']);
   assert.deepEqual(Object.keys(f.codexState().mcpServers), ['alpha']);
   delete f.env.FAKE_MCP_FAIL_ADD;
   await f.apply(state);
   assert.deepEqual(Object.keys(f.codexState().mcpServers).sort(), ['alpha', 'beta']);
-  assert.equal(state.mcp.codex.beta, transportHash({ type: 'stdio', command: 'beta-mcp', args: [] }));
+  assert.equal(confirmedOf(state).beta, transportHash({ type: 'stdio', command: 'beta-mcp', args: [] }));
   assert.equal(f.mcpCalls('add').filter(call => call.args[2] === 'alpha').length, 1);
   assert.equal(f.mcpCalls('add').filter(call => call.args[2] === 'beta').length, 2);
 });
@@ -539,8 +547,8 @@ test('setup preview prints MCP actions without writing; apply owns only Kitto se
   const setup = f.cli('setup', '--agents', 'codex', '--source', f.source);
   good(setup);
   const state = JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'), 'utf8'));
-  assert.equal(state.mcp.codex.alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: ['serve'] }));
-  assert.equal(state.mcp.codex.personal, undefined);
+  assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: ['serve'] }));
+  assert.equal(confirmedOf(state).personal, undefined);
   assert(f.codexState().mcpServers.alpha);
   assert.equal(f.codexState().mcpServers.personal.transport.command, 'personal-mcp');
 
@@ -559,7 +567,7 @@ test('setup preview prints MCP actions without writing; apply owns only Kitto se
   assert(f.codexState().mcpServers.personal);
   const detached = JSON.parse(readFileSync(join(f.env.KITTO_HOME, 'state.json'), 'utf8'));
   assert.equal(detached.detached, true);
-  assert.deepEqual(detached.mcp.codex, {});
+  assert.deepEqual(confirmedOf(detached), {});
 });
 
 test('Codex setup fails with a clear error when the Pi MCP source is missing', t => {
@@ -591,7 +599,7 @@ test('removeCodexMcp reports ownership conflicts without deleting them', async t
     save: async () => {}, log: () => {}, warn: () => {},
   });
   assert(f.codexState().mcpServers.alpha);
-  assert.equal(state.mcp.codex.alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: [] }));
+  assert.equal(confirmedOf(state).alpha, transportHash({ type: 'stdio', command: 'alpha-mcp', args: [] }));
 });
 
 test('setup preview and status never invoke Codex with the real CODEX_HOME', t => {
@@ -628,7 +636,7 @@ test('an HTTP Authorization reference becomes --bearer-token-env-var', async t =
     { type: 'streamable_http', url: 'https://example.invalid/mcp', bearer_token_env_var: 'API_TOKEN' });
   assert.deepEqual(f.mcpCalls('add')[0].args,
     ['mcp', 'add', 'api', '--url', 'https://example.invalid/mcp', '--bearer-token-env-var', 'API_TOKEN']);
-  assert.equal(state.mcp.codex.api, transportHash(
+  assert.equal(confirmedOf(state).api, transportHash(
     { type: 'http', url: 'https://example.invalid/mcp', bearerTokenEnvVar: 'API_TOKEN' }));
   assert(!JSON.stringify(f.calls()).includes('Bearer'), 'the source scheme is not copied into argv');
   assert(!JSON.stringify(f.codexState()).includes('Bearer'));

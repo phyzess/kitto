@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { codexMcpNames } from '../lib/parity.mjs';
+import { get, list } from '../lib/ownership.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const nativeBin = process.env.KITTO_NATIVE_BIN;
@@ -67,8 +68,8 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
   assert.equal(codexServer('kitto-fixture').transport.command, 'kitto-fixture-mcp');
-  assert.equal(state().mcp.codex['shared-fixture'], undefined);
-  assert.match(state().mcp.codex['kitto-fixture'], /^[0-9a-f]{64}$/);
+  assert.equal(get(state(), 'mcp', 'codex', 'shared-fixture'), undefined);
+  assert.match(get(state(), 'mcp', 'codex', 'kitto-fixture').hash, /^[0-9a-f]{64}$/);
   const configHashAfterSetup = codexConfigHash();
   maintain('sync', '--apply');
   assert.equal(codexConfigHash(), configHashAfterSetup);
@@ -110,7 +111,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.equal(state().detached, true);
   assert.deepEqual(codexNames(), ['shared-fixture']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
-  assert.deepEqual(state().mcp.codex, {});
+  assert.deepEqual(list(state(), 'mcp', 'codex'), []);
   assert.equal(ownedPi().length, 0);
   assert.equal(pluginVersion(), undefined);
   assert(!JSON.parse(run('codex', ['plugin', 'marketplace', 'list', '--json'])).marketplaces.some(x => x.name === 'phyzess-kitto'));
@@ -127,7 +128,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
   assert.deepEqual(codexNames(), ['kitto-fixture', 'shared-fixture']);
   assert.equal(codexServer('shared-fixture').transport.command, 'user-shared-mcp');
   assert.deepEqual(codexServer('kitto-fixture').transport.args, ['serve', '--updated']);
-  assert.match(state().mcp.codex['kitto-fixture'], /^[0-9a-f]{64}$/);
+  assert.match(get(state(), 'mcp', 'codex', 'kitto-fixture').hash, /^[0-9a-f]{64}$/);
   assert(dshProfile().dsh.profile.bundles.includes('@phyzess/kitto'));
 });
 

@@ -227,9 +227,29 @@ test('compose and extract agents helpers enforce the canonical composition', t =
 });
 
 function merge(f) {
-  mergeSettings(f.shared, f.machine, f.local, f.machine);
-  recordSettings(f.shared, f.machine, f.local);
+  mergeSettings(f.shared, f.machine, f.local, f.machine, { previous: f.owned ?? [] });
+  f.owned = recordSettings(f.shared, f.machine, f.local);
 }
+
+test('pull hands the shared package list to the ledger callback and writes no managed-packages file', t => {
+  const f = fixture(t);
+  const shared = readJson(f.shared).packages;
+  put(f.machine, { packages: [] });
+  const recorded = [];
+  f.ok('pull', { dryRun: true, onPackages: specs => recorded.push(specs) });
+  assert.deepEqual(recorded, []);
+  f.ok('pull', { onPackages: specs => recorded.push(specs) });
+  assert.deepEqual(recorded, [shared]);
+  assert.equal(existsSync(join(f.local, 'managed-packages.json')), false);
+});
+
+test('packages in the ownership list are not kept as machine-only extras', t => {
+  const f = fixture(t);
+  put(f.shared, { packages: [] });
+  put(f.machine, { packages: ['npm:old-shared', 'npm:personal'] });
+  f.ok('pull', { ownedPackages: ['npm:old-shared'] });
+  assert.deepEqual(readJson(f.machine).packages, ['npm:personal']);
+});
 
 test('a removed shared package stays removed while a local one survives', t => {
   const f = fixture(t);
