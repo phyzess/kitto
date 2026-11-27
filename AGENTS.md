@@ -49,6 +49,7 @@ npm run check:test-wiring
 npm run lint:invariants
 npm run typecheck
 npm run lint:ox
+npm run build
 npm test
 python3 -m unittest discover -s tests -v   # while Python tests exist
 ```
