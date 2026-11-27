@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { createDispatchGate, issueRoutePermit, registerDshRouting, ROUTING_HOST_VERSION } from '../integration/dsh-routing.mjs';
 import { createRouteObserver } from '../integration/dsh-route-evidence.mjs';
 import { setRoutingBoundary } from '../lib/routing-policy.mjs';
@@ -13,7 +13,7 @@ const route = { provider: 'openai-codex', model: 'gpt-6.2-sol', canonicalModel: 
   account: 'fixture-account', accountType: 'personal', accountVerified: true, billing: 'subscription', available: true, reasoningEfforts: ['low'] };
 function fixture(t, boundary = 'personal') {
   const root = mkdtempSync(join(tmpdir(), 'kitto-dsh-route-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(root, { recursive: true, force: true }));
   const home = join(root, 'native'), project = join(root, 'project');
   mkdirSync(home); mkdirSync(project);
   let now = Date.now();
@@ -112,7 +112,7 @@ test('pinned Cordis pipeline dispatches a permitted registered tool once and ret
     const f = fixture(t);
     const prior = process.env.KITTO_HOME;
     process.env.KITTO_HOME = f.root;
-    t.after(() => { if (prior === undefined) delete process.env.KITTO_HOME; else process.env.KITTO_HOME = prior; });
+    t.onTestFinished(() => { if (prior === undefined) delete process.env.KITTO_HOME; else process.env.KITTO_HOME = prior; });
     writeFileSync(join(f.root, 'state.json'), JSON.stringify(f.state));
     const ctx = new Context();
     ctx.provide('systemPrompt', { tools() {}, section() {}, context() {}, getSectionOrder: () => 0, getContextOrder: () => 0 });

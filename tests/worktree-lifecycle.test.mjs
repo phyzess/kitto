@@ -4,14 +4,14 @@ import { chmod, lstat, lutimes, mkdir, mkdtemp, readFile, readlink, realpath, rm
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 
 const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
 
 async function fixture(t, objectFormat = 'sha1') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-lifecycle-')));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }));
   const home = join(root, 'home'), repo = join(root, 'repo'), scopes = join(home, 'data');
   const state = join(home, 'state');
   await mkdir(scopes, { recursive: true });
@@ -427,7 +427,7 @@ test('installed DSH registry and actual adapter project durable archive and unar
   const vars = f.env;
   const prior = Object.fromEntries(Object.keys(vars).map(key => [key, process.env[key]]));
   Object.assign(process.env, vars);
-  t.after(() => {
+  t.onTestFinished(() => {
     for (const [key, value] of Object.entries(prior)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -455,7 +455,7 @@ test('installed DSH registry and actual adapter project durable archive and unar
     ctx.reflect.provide('storageDomain', storage);
     const workspace = ctx.plugin(WorkspaceRegistry);
     const plugin = ctx.plugin({ name: 'kitto-fixture', apply }, { archiveReview: true });
-    t.after(() => { plugin.dispose(); workspace.dispose(); });
+    t.onTestFinished(() => { plugin.dispose(); workspace.dispose(); });
     await workspace;
     await plugin;
     const tool = tools.get('kitto_worktree_archive_review');

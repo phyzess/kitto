@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
@@ -23,7 +23,7 @@ const fakeAgent = join(root, 'tests/helpers/fake-agent.cjs');
 
 function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-codex-mcp-'));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const bin = join(temp, 'bin'), codexHome = join(temp, 'codex'), source = join(temp, 'source');
   for (const dir of [bin, codexHome, join(source, 'config/pi'), join(source, 'config/instructions')]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(source, 'config/instructions/common.md'), '# Shared\n');
@@ -793,7 +793,7 @@ test('literal URL and command credentials are refused before argv', async t => {
 
 test('native Codex failures never echo argv', async t => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-codex-failure-'));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const bin = join(temp, 'bin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'codex'), `#!${process.execPath}\nprocess.exit(9)\n`, { mode: 0o755 });

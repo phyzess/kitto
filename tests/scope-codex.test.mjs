@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { hosts } from '../lib/host-pins.mjs';
@@ -15,7 +15,7 @@ const cli = join(packageRoot, 'bin/kitto.mjs');
 
 test('Codex scopes preserve existing hooks and compose with native repo discovery', async t => {
   const fixture = await mkdtemp(join(tmpdir(), 'kitto-codex-'));
-  t.after(() => rm(fixture, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(fixture, { recursive: true, force: true }));
   const home = join(fixture, 'home');
   const codexHome = join(home, 'codex');
   const dataHome = join(fixture, "data with ' quote");
@@ -86,7 +86,7 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
 
   const version = spawnSync('codex', ['--version'], { encoding: 'utf8', env: nativeEnv, timeout: 8000 }).stdout || '';
   if (!version.includes(`codex-cli ${hosts.codex.version}`)) {
-    t.diagnostic('Skipping model-request verification without the validated Codex CLI baseline.');
+    console.log('Skipping model-request verification without the validated Codex CLI baseline.');
     return;
   }
 
@@ -105,7 +105,7 @@ test('Codex scopes preserve existing hooks and compose with native repo discover
     res.end('data: {"type":"response.completed","response":{"id":"resp_fixture","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}}\n\n');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => server.close());
+  t.onTestFinished(() => server.close());
 
   async function nativePrompt(cwd) {
     request = undefined;

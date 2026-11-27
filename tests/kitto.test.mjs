@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, cpSync, chmodSync, lstatSync } from 'node:fs';
@@ -24,7 +24,7 @@ function command(cmd, args, env, cwd = root) {
 }
 function fixture(t) {
   const temp = mkdtempSync(join(tmpdir(), "kitto's test "));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const home = join(temp, 'home'), source = join(temp, 'source'), bin = join(temp, 'bin');
   for (const dir of [home, bin, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
   const files = {
@@ -121,7 +121,7 @@ test('host baseline comparison orders prereleases', () => {
 
 test('missing host installation preflight requires stable Node at the minimum version', t => {
   const emptyPath = mkdtempSync(join(tmpdir(), 'kitto-node-preflight-'));
-  t.after(() => rmSync(emptyPath, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(emptyPath, { recursive: true, force: true }));
   const probe = version => command(process.execPath, ['--input-type=module', '-e', `
     import { checkSelectedHosts } from './lib/kitto.mjs';
     Object.defineProperty(process.versions, 'node', { value: process.argv[1] });
@@ -139,7 +139,7 @@ test('missing host installation preflight requires stable Node at the minimum ve
 
 test('skill directory replacement is atomic and leaves no backup', async t => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-replace-'));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const source = join(temp, 'source'), target = join(temp, 'target');
   mkdirSync(source);
   writeFileSync(join(source, 'SKILL.md'), 'new');

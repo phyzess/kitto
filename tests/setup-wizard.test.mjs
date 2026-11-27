@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { runWizard } from '../lib/setup-wizard.mjs';
 
 async function wizard(answers, environment, { terminal = false, probeServicePnpm } = {}) {

@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,7 +7,7 @@ import { codegraphPlan, codegraphTargets, ensureCodeGraphIndexes } from '../lib/
 
 function temp(t) {
   const directory = mkdtempSync(join(tmpdir(), 'kitto-codegraph-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
 

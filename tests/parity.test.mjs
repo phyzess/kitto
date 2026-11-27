@@ -1,4 +1,5 @@
-import test from 'node:test';
+import { test } from 'vitest';
+import { subtest } from './helpers/subtest.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,7 @@ const dsh = await dshExecutable().catch(() => undefined);
 
 function temp(t) {
   const directory = mkdtempSync(join(tmpdir(), 'kitto-parity-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
 
@@ -225,7 +226,7 @@ test('expressions controlling an MCP declaration are unavailable, not fabricated
     ['server entry', `${manager}\n      config: { servers: { declared: !!js EXPRESSION } }`],
     ['server enabled', `${manager}\n      config: { servers: { declared: { enabled: !!js EXPRESSION } } }`],
   ]) {
-    await t.test(label, async child => assertDshUnavailable(await declarationProbe(child, `- insert:\n    - ${row}\n`)));
+    await subtest(t, label, async child => assertDshUnavailable(await declarationProbe(child, `- insert:\n    - ${row}\n`)));
   }
 });
 
@@ -278,6 +279,6 @@ test('active includes and indeterminate carriers are unavailable without reading
     ['dynamic group list', 'name: cordis:group\n      config: !!js EXPRESSION'],
     ['malformed group list', 'name: cordis:group\n      config: { bogus: true }'],
   ]) {
-    await t.test(label, async child => assertDshUnavailable(await declarationProbe(child, `- insert:\n    - ${row}\n`)));
+    await subtest(t, label, async child => assertDshUnavailable(await declarationProbe(child, `- insert:\n    - ${row}\n`)));
   }
 });

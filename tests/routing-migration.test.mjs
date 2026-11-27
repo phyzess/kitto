@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { migrateRouting } from '../lib/routing-migration.mjs';
 
 const original = 'Custom first\r\n<!-- kitto:begin -->\r\nKitto rules\r\n<!-- kitto:end -->\r\nCustom last';
 const patch = '- id: agent-teams\n  config:\n    fallback: { provider: local, model: custom }\n    profiles:\n      dev-hard:\n        "fallback": { provider: local, model: other }\n';
 function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'kitto-route-fixture-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const profile = join(home, 'profiles', 'web');
   const agents = join(home, 'AGENTS.md'), profilePatch = join(profile, 'cordis.patch.yml'), credentials = join(profile, 'auth.json');
   mkdirSync(profile, { recursive: true });

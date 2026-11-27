@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
-import { test } from 'node:test';
+import { createRequire, registerHooks } from 'node:module';
+import { test } from 'vitest';
 
+const nativeImport = createRequire(import.meta.url)('./helpers/native-import.cjs');
 const providerModule = '@earendil-works/pi-ai/providers/';
 const fixtureKey = Symbol.for('kitto.openrouter.fixture');
 const extension = new URL('../config/pi/extensions/openrouter-live.ts', import.meta.url);
@@ -74,14 +75,14 @@ async function fixture(t, options = {}) {
     assert.ok([`${userBase}/models/user`, 'https://regional.invalid/v1/models/user'].includes(url.href), `unexpected fetch ${url.href}`);
     return fixture.userResponse?.() ?? json({ data: fixture.allowed });
   };
-  t.after(() => {
+  t.onTestFinished(() => {
     hooks.deregister();
     globalThis.fetch = savedFetch;
     delete globalThis[fixtureKey];
     for (const [key, value] of oldEnv) if (value === undefined) delete process.env[key]; else process.env[key] = value;
   });
   fixture.commands = new Map();
-  const { default: initialize } = await import(`${extension.href}?fixture=${++sequence}`);
+  const { default: initialize } = await nativeImport(`${extension.href}?fixture=${++sequence}`);
   await initialize({ registerProvider: value => { fixture.provider = value; }, registerCommand: (name, value) => fixture.commands.set(name, value) });
   let generation = 0;
   fixture.refresh = async (overrides = {}) => {

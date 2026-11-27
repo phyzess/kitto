@@ -4,13 +4,13 @@ import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import test from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 
 const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
 async function fixture(t) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-audit-')));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }));
   const home = join(root, 'home'), ws = join(root, 'workspace'), repo = join(ws, 'example');
   await mkdir(home); await mkdir(repo, { recursive: true });
   const env = { GIT_CONFIG_NOSYSTEM: '1', PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: home, KITTO_HOME: join(root, 'not-created') };

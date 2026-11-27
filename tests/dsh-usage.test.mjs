@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import { test } from 'vitest';
 
 const script = fileURLToPath(new URL('../skills/context-budget/scripts/dsh-usage.mjs', import.meta.url));
 const time = Date.UTC(2026, 0, 1);
@@ -18,7 +18,7 @@ function fixture(t, { zstd = true } = {}) {
   const base = realpathSync(tmpdir());
   const home = mkdtempSync(join(base, 'kitto-dsh-usage-'));
   assert.match(relative(base, home), /^kitto-dsh-usage-[^/]+$/);
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const bin = join(home, 'bin');
   mkdirSync(bin);
   if (zstd) {

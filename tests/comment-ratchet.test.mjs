@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { parse } from 'yaml';
 import { command, formatFor, inspect, nativeParser } from '../scripts/comment-ratchet.mjs';
 import { compare, repository } from '../scripts/comment-ratchet/snapshots.mjs';
@@ -17,7 +17,7 @@ const workflow = run => `name: Checks\non: pull_request\njobs:\n  test:\n    run
 
 function fixture(t) {
   const cwd = mkdtempSync(join(tmpdir(), 'kitto-comment-test-'));
-  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(cwd, { recursive: true, force: true }));
   const git = (args, input) => command('git', args, { cwd, input }).toString().trim();
   git(['init', '-q', '--object-format=sha1']);
   function blob(source) { return git(['hash-object', '-w', '--stdin'], source); }

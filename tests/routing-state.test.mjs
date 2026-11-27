@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { createRoutingStore, newTicketId } from '../lib/routing-state.mjs';
 
 const now = Date.UTC(2026, 10, 25, 12);
@@ -19,7 +19,7 @@ function child(home, snippet, ...params) {
 
 function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'kitto-routing-state-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const store = createRoutingStore(home), id = newTicketId();
   store.issue({ id, selected, pool, issuedAt: now - 100, expiresAt: now + 60_000, binding: {}, request: {} });
   store.consume(id, () => {}, now - 99);

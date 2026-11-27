@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { sameLocation } from '../lib/paths.mjs';
 
@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 
 function aliasedRoot(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'kitto-paths-')));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(base, { recursive: true, force: true }));
   const real = join(base, 'real');
   const link = join(base, 'link');
   mkdirSync(real);

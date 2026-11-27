@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
@@ -103,7 +103,7 @@ test('Codex model override does not imply an upstream override', () => {
 
 test('public CLI plan and check accept only the approved official DSH task and matching staged scope', t => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-task-cli-'));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const fixture = join(temp, 'plan.json');
   const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
   const request = input('dsh', 'teams');
@@ -158,7 +158,7 @@ test('independently recomputing the native work fingerprint rejects a stale scop
 
 test('Pi CLI plan refuses a self-reported effort without native state', t => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-pi-cli-'));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const fixture = join(temp, 'plan.json');
   const cli = fileURLToPath(new URL('../bin/kitto.mjs', import.meta.url));
   const request = input('pi', 'current');

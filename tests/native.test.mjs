@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -13,7 +13,7 @@ const root = process.env.KITTO_TEST_PACKAGE_ROOT ? resolve(process.env.KITTO_TES
 const nativeBin = process.env.KITTO_NATIVE_BIN;
 test('native Pi/Codex/DSH installation, version change, recovery, detach and reinstall', { skip: !nativeBin, timeout: 240_000 }, t => {
   const temp = mkdtempSync(join(tmpdir(), "kitto native's "));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const home = join(temp, 'home'), source = join(temp, 'config'), previous = join(temp, 'previous');
   for (const dir of [home, previous, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
   const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'),
@@ -134,7 +134,7 @@ test('native Pi/Codex/DSH installation, version change, recovery, detach and rei
 
 test('native hosts load and remove reference-only MCP credentials', { skip: !nativeBin, timeout: 240_000 }, t => {
   const temp = mkdtempSync(join(tmpdir(), "kitto native creds's "));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const home = join(temp, 'home'), source = join(temp, 'config');
   for (const dir of [home, join(source, 'config/pi'), join(source, 'config/instructions'), join(source, 'skills/example')]) mkdirSync(dir, { recursive: true });
   const env = { ...process.env, HOME: home, KITTO_HOME: join(home, 'kitto'),
@@ -194,7 +194,7 @@ test('native hosts load and remove reference-only MCP credentials', { skip: !nat
 
 test('native Codex lists enabled TOML declarations in an isolated parity probe', { skip: !nativeBin }, async t => {
   const home = mkdtempSync(join(tmpdir(), 'kitto-native-codex-parity-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.onTestFinished(() => rmSync(home, { recursive: true, force: true }));
   const config = join(home, 'config.toml');
   const text = `[mcp_servers.alpha] # bare table
 command = "fixture-must-not-run"

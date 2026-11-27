@@ -1,6 +1,8 @@
+import { availableParallelism } from 'node:os';
+import { defineConfig } from 'vite-plus';
 import { stableNodeImports } from './scripts/stable-node-imports.mjs';
 
-export default {
+export default defineConfig({
   pack: {
     entry: ['bin/*.mjs', 'lib/**/*.mjs', 'integration/**/*.mjs'],
     unbundle: true,
@@ -22,4 +24,11 @@ export default {
       },
     },
   },
-};
+  test: {
+    include: ['tests/**/*.test.mjs'],
+    pool: 'forks',
+    maxWorkers: Math.max(1, Math.floor(availableParallelism() / 2)),
+    testTimeout: 240_000,
+    hookTimeout: 60_000,
+  },
+});
