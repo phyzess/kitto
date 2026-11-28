@@ -2,8 +2,13 @@ import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 import { routeQuestions } from '../lib/task-route-questions.ts';
+import { resolveTaskRoutes } from '../lib/routing-resolver.ts';
+import { readProbeCache } from '../lib/routing-pool-health.ts';
+import { kittoHome } from '../lib/kitto-home.ts';
 import type { DshPluginContext, DshPluginHost, DshToolExecution } from '../types/kitto.d.ts';
 import type { PlanInput, TaskRouteEvaluation } from '../lib/task-route-plan.ts';
+import type { ResolvePlanInput } from '../lib/routing-resolver.ts';
+import type { ProbeSnapshot } from '../lib/routing-probe.ts';
 
 interface NativePlanTask {
   id?: string;
@@ -28,6 +33,14 @@ export function evaluateDshTaskRoutes(input: PlanInput, session: string | undefi
   }
   if (input.host.surface === 'current') {
     return { status: 'unavailable', reason: 'native-current-route-unverified' };
+  }
+  const resolveRequest = input as unknown as ResolvePlanInput;
+  if (resolveRequest.mode === 'resolve' && !Object.hasOwn(input, 'approval')) {
+    const resolved = resolveTaskRoutes(resolveRequest, {
+      probe: resolveRequest.probe ?? readProbeCache<ProbeSnapshot>(kittoHome(), now),
+      now,
+    });
+    return { ...resolved, decisionPrompt: routeQuestions(resolved) } as unknown as TaskRouteEvaluation;
   }
   if (!Object.hasOwn(input, 'approval')) {
     const result = planTaskRoutes(input, now);
