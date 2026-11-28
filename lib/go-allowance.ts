@@ -1,3 +1,4 @@
+import { evaluatePricingWindow } from './routing-pricing.ts';
 import type { GoEvidence } from '../types/kitto.d.ts';
 
 interface PriceShape {
@@ -107,9 +108,30 @@ export function goModel(go: GoEvidence | null | undefined, model: string, now: n
   return { item, cap };
 }
 
+const validMultipliers = (multipliers: readonly GoMultiplier[] | undefined): boolean =>
+  multipliers === undefined ||
+  (Array.isArray(multipliers) && multipliers.every((item: GoMultiplier) => Number.isFinite(item?.factor) && (item.factor ?? 0) > 0));
+
+export function effectiveGoMultiplier(
+  item: GoCatalogEntry,
+  nowMs?: number,
+  options?: { mode?: 'worst-case' | 'effective'; expectedDurationMinutes?: number; holidayOverrides?: readonly string[] },
+): number | null {
+  const multipliers = item.cost?.multipliers;
+  if (!validMultipliers(multipliers)) return null;
+  const worstCase = (multipliers ?? []).reduce((product: number, entry: GoMultiplier) => product * Math.max(1, entry.factor ?? 1), 1);
+  if (options?.mode !== 'effective' || nowMs === undefined) return worstCase;
+  return evaluatePricingWindow(item.canonical_id ?? '', nowMs, {
+    expectedDurationMinutes: options.expectedDurationMinutes,
+    holidayOverrides: options.holidayOverrides,
+    remoteMultipliers: multipliers,
+  }).effectiveMultiplier;
+}
+
 export function estimateGoFraction(
   { item, cap }: { item: GoCatalogEntry; cap: number },
   tokens: { input?: number; output?: number } | null | undefined,
+  options?: { now?: number; mode?: 'worst-case' | 'effective'; expectedDurationMinutes?: number; holidayOverrides?: readonly string[] },
 ): number | null {
   const inputTokens = tokens?.input,
     outputTokens = tokens?.output;
@@ -123,17 +145,9 @@ export function estimateGoFraction(
   )
     return null;
   const input = maxPrice(item.cost?.text?.input),
-    output = maxPrice(item.cost?.text?.output);
-  const multipliers = item.cost?.multipliers;
-  if (
-    !nonnegative(input) ||
-    !nonnegative(output) ||
-    input + output === 0 ||
-    (multipliers !== undefined &&
-      (!Array.isArray(multipliers) || !multipliers.every((item: GoMultiplier) => Number.isFinite(item?.factor) && (item.factor ?? 0) > 0)))
-  )
-    return null;
-  const factor = (multipliers ?? []).reduce((product: number, item: GoMultiplier) => product * Math.max(1, item.factor ?? 1), 1);
+    output = maxPrice(item.cost?.text?.output),
+    factor = effectiveGoMultiplier(item, options?.now, options);
+  if (!nonnegative(input) || !nonnegative(output) || input + output === 0 || factor === null) return null;
   const fraction = ((input * inputTokens + output * outputTokens) * factor) / (1_000_000 * cap);
   return Number.isFinite(fraction) && fraction > 0 ? fraction : null;
 }
