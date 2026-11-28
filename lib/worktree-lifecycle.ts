@@ -5,7 +5,17 @@ import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rename, rmdi
 import { homedir, hostname } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { readScopeRegistry } from './scopes.ts';
-import { checkoutGitDir, cleanExit, commonDir, git, inspect, output, registrations, type WorktreeRegistration } from './worktree-audit.ts';
+import {
+  checkoutGitDir,
+  cleanExit,
+  clearGitIdentityCache,
+  commonDir,
+  git,
+  inspect,
+  output,
+  registrations,
+  type WorktreeRegistration,
+} from './worktree-audit.ts';
 type NodeStat = BigIntStats;
 
 interface PreviewFacts {
@@ -615,6 +625,7 @@ export async function matchesArchiveClaim(
 }
 
 export async function lifecycleCommand(command: string, argv: string[]): Promise<void> {
+  clearGitIdentityCache();
   if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) return console.log(lifecycleUsage);
   const args = options(command, argv);
   const root = stateRoot();
