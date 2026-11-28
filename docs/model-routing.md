@@ -102,6 +102,52 @@ Kitto 不提供写入迁移命令。撤销真实部署需操作者关闭 `routeD
 - `effort` 是可接受档位的有序列表。每次重新与选中路由的支持列表求交；`default` 只有明确列出才可用，普通子 agent 省略该字段，AgentTeams 显式传 `default`。不要把失败路由的 effort 直接用于下一条路由。
 - `review` 还需要 `task.implementers: [{"canonicalModel":"openai/gpt-6.2-sol"}]`：列出实际参与实现的所有模型，规范 ID 从原生实际生效路由核对，不能填写拟用路由。保守按模型厂商分组为家族，换 provider、代理、同一家族的型号都不算独立；无法确认则待外审。
 
+## 自适应预检、峰谷策略与多池健康
+
+预检分两步：`probe` 采集脚本证据，`resolve` 在证据上算出可派发方案。两者都是离线建议，不启动推理、不改宿主配置。
+
+### 命令
+
+```sh
+kitto route probe [--allow-network] [--pools UPSTREAM[:POOL],...] [--now ISO] [--no-cache] [--json]
+kitto route resolve --input FILE [--probe FILE] [--policy balanced|cost-first|quality-first] [--now ISO] [--no-auto-probe]
+kitto route report-failure --pool POOL --upstream UPSTREAM --kind quota|rate_limit|outage|auth [--window 5h|rolling|weekly|monthly|balance|unknown] [--resets-at ISO] [--reason TEXT] [--now ISO]
+kitto route clear-pool --pool POOL --upstream UPSTREAM [--reason TEXT] [--now ISO]
+```
+
+- `probe` 输出 `schema: 1` 快照（`observedAt`、`networkUsed`、`pricingWindows`、`pools`、`warnings`），并默认写入 `$KITTO_HOME/routing-v2/probe-cache.json`；`--no-cache` 只读不写。未给 `--pools` 时覆盖 `opencode-go`、`openai-codex`、`deepseek-official`、`anthropic`、`openrouter` 五个默认池。
+- `resolve` 优先用 `--probe` 指定的快照，否则读 5 分钟内的本机缓存；缓存过期或缺失时自动跑一次离线 probe（`--no-auto-probe` 关闭该行为）。结果尾部附 `decisionPrompt`，`status` 为 `invalid`/`unavailable`/`pending` 时退出码为 2。
+- `report-failure` 与 `clear-pool` 写本机池健康账本，不联网。
+
+### 分层探测（诚实区分主动与被动）
+
+- **主动、零推理 GET**：`opencode-go` 读官方 usage，`deepseek-official` 读余额，`openrouter` 读 key 额度。只有 `--allow-network` 才会联网；凭据只从 `KITTO_GO_METADATA_KEY`/`OPENCODE_GO_API_KEY`、`DEEPSEEK_API_KEY`、`OPENROUTER_API_KEY` 读取，缺失即 `missing-credential`，不发请求。请求固定 `GET`、`redirect: 'error'`、`credentials: 'omit'`、5 秒上限、512 KiB 上限、无重试。
+- **被动**：`openai-codex` 与 `anthropic` 没有零推理额度接口，只读本机账本里的既有记录；可选按 `$KITTO_HOME/routing-profiles.json` 的 `poolSoftBudgets` 做本地 burn-rate 判断（5h/周 USD 或请求数达到软预算 80% 记为 `tight`）。这不代表上游实际余量。
+- 快照把探测失败与探测成功分开：`probe-error`、`probe-timeout`、`probe-http-auth-error` 不会伪装成健康，凭据错误写入 `auth-broken`。
+
+### UTC 价格窗口
+
+- 内置 `deepseek-peak-utc` 排程覆盖 `deepseek/deepseek-v4.1-flash-1017` 与 `deepseek/deepseek-v4-pro`：周一至周五 `01:00-04:00` 与 `06:00-10:00` UTC 为 2× 峰时，其余时段 1× 谷时，周末固定谷时（`weekend-off-peak`）。
+- 15 分钟边界缓冲加上角色的 `expectedDurationMinutes` 前瞻：即将进入峰时标为 `entering-peak-window-soon`，评分按峰时乘子计入，因此批量/验证角色会提前避开。
+- 节假日没有内置日历：只在 `$KITTO_HOME/routing-profiles.json` 的 `holidayOverrides`（`YYYY-MM-DD` UTC 日期列表，`schema: 1`）里显式列出才按谷时计。未列出仍按工作日峰时保守估计。
+- 长上下文按目录里的 `longContextThreshold`（如 200K/272K）切到长上下文档单价，标注 `long-context-doubled` 并加惩罚分，不按平均价估算。
+- 同一文件里不允许出现 token/key/secret/password 类字段名；命中即整份配置失效（`secret-like-field-disallowed`），预检不引用它。
+
+### 自动改道与确认门禁
+
+`resolve` 的每行状态是 `ready`、`auto-rerouted`、`decision-required`、`unavailable` 或 `deferred`。
+
+- **同边界自动改道**：仅在已授权的 `subscription` 或 `go-included` 路由、账号已核验、数据策略允许时采纳，并给出 `rerouteReason`：`deepseek-peak-avoided`、`pool-pressure-tight`、`pool-held-quota:<窗口>`、`pool-headroom-reallocated`、`expected-route-not-offered`、`higher-priority-policy-route`，或被拒路由的具体原因。计划与 `team:` 行必须披露该原因。
+- **必须确认**：按量（`metered-cost-not-authorized`）、高端档（`premium-not-approved`）、账号或计费未核验（`verify-account-and-billing`）、数据策略未确认（`verify-data-policy`）、需原生面板选择、原生思考档不一致，都落为 `decision-required`，每项只问一次。
+- **失败关闸**：`auth-broken`、`held-outage`、`held-quota` 的池整条路由被拒；账本损坏、`observedAt` 超前 60 秒以上、或残留事务锁一律视为 `pool-health-state-invalid`/`needs-reprobe`，按不可用处理，不猜余量。
+- **故障上报**：`quota` 记 `held-quota`（窗口默认 `unknown`）；`rate_limit` 记 `held-quota` 并默认 15 分钟后重探；`outage` 记 `held-outage`，连续失败按 2/5/15 分钟退避；`auth` 记 `auth-broken`，不随时间自愈。`resetsAt` 到点后变成 `needs-reprobe`（可用但需新证据），`clear-pool` 显式写回健康。
+
+### 粘性、长上下文与多角色 Go 余量
+
+- **热缓存粘性**：`sessionStickyRoute` 给已运行会话的当前路由一个强偏好，进入峰时不会中途换模；交付收口、handoff 或撞硬限额时才切换。
+- **多角色聚合**：对每个有 Go meter 的池，按 `maxMonthlyGoFraction` 或 `估计 USD / 池月额度` 累加同一波所有角色，超过 `meter.remaining` 时从低优先级角色（批量、验证先）开始改到其他可用池，理由为 `pool-headroom-reallocated`。
+- **只读建议**：probe/resolve 都不是预留、硬预算或进行中请求取消；实际派发仍由宿主原生能力与 `plan`/`check` 决定。
+
 ## 显式采集 Go 元数据（可选）
 
 在已核验的本机终端准备 `go: { "account":"my-go", "plan":"go", "extraUsage":"off", "metadata":null }`，以及 `goRead: { "provider":"opencode-go", "model":"deepseek-v4.1-flash", "account":"my-go", "allow":true, "credentialBindingConfirmed":true, "credentialKind":"personal" }`。只在操作者已核实要读取的凭据确属该获准账号、已授权本次 meter 读取、上游账号/数据用途/套餐均确认时设置两个 `true`。用本机秘密管理方式设置 `KITTO_GO_METADATA_KEY`；不把 key 放进参数、JSON、命令历史或代理上下文。Go Teams 必须使用对应成员的个人 key；接口不能推断账户、套餐或 Extra Usage。

@@ -1,4 +1,5 @@
 import { activeRoutingBoundary, routeId, routeKey } from './routing-policy.ts';
+import { BUILTIN_ROUTE_CANONICAL, lookupCanonicalModel, parseCanonicalIdentity as identity } from './routing-catalog.ts';
 import { estimateGoFraction, fresh, goMeter, goModel, normalizeGoCharge } from './go-allowance.ts';
 import { applyCapabilityEvidence } from './routing-evidence.ts';
 import type { GoEvidence, HostEvidence, HostRoute, RouteRef, RouteSelection, State } from '../types/kitto.d.ts';
@@ -90,46 +91,19 @@ const DATA = ['public', 'personal', 'internal', 'restricted'];
 const ROLES: Record<string, number> = { batch: 0, verify: 0, implement: 1, architect: 1, review: 1 };
 const EFFORTS = ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const HOST_TTL = 5 * 60_000;
-const MODELS = new Map<string, [string, number, boolean]>(
-  Object.entries<[string, number, boolean]>({
-    'openai-codex/gpt-6.2-sol': ['openai/gpt-6.2-sol', 1, false],
-    'openai-codex/gpt-6.2-astra': ['openai/gpt-6.2-astra', 2, true],
-    'opencode-go/deepseek-v4.1-flash': ['deepseek/deepseek-v4.1-flash-1017', 0, false],
-    'opencode-go/glm-5.3-flash': ['zhipuai/glm-5.3-flash', 0, false],
-    'opencode-go/hy3': ['tencent/hy3', 0, false],
-    'opencode-go/glm-5.3': ['zhipuai/glm-5.3', 1, false],
-    'opencode-go/kimi-k3.1-pro': ['moonshotai/kimi-k3.1-pro', 1, false],
-    'opencode-go/grok-4.7': ['xai/grok-4.7', 2, true],
-    'opencode-go/deepseek-v4-pro': ['deepseek/deepseek-v4-pro', 2, true],
+const MODELS: ReadonlyMap<string, readonly [string, number, boolean]> = new Map(
+  [...BUILTIN_ROUTE_CANONICAL].flatMap(([route, canonical]) => {
+    const entry = lookupCanonicalModel(canonical);
+    return entry ? ([[route, [entry.canonicalId, entry.tier, entry.premium] as const]] as const) : [];
   }),
 );
 export const knownGoCanonical = (model: string) => MODELS.get(`opencode-go/${model}`)?.[0];
 
-const FAMILIES = new Set([
-  'openai',
-  'anthropic',
-  'deepseek',
-  'zhipuai',
-  'tencent',
-  'moonshotai',
-  'xai',
-  'google',
-  'alibaba',
-  'minimax',
-  'xiaomi',
-]);
 const UPSTREAMS = ['openai-codex', 'opencode-go', 'anthropic', 'openrouter'];
 const BLOCKED_PROVIDERS = ['deepseek-official', 'xai', 'opencode', 'opencode-zen'];
 const validRoute = (value: RouteRef | null | undefined): value is RouteRef =>
   value !== null && value !== undefined && routeId(value.provider) && !value.provider.includes('/') && routeId(value.model);
 const keyOf = (value: RouteRef | null | undefined): string | null => (validRoute(value) ? routeKey(value) : null);
-
-function identity(canonicalModel: unknown): { canonicalModel: string; family: string } | null {
-  if (!routeId(canonicalModel) || !/^[^/]+\/[^/]+$/.test(canonicalModel)) return null;
-  const canonical = canonicalModel.toLowerCase(),
-    family = canonical.split('/')[0];
-  return FAMILIES.has(family) ? { canonicalModel: canonical, family } : null;
-}
 
 function auditReview(
   implementers: RouteIdentity[] | undefined,

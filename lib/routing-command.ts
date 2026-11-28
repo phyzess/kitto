@@ -4,7 +4,15 @@ import { isAbsolute, join } from 'node:path';
 import { sameLocation } from './paths.ts';
 import { kittoHome } from './kitto-home.ts';
 import { createRoutingStore } from './routing-state.ts';
+import { createPoolHealthStore, readProbeCache } from './routing-pool-health.ts';
+import { isSupportedUpstream, loadLocalRoutingOverrides } from './routing-catalog.ts';
+import { routeId } from './routing-policy.ts';
+import { routeQuestions } from './task-route-questions.ts';
+import { timestamp } from './go-allowance.ts';
 import type { PoolReleaseRequest, QuotaFailureEvidence } from './routing-state.ts';
+import type { FailureKind, QuotaWindowKind } from './routing-pool-health.ts';
+import type { ProbePoolTarget, ProbeSnapshot } from './routing-probe.ts';
+import type { ResolvePlanInput, RoutingPolicyMode } from './routing-resolver.ts';
 
 interface CommandInput extends Record<string, unknown> {
   host?: {
@@ -25,8 +33,126 @@ interface CommandOutput {
 }
 
 const help =
-  'Usage: kitto route plan|check --input FILE\n       kitto route go-metadata --input FILE --allow-network\n       kitto route permit|record-quota|release-pool --input FILE --operator\n       kitto route migrate --home DIRECTORY\nSupply sanitized JSON without prompts or credentials. Only go-metadata can access the network.';
+  'Usage: kitto route plan|check|resolve --input FILE\n       kitto route resolve --input FILE [--probe FILE] [--policy balanced|cost-first|quality-first] [--now ISO] [--no-auto-probe]\n       kitto route go-metadata --input FILE --allow-network\n       kitto route permit|record-quota|release-pool --input FILE --operator\n       kitto route probe [--allow-network] [--pools UPSTREAM[:POOL],...] [--now ISO] [--no-cache] [--json]\n       kitto route report-failure --pool POOL --upstream UPSTREAM --kind quota|rate_limit|outage|auth [--window WINDOW] [--resets-at ISO] [--reason TEXT] [--now ISO]\n       kitto route clear-pool --pool POOL --upstream UPSTREAM [--reason TEXT] [--now ISO]\n       kitto route migrate --home DIRECTORY\nSupply sanitized JSON without prompts or credentials. Only go-metadata and probe --allow-network can access the network.';
 const operatorCommands = ['permit', 'record-quota', 'release-pool'];
+const probeUsage = 'Usage: kitto route probe [--allow-network] [--pools UPSTREAM[:POOL],...] [--now ISO] [--no-cache] [--json]';
+const failureUsage =
+  'Usage: kitto route report-failure --pool POOL --upstream UPSTREAM --kind quota|rate_limit|outage|auth [--window WINDOW] [--resets-at ISO] [--reason TEXT] [--now ISO]';
+const clearUsage = 'Usage: kitto route clear-pool --pool POOL --upstream UPSTREAM [--reason TEXT] [--now ISO]';
+const resolveUsage =
+  'Usage: kitto route resolve --input FILE [--probe FILE] [--policy balanced|cost-first|quality-first] [--now ISO] [--no-auto-probe]';
+const policies: readonly RoutingPolicyMode[] = ['balanced', 'cost-first', 'quality-first'];
+const failureKinds: readonly FailureKind[] = ['quota', 'rate_limit', 'outage', 'auth'];
+const quotaWindows: readonly QuotaWindowKind[] = ['5h', 'rolling', 'weekly', 'monthly', 'balance', 'unknown'];
+
+function parseFlags(args: string[], spec: Record<string, 'boolean' | 'value'>, usage: string): Record<string, string | true> {
+  const flags: Record<string, string | true> = {};
+  for (let index = 0; index < args.length; index++) {
+    const token = args[index],
+      name = token.startsWith('--') ? token.slice(2) : undefined,
+      kind = name === undefined ? undefined : spec[name];
+    if (name === undefined || kind === undefined || Object.hasOwn(flags, name)) throw new Error(usage);
+    if (kind === 'boolean') {
+      flags[name] = true;
+      continue;
+    }
+    const value = args[++index];
+    if (value === undefined || value.startsWith('--') || value.length === 0) throw new Error(usage);
+    flags[name] = value;
+  }
+  return flags;
+}
+
+function clockFlag(value: string | true | undefined, usage: string): number | undefined {
+  if (value === undefined) return undefined;
+  const now = timestamp(value);
+  if (typeof value !== 'string' || !Number.isFinite(now)) throw new Error(usage);
+  return now;
+}
+
+function textFlag(value: string | true | undefined, usage: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new Error(usage);
+  return value;
+}
+
+function verifiedTarget(upstream: string | undefined, pool: string | undefined, usage: string): ProbePoolTarget {
+  if (!upstream || !pool || !isSupportedUpstream(upstream) || !routeId(pool)) throw new Error(usage);
+  return { pool, upstream };
+}
+
+function poolTargets(value: string | true | undefined): ProbePoolTarget[] | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new Error(probeUsage);
+  return value.split(',').map((item: string) => {
+    const parts = item.split(':');
+    if (parts.length === 1) return verifiedTarget(parts[0], parts[0], probeUsage);
+    if (parts.length === 2) return verifiedTarget(parts[0], parts[1], probeUsage);
+    throw new Error(probeUsage);
+  });
+}
+
+async function probeOperation(args: string[]): Promise<void> {
+  const flags = parseFlags(
+    args,
+    { 'allow-network': 'boolean', pools: 'value', now: 'value', 'no-cache': 'boolean', json: 'boolean' },
+    probeUsage,
+  );
+  const pools = poolTargets(flags.pools),
+    now = clockFlag(flags.now, probeUsage);
+  const { runRoutingProbe } = await import('./routing-probe.ts');
+  const snapshot = await runRoutingProbe({
+    kittoHomePath: kittoHome(),
+    allowNetwork: flags['allow-network'] === true,
+    ...(pools !== undefined && { pools }),
+    ...(flags['no-cache'] === true && { writeCache: false }),
+    ...(now !== undefined && { now }),
+  });
+  console.log(JSON.stringify(snapshot, null, 2));
+}
+
+function reportFailureOperation(args: string[]): void {
+  const flags = parseFlags(
+    args,
+    { pool: 'value', upstream: 'value', kind: 'value', window: 'value', 'resets-at': 'value', reason: 'value', now: 'value' },
+    failureUsage,
+  );
+  const pool = textFlag(flags.pool, failureUsage),
+    upstream = textFlag(flags.upstream, failureUsage),
+    kind = textFlag(flags.kind, failureUsage);
+  const target = verifiedTarget(upstream, pool, failureUsage);
+  if (!kind || !(failureKinds as readonly string[]).includes(kind)) throw new Error(failureUsage);
+  const window = textFlag(flags.window, failureUsage),
+    resetsAt = textFlag(flags['resets-at'], failureUsage),
+    reason = textFlag(flags.reason, failureUsage);
+  if (window !== undefined && !(quotaWindows as readonly string[]).includes(window)) throw new Error(failureUsage);
+  if (resetsAt !== undefined && !Number.isFinite(timestamp(resetsAt))) throw new Error(failureUsage);
+  const now = clockFlag(flags.now, failureUsage);
+  const record = createPoolHealthStore(kittoHome()).recordFailure(
+    {
+      pool: target.pool,
+      upstream: target.upstream,
+      kind: kind as FailureKind,
+      ...(window !== undefined && { window: window as QuotaWindowKind }),
+      ...(resetsAt !== undefined && { resetsAt }),
+      ...(reason !== undefined && { reason }),
+    },
+    now,
+  );
+  console.log(JSON.stringify({ status: 'recorded', record }, null, 2));
+}
+
+function clearPoolOperation(args: string[]): void {
+  const flags = parseFlags(args, { pool: 'value', upstream: 'value', reason: 'value', now: 'value' }, clearUsage);
+  const target = verifiedTarget(textFlag(flags.upstream, clearUsage), textFlag(flags.pool, clearUsage), clearUsage);
+  const record = createPoolHealthStore(kittoHome()).clearPool(
+    target.pool,
+    target.upstream,
+    textFlag(flags.reason, clearUsage),
+    clockFlag(flags.now, clearUsage),
+  );
+  console.log(JSON.stringify({ status: 'cleared', record }, null, 2));
+}
 
 function matchesMetadataHome(savedHome: unknown, explicitHome: string | undefined): boolean {
   const absolute = (path: unknown): path is string => typeof path === 'string' && isAbsolute(path) && !/[\x00-\x1f\x7f]/.test(path);
@@ -35,11 +161,64 @@ function matchesMetadataHome(savedHome: unknown, explicitHome: string | undefine
   return absolute(effective) && sameLocation(effective, savedHome);
 }
 
+async function readJsonFile(path: string, message: string): Promise<Record<string, unknown>> {
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(path, 'utf8'));
+  } catch {
+    throw new Error(message);
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(message);
+  return value as Record<string, unknown>;
+}
+
+function verifiedProbe(value: Record<string, unknown>, message: string): ProbeSnapshot {
+  if (value.schema !== 1 || typeof value.observedAt !== 'string' || !value.pools || typeof value.pools !== 'object')
+    throw new Error(message);
+  return value as unknown as ProbeSnapshot;
+}
+
+async function resolveOperation(args: string[]): Promise<void> {
+  const flags = parseFlags(
+    args,
+    { input: 'value', probe: 'value', policy: 'value', now: 'value', 'no-auto-probe': 'boolean' },
+    resolveUsage,
+  );
+  const path = textFlag(flags.input, resolveUsage);
+  if (!path) throw new Error(resolveUsage);
+  const policy = textFlag(flags.policy, resolveUsage);
+  if (policy !== undefined && !(policies as readonly string[]).includes(policy)) throw new Error(resolveUsage);
+  const now = clockFlag(flags.now, resolveUsage) ?? Date.now();
+  const local = kittoHome();
+  const request = await readJsonFile(path, 'Cannot read routing input as JSON.');
+  const probePath = textFlag(flags.probe, resolveUsage);
+  let probe: ProbeSnapshot | null = null;
+  if (probePath)
+    probe = verifiedProbe(await readJsonFile(probePath, 'Cannot read probe snapshot as JSON.'), 'Cannot read probe snapshot as JSON.');
+  else if (flags['no-auto-probe'] !== true) {
+    probe = readProbeCache<ProbeSnapshot>(local, now);
+    if (!probe) {
+      const { runRoutingProbe } = await import('./routing-probe.ts');
+      probe = await runRoutingProbe({ kittoHomePath: local, allowNetwork: false, writeCache: false, now });
+    }
+  }
+  const loaded = loadLocalRoutingOverrides(local);
+  const input = { ...request, ...(policy !== undefined && { policy }) } as unknown as ResolvePlanInput;
+  const { resolveTaskRoutes } = await import('./routing-resolver.ts');
+  const result = resolveTaskRoutes(input, { probe, overrides: loaded.status === 'ok' ? loaded.overrides : null, now });
+  console.log(JSON.stringify({ ...result, decisionPrompt: routeQuestions(result) }, null, 2));
+  if (['invalid', 'unavailable', 'pending'].includes(result.status)) process.exitCode = 2;
+}
+
 export async function routeCommand(args: string[]): Promise<void> {
   if (!args.length || (args.length === 1 && ['-h', '--help'].includes(args[0]))) {
     console.log(help);
     return;
   }
+  if (args[0] === 'probe') return probeOperation(args.slice(1));
+  if (args[0] === 'resolve') return resolveOperation(args.slice(1));
+  if (args[0] === 'report-failure') return reportFailureOperation(args.slice(1));
+  if (args[0] === 'clear-pool') return clearPoolOperation(args.slice(1));
   const [operation, flag, path] = args;
   const local = kittoHome();
   const getState = () =>

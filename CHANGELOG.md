@@ -1,5 +1,13 @@
 # Kitto
 
+## Unreleased
+
+- Routing: add the adaptive pre-flight surface. `kitto route probe` writes one snapshot with UTC pricing windows and per-pool health; `kitto route resolve` picks routes from it; `kitto route report-failure` and `kitto route clear-pool` maintain a multi-pool health ledger under `$KITTO_HOME/routing-v2`. Probing is layered instead of uniform: `opencode-go`, `deepseek-official` and `openrouter` get an active zero-inference `GET` under `--allow-network`, while `openai-codex` and `anthropic` stay passive (ledger plus an optional local burn-rate against `poolSoftBudgets`). See [ADR 011](docs/adr/011-adaptive-routing-and-pool-health.md).
+- Routing: one catalog and one UTC pricing engine replace the split between `task-route-plan` and the per-host adapter checks. DeepSeek keeps a 2x peak on Monday-Friday `01:00-04:00` and `06:00-10:00` UTC and 1x off-peak, with a 15 minute boundary buffer plus the role's expected duration, weekend labelling, explicit `holidayOverrides` (no borrowed calendar), and long-context pricing at the catalog threshold.
+- Routing: the resolver reroutes inside an already authorized `subscription` or `go-included` boundary and discloses `deepseek-peak-avoided`, `pool-held-quota:<window>` or `pool-headroom-reallocated` in the plan, while metered spend, premium tier, unverified account/billing, data policy and independence stay `decision-required`. A running session keeps its cached route across peak entry, and a per-pool aggregate keeps multi-role Go usage inside the meter headroom.
+- Skills and rules: `task-model-routing` and `dev-orchestration` gain the probe/resolve pre-flight, failure reporting and hot-cache stickiness; the shared rules and DSH AgentTeams addendum point at the same commands, and the AgentTeams profile descriptions name the dynamic reroute. Dry-run verified across 5 fresh `pi 1.7.0` (`deepseek/deepseek-flash`) rule-eval scenarios (3 triggers + 2 counter-examples).
+- Docs: add [ADR 011](docs/adr/011-adaptive-routing-and-pool-health.md) and a pre-flight section in `docs/model-routing.md` covering the probe/resolve flags, the three probe layers, UTC windows and the auto-failover gates.
+
 ## 0.6.0
 
 - Tests: the `gh-doctor` fixture gives each probe 60 s instead of 5 s. Every probe spawns Node again through the fake `gh` shim, so a loaded machine running the suite in parallel killed the script (`ETIMEDOUT`, `signal: null`) instead of exercising it; `npm run release -- 0.6.0` failed on two of them. A standalone run of the file takes 16 s.

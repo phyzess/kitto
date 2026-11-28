@@ -8,7 +8,7 @@
 
 - 分级与门禁按共享规则「开发任务编排」；T0 不建队，T1/T2 用 AgentTeams。
 - **先建草案**：项目门禁允许规划后，用 `agent_teams_create({ name: <队名>, description: <目标>, approval: "required" })` 暂存或继续同一份计划。候选路由、额度和回退尚未核实也可暂存；暂存不启动成员、不领取任务。未完成预检时标为「不可启动」，不要请求点 **Approve & Run**。
-- **再核验启动**：按[任务级模型路由](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md)核对本会话的候选。用 `kitto_task_routes` 或 `kitto` skill 绑定的 CLI 检查草案；用原生面板改选，缺的决定用一次询问补齐。Web 的 **Approve & Run** 不会调用 Kitto 检查：只请求批准与检查结果一致的可运行范围。
+- **再核验启动**：按[任务级模型路由](https://github.com/phyzess/kitto/blob/main/docs/model-routing.md)核对本会话的候选。先跑 `kitto route probe --allow-network` + `kitto route resolve`（或用 `kitto_task_routes` 的 `mode: "resolve"`）处理峰谷价格与池 hold，再用 `kitto_task_routes` 或 `kitto` skill 绑定的 CLI 检查草案；配额/限流/上游故障立即 `kitto route report-failure` 并重新解析。用原生面板改选，缺的决定用一次询问补齐。Web 的 **Approve & Run** 不会调用 Kitto 检查：只请求批准与检查结果一致的可运行范围。
 - `list_subagent_models` 只证明精确候选和思考档可见，不证明账号、数据授权、团队有效 fallback 或额度。未核实的成员保留在不可启动的计划中；已启用的受控 `subagent` 继续走其原生许可。
 - provider 与 allowlist 在会话启动时快照：改完配置要新开会话才生效；旧会话里不要规划新路由的成员，也不要把“配置已改”当作可用。
 - 独立 worktree 的创建与交还按 `kitto-worktree` skill 的预览与确认流程；只在用户明确要求时执行 `apply`，不自动清理。

@@ -2,8 +2,13 @@ import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { checkTaskRouteApproval, planTaskRoutes } from '../lib/task-route-plan.ts';
 import { routeQuestions } from '../lib/task-route-questions.ts';
+import { resolveTaskRoutes } from '../lib/routing-resolver.ts';
+import { readProbeCache } from '../lib/routing-pool-health.ts';
+import { kittoHome } from '../lib/kitto-home.ts';
 import type { PiExtensionApi, PiSessionContext } from '../types/kitto.d.ts';
 import type { PlanInput, PlanRow, TaskRouteEvaluation } from '../lib/task-route-plan.ts';
+import type { ResolvePlanInput } from '../lib/routing-resolver.ts';
+import type { ProbeSnapshot } from '../lib/routing-probe.ts';
 
 interface RouteIdentityLike {
   provider?: string;
@@ -38,6 +43,14 @@ export function evaluatePiTaskRoutes(input: PlanInput, context: PiRouteContext, 
         }
       : input.host;
   const plan = { ...input, host };
+  const resolveRequest = plan as unknown as ResolvePlanInput;
+  if (resolveRequest.mode === 'resolve' && !Object.hasOwn(input, 'approval')) {
+    const resolved = resolveTaskRoutes(resolveRequest, {
+      probe: resolveRequest.probe ?? readProbeCache<ProbeSnapshot>(kittoHome(), now),
+      now,
+    });
+    return { ...resolved, decisionPrompt: routeQuestions(resolved) } as unknown as TaskRouteEvaluation;
+  }
   return Object.hasOwn(input, 'approval') ? checkTaskRouteApproval(plan, input.approval, now) : planTaskRoutes(plan, now);
 }
 

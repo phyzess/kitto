@@ -9,9 +9,9 @@
         allow: [read, glob, grep, bash, web_search, web_fetch]
     profiles:
       dev-standard:
-        description: T1 标准开发：Sol 实现，DeepSeek Flash 验证，GLM-5.3 审查，DeepSeek Flash 按需批量
+        description: 'T1 标准开发：Sol 实现，DeepSeek Flash 验证，GLM-5.3 审查，DeepSeek Flash 按需批量；启动前按 kitto route probe + resolve 动态改道'
         taskPlanning: captain
-        protocol: 先暂存，不启动成员；逐个离线预检，核实所有继承层的有效 fallback、账号、额度及精确档位后才提交启动审批。未核实则保留草案。
+        protocol: '先暂存，不启动成员；启动前用 `kitto route probe --allow-network` + `kitto route resolve` 预检峰谷价格（DeepSeek 峰时 2× 避让、谷时 1× 优先）与 5h/周额度池 hold，同授权边界内自动改道并在 team 行披露；逐个离线预检，核实所有继承层的有效 fallback、账号、额度及精确档位后才提交启动审批。未核实则保留草案。'
         members:
           - name: implementer
             role: 实现
@@ -35,9 +35,9 @@
           maxRepairAttempts: 2
           requiredReviewers: [reviewer]
       dev-hard:
-        description: T2 攻坚参考：按任务预检选路，确认独立审查和 Native fallback 已关闭
+        description: 'T2 攻坚参考：按任务预检选路，kitto route probe + resolve 处理峰谷价格与多池 hold，确认独立审查和 Native fallback 已关闭'
         taskPlanning: captain
-        protocol: 先暂存，不启动成员；逐个离线预检，核实所有继承层的有效 fallback、账号、额度及精确档位后才提交启动审批。未核实则保留草案。
+        protocol: '先暂存，不启动成员；启动前用 `kitto route probe --allow-network` + `kitto route resolve` 预检峰谷价格（DeepSeek 峰时 2× 避让、谷时 1× 优先）与 5h/周额度池 hold，同授权边界内自动改道、跨按量或高端档仍须确认；逐个离线预检，核实所有继承层的有效 fallback、账号、额度及精确档位后才提交启动审批。未核实则保留草案。'
         members:
           - name: architect
             role: 方案
