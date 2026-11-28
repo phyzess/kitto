@@ -353,6 +353,11 @@ kitto maintain state-rollback --apply    # 把 state.json 写回 schema 1，并�
    npm run release -- 0.2.1 --publish
    ```
 
+   预览会把校验过的 tarball 与校验结果（版本、commit、完整性摘要）留在系统临时目录下。接着用
+   `--publish` 发布时，只要 commit 与 tarball 摘要都对得上，就跳过第二次 `npm ci`、构建和全量测试，
+   直接用那一份包发布；摘要对不上（例如 tarball 被删或换过）会自动退回完整校验。要强制重跑完整校验，
+   加 `--re-verify`（必须与 `--publish` 同时使用）。
+
 如果 tag 已推送、npm 发布中断，回到同一个提交并用同一工具链重跑第二条。远端 tag 指向同一提交时可以继续发布。npm 上已有同版本时，脚本核对包的完整性摘要，吻合便视为已发布。
 
 发布后的校验会轮询 registry（最多 24 次、每次 15 秒，约 6 分钟），因为 npm 确认 publish 之后还需要一段时间才对外提供该版本；只读一次会把成功的发布误报成 `Cannot verify`。拿到与本地 tarball 相同的 `dist.integrity` 即通过，读到不同的摘要则立刻失败。
