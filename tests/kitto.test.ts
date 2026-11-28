@@ -22,7 +22,7 @@ import { hosts, meetsBaseline, parseOptions, pnpmVersion, replaceDirectory, tree
 import { list } from '../lib/ownership.ts';
 import { downgradeState } from '../lib/state-schema.ts';
 import { newerStable, updateNotice } from '../lib/update-notice.ts';
-import { waitForPublish } from '../scripts/release.ts';
+import { previewMatches, waitForPublish } from '../scripts/release.ts';
 import {
   skillNames,
   root,
@@ -1694,6 +1694,16 @@ test('a live lock is never displaced, even with --break-lock', (t) => {
   assert.match(blocked.stderr, new RegExp(`Another Kitto operation holds .*: pid ${process.pid}`));
   assert.match(blocked.stderr, /Wait for it to finish/);
   assert.equal(existsSync(join(lock, 'owner.json')), true);
+});
+
+test('a stored release preview is reused only for the same version, commit and tarball', () => {
+  const record = { version: '0.5.0', commit: 'a'.repeat(40), integrity: 'sha512-abc', tarball: '/tmp/example.tgz' };
+  assert.equal(previewMatches(record, record.commit, '0.5.0', 'sha512-abc'), true);
+  assert.equal(previewMatches(record, 'b'.repeat(40), '0.5.0', 'sha512-abc'), false, 'another commit must verify again');
+  assert.equal(previewMatches(record, record.commit, '0.5.1', 'sha512-abc'), false, 'another version must verify again');
+  assert.equal(previewMatches(record, record.commit, '0.5.0', 'sha512-other'), false, 'a changed tarball must verify again');
+  assert.equal(previewMatches(record, record.commit, '0.5.0', undefined), false, 'a missing tarball must verify again');
+  assert.equal(previewMatches(undefined, record.commit, '0.5.0', 'sha512-abc'), false, 'no stored preview must verify');
 });
 
 test('release verification polls npm before reporting a result', () => {
