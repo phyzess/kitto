@@ -15,4 +15,4 @@ Kitto assembles instructions and configures multiple host applications. The host
 
 ## Consequences
 
-Kitto runs only on its owner's machines, so configuration sources must carry the shared layer and there is no deprecation cycle for older layouts. Use the [adapter tests](../../tests/pi-adapter.test.ts) and the [CLI tests](../../tests/kitto.test.ts) to exercise boundary rejection and preview vs. apply. Intentionally ignored and externally managed state should not be handed to new deployment helpers as input to export.
+Kitto runs only on its owner's machines, so configuration sources must carry the shared layer and there is no deprecation cycle for older layouts. Use the [adapter tests](../../tests/pi-adapter.test.ts) and the [CLI tests](../../tests/kitto-rules-setup.test.ts) to exercise boundary rejection and preview vs. apply. Intentionally ignored and externally managed state should not be handed to new deployment helpers as input to export.

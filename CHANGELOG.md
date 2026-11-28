@@ -2,8 +2,7 @@
 
 ## Unreleased
 
-- Build: `npm run release -- <version> --publish` reuses the verified preview when the stored tarball, its integrity and the commit all match, instead of running `npm ci`, the build and the full test suite a second time; `--re-verify` forces the full check. A missing or changed preview falls back to verifying again.
-- CLI: `kitto --version` (or `-v`) prints the packaged version, read from the installed `package.json`, and is listed in `--help`. It touches no state and needs no setup.
+- Tests: split the slowest end-to-end files so each runs in its own worker: `tests/kitto.test.ts` becomes `kitto-rules-setup`, `kitto-update-flow`, `kitto-update-source`, `kitto-update-runtime`, `kitto-remove-deps` and `kitto-release-state`; `tests/worktree-lifecycle.test.ts` becomes `worktree-lifecycle-start`, `-finish`, `-integrity` and `worktree-archive-adapter`. Shared fixtures moved to `tests/helpers/kitto-suite.ts` and `tests/helpers/worktree-fixture.ts`. Same 449 tests and identical titles; on one machine at a similar load the group drops from 511 s to 391 s wall clock with the same CPU time.
 
 ## 0.5.0
 
