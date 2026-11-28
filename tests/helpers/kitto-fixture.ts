@@ -27,6 +27,11 @@ export const skillNames = (state: State, group: string, status: OwnershipStatus)
 export const re = (value: string) => value.replace(/[.+]/g, '\\$&');
 export const root = fileURLToPath(new URL('../../', import.meta.url));
 export const dist = join(root, 'dist');
+export const cliBin = join(dist, 'bin/kitto.mjs');
+export function requireCliBin(): string {
+  if (!existsSync(cliBin)) throw new Error(`Build the CLI first: npm run build (missing ${cliBin}).`);
+  return cliBin;
+}
 export const publishRoot = existsSync(join(root, 'dist/package.json')) ? join(root, 'dist') : root;
 export const cliTimeout = 180_000;
 export function command(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string = root): SpawnSyncReturns<string> {

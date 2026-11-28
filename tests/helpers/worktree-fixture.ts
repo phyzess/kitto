@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type { TestContext } from 'vitest';
+import { requireCliBin } from './kitto-fixture.ts';
 
 export type Json = Record<string, any>;
 
@@ -13,7 +13,7 @@ export interface RunOptions {
   session?: string;
 }
 
-export const cli = fileURLToPath(new URL('../../bin/kitto.ts', import.meta.url));
+export const cli = requireCliBin();
 
 export async function fixture(t: TestContext, objectFormat = 'sha1') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-lifecycle-')));
