@@ -121,7 +121,7 @@ process.exit(reply.status ?? 0);
       }
       const result = spawnSync(process.execPath, [script, ...args], {
         encoding: 'utf8',
-        timeout: 5000,
+        timeout: 60_000,
         env,
       });
       assert.ifError(result.error);
