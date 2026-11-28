@@ -1,11 +1,11 @@
 import { test } from 'vitest';
+import { requireCliBin } from './helpers/kitto-fixture.ts';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { evaluateDshTaskRoutes, registerDshTaskRouting } from '../integration/dsh-task-routing.ts';
 
@@ -197,7 +197,7 @@ test('public CLI plan and check accept only the approved official DSH task and m
   const temp = mkdtempSync(join(tmpdir(), 'kitto-task-cli-'));
   t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const fixture = join(temp, 'plan.json');
-  const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
+  const cli = requireCliBin();
   const request = input('dsh', 'teams');
   const run = (operation: string, nativeSession: string | null = session) => {
     const env = { ...process.env };
@@ -278,7 +278,7 @@ test('Pi CLI plan refuses a self-reported effort without native state', (t) => {
   const temp = mkdtempSync(join(tmpdir(), 'kitto-pi-cli-'));
   t.onTestFinished(() => rmSync(temp, { recursive: true, force: true }));
   const fixture = join(temp, 'plan.json');
-  const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
+  const cli = requireCliBin();
   const request = input('pi', 'current');
   request.host.routes = [{ ...route, efforts: ['high'], nativeEffort: 'high' }];
   request.roles[0].choice = { ...route, effort: 'high' };

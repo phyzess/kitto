@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
+import { requireCliBin } from './helpers/kitto-fixture.ts';
 import { collectGoMetadata } from '../lib/go-metadata.ts';
 import { adviseRoute } from '../lib/model-routing.ts';
 import { setRoutingBoundary } from '../lib/routing-policy.ts';
@@ -148,7 +148,7 @@ test('CLI verifies native default or explicitly selected DSH home before key and
     } });
     globalThis.fetch = () => { console.error('fixture-fetch'); return new Response(null, { status: 403 }); };
   `;
-  const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
+  const cli = requireCliBin();
   const defaultHome = join(home, '.dsh'),
     customHome = join(home, 'custom');
   const aliasHome = join(home, 'custom-alias');

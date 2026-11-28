@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tests: the worktree, task-routing and Go-metadata suites spawn `dist/bin/kitto.mjs` instead of `bin/kitto.ts`, so each CLI invocation no longer pays Node's type-stripping parse of the module graph. A missing build now fails with `Build the CLI first: npm run build` instead of a module error. On one machine the two worktree files drop from 152.6 s to 142.3 s wall clock and from 25.5 s to 18.0 s of user CPU.
 - Tests: split the slowest end-to-end files so each runs in its own worker: `tests/kitto.test.ts` becomes `kitto-rules-setup`, `kitto-update-flow`, `kitto-update-source`, `kitto-update-runtime`, `kitto-remove-deps` and `kitto-release-state`; `tests/worktree-lifecycle.test.ts` becomes `worktree-lifecycle-start`, `-finish`, `-integrity` and `worktree-archive-adapter`. Shared fixtures moved to `tests/helpers/kitto-suite.ts` and `tests/helpers/worktree-fixture.ts`. Same 449 tests and identical titles; on one machine at a similar load the group drops from 511 s to 391 s wall clock with the same CPU time.
 
 ## 0.5.0

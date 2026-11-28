@@ -5,11 +5,11 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
+import { requireCliBin } from './helpers/kitto-fixture.ts';
 import type { TestContext } from 'vitest';
-import { fileURLToPath } from 'node:url';
 type Json = Record<string, any>;
 
-const cli = fileURLToPath(new URL('../bin/kitto.ts', import.meta.url));
+const cli = requireCliBin();
 async function fixture(t: TestContext) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kitto-audit-')));
   t.onTestFinished(() => rm(root, { recursive: true, force: true }));
