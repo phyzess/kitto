@@ -48,7 +48,50 @@ Object.assign(env, {
 });
 if (process.env.GIT_CONFIG_NOSYSTEM === '1') env.GIT_CONFIG_NOSYSTEM = '1';
 
+const READ_ONLY_GIT = new Set([
+  'cat-file',
+  'describe',
+  'diff',
+  'for-each-ref',
+  'log',
+  'ls-files',
+  'ls-tree',
+  'merge-base',
+  'rev-list',
+  'rev-parse',
+  'show',
+  'show-ref',
+  'status',
+]);
+
+const mutatesLayout = (args: string[]): boolean => {
+  const [command, sub] = args;
+  if (!command) return true;
+  if (command === 'worktree') return sub !== 'list';
+  if (command === 'config') return args.length > 2 && !args.some((arg) => arg.startsWith('--get') || arg === '--list');
+  if (command === 'symbolic-ref') return args.length > 2;
+  return !READ_ONLY_GIT.has(command);
+};
+
+const revParseCache = new Map<string, string>();
+let registrationCache: { repo: string; entries: WorktreeRegistration[] } | undefined;
+
+export function clearGitIdentityCache(): void {
+  revParseCache.clear();
+  registrationCache = undefined;
+}
+
+function revParse(path: string, ...args: string[]): string {
+  const key = `${path}\0${args.join('\0')}`;
+  const cached = revParseCache.get(key);
+  if (cached !== undefined) return cached;
+  const value = output(path, 'rev-parse', ...args);
+  revParseCache.set(key, value);
+  return value;
+}
+
 export function git(cwd: string, ...args: string[]): SpawnSyncReturns<Buffer> {
+  if (mutatesLayout(args)) clearGitIdentityCache();
   return spawnSync(
     'git',
     ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'gc.auto=0', '-C', cwd, ...args],
@@ -68,10 +111,18 @@ export function output(path: string, ...args: string[]): string {
 }
 
 export async function commonDir(path: string): Promise<string> {
-  return realpath(output(path, 'rev-parse', '--path-format=absolute', '--git-common-dir'));
+  return realpath(revParse(path, '--path-format=absolute', '--git-common-dir'));
 }
 
 export function registrations(repo: string): WorktreeRegistration[] {
+  const cached = registrationCache?.repo === repo ? registrationCache.entries : undefined;
+  if (cached) return cached.map((entry) => ({ ...entry }));
+  const entries = parseRegistrations(repo);
+  registrationCache = { repo, entries };
+  return entries.map((entry) => ({ ...entry }));
+}
+
+function parseRegistrations(repo: string): WorktreeRegistration[] {
   return output(repo, 'worktree', 'list', '--porcelain', '-z')
     .split('\0\0')
     .filter(Boolean)
@@ -116,18 +167,15 @@ function changes(path: string): WorktreeRow['changes'] {
 }
 
 export async function checkoutGitDir(path: string, common: string, primary: boolean, bare: boolean): Promise<string> {
-  const gitDir = await realpath(output(path, 'rev-parse', '--absolute-git-dir'));
-  if ((await commonDir(path)) !== common || (!bare && output(path, 'rev-parse', '--show-toplevel') !== path)) {
+  const gitDir = await realpath(revParse(path, '--absolute-git-dir'));
+  if ((await commonDir(path)) !== common || (!bare && revParse(path, '--show-toplevel') !== path)) {
     throw new Error('Worktree checkout mismatch');
   }
   if (primary) {
     if (gitDir !== common) throw new Error('Primary Git directory mismatch');
   } else {
     const marker = join(path, '.git');
-    if (
-      dirname(gitDir) !== join(common, 'worktrees') ||
-      (await realpath(output(path, 'rev-parse', '--resolve-git-dir', marker))) !== gitDir
-    ) {
+    if (dirname(gitDir) !== join(common, 'worktrees') || (await realpath(revParse(path, '--resolve-git-dir', marker))) !== gitDir) {
       throw new Error('Linked Git directory mismatch');
     }
     const reverse = join(gitDir, 'gitdir');
@@ -237,6 +285,7 @@ async function candidates(workspace: string | undefined): Promise<string[]> {
 }
 
 export async function auditWorktrees(workspace?: string): Promise<WorktreeRow[]> {
+  clearGitIdentityCache();
   const rows: WorktreeRow[] = [],
     seen = new Set<string>();
   for (const repo of await candidates(workspace)) {
@@ -255,6 +304,7 @@ export async function auditWorktrees(workspace?: string): Promise<WorktreeRow[]>
 }
 
 export async function worktreeCommand([command, ...args]: string[]): Promise<void> {
+  clearGitIdentityCache();
   if (!command || ['--help', '-h'].includes(command) || (command === 'audit' && args.length === 1 && ['--help', '-h'].includes(args[0]))) {
     console.log(usage);
     return;
