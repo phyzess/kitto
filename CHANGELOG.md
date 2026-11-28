@@ -1,6 +1,6 @@
 # Kitto
 
-## Unreleased
+## 0.6.0
 
 - Skills: add the read-only `gh-doctor` skill (`skills/gh-doctor/SKILL.md` and `skills/gh-doctor/scripts/gh-doctor.ts`) with offline Vitest coverage (`tests/gh-doctor.test.ts`) to diagnose `gh` CLI token types (`gho_` / `ghp_` / `github_pat_`), `GH_TOKEN`/`GITHUB_TOKEN` env overrides, Checks API access (`checks=read`), and User/Organization Projects v2 access across machines and harnesses without printing tokens or mutating auth state.
 - Worktree: memoize the read-only Git identity lookups (`rev-parse` for the common directory, the absolute Git directory, the toplevel and the marker, plus `worktree list`) for the lifetime of one command, and drop the cache whenever a Git call can change the repository layout (`worktree` other than `list`, a `config` write, `symbolic-ref` writes, or anything not on the read-only allowlist). One lifecycle test drops from 232 to 161 Git processes, and the five worktree files from 302.6 s to 238.0 s wall clock on one machine. `clearGitIdentityCache()` also runs at command entry so a long-lived process cannot serve a stale view.

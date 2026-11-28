@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "kitto",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Maintain personal agent configuration on request"
 }
